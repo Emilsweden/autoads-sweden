@@ -946,6 +946,12 @@
       </div>
 
       <form id="signupForm" novalidate>
+<input type="hidden" name="_subject" value="Ny anmalan Autoads Sweden" />
+<input type="hidden" id="replyto_field" name="_replyto" value="" />
+        <input type="hidden" name="_subject" value="Ny anmu00e4lan u2014 Autoads Sweden" />
+        <input type="hidden" id="replyto_field" name="_replyto" value="" />
+        <input type="hidden" name="_subject" value="Ny anmu00e4lan u2014 Autoads Sweden" />
+        <input type="hidden" id="replyto_field" name="_replyto" value="" />
         <div class="form-row">
           <div class="field-group">
             <label for="company">Företagsnamn <span class="req">*</span></label>
@@ -1108,6 +1114,15 @@
       });
 
       if (!valid) return;
+      document.getElementById('replyto_field').value = document.getElementById('email').value;
+      const formData = new FormData(form);
+      fetch('https://formspree.io/f/xrerpyrr', {
+        method: 'POST', body: formData, headers: { 'Accept': 'application/json' }
+      }).then(r => {
+        if (r.ok) { form.style.display = 'none'; successBox.classList.add('show'); successBox.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+        else { alert('Fel! Ring 070-093 77 08'); }
+      }).catch(() => { alert('Fel! Ring 070-093 77 08'); });
+      return;
 
       // Success
       form.style.display = 'none';
