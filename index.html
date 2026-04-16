@@ -1114,15 +1114,9 @@
       });
 
       if (!valid) return;
-      document.getElementById('replyto_field').value = document.getElementById('email').value;
-      const formData = new FormData(form);
-      fetch('https://formspree.io/f/xrerpyrr', {
-        method: 'POST', body: formData, headers: { 'Accept': 'application/json' }
-      }).then(r => {
-        if (r.ok) { form.style.display = 'none'; successBox.classList.add('show'); successBox.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
-        else { alert('Fel! Ring 070-093 77 08'); }
-      }).catch(() => { alert('Fel! Ring 070-093 77 08'); });
-      return;
+      form.action = 'https://formspree.io/f/xrerpyrr';
+      form.method = 'POST';
+      form.submit();
 
       // Success
       form.style.display = 'none';
