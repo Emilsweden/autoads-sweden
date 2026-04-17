@@ -1108,14 +1108,37 @@
       });
 
       if (!valid) return;
-      form.action = 'https://formspree.io/f/xrerpyrr';
-      form.method = 'POST';
-      form.submit();
 
-      // Success
-      form.style.display = 'none';
-      successBox.classList.add('show');
-      successBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const submitBtn = form.querySelector('.btn-submit');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Skickar…';
+
+      const payload = {
+        company: document.getElementById('company').value.trim(),
+        contact: document.getElementById('contact').value.trim(),
+        phone:   document.getElementById('phone').value.trim(),
+        email:   document.getElementById('email').value.trim(),
+        city:    document.getElementById('city').value.trim(),
+        package: document.getElementById('package').value,
+        message: document.getElementById('message').value.trim(),
+      };
+
+      fetch('https://autoads-sms-worker.emilgrigoryan29.workers.dev', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      .then(function(res) { return res.json(); })
+      .then(function() {
+        form.style.display = 'none';
+        successBox.classList.add('show');
+        successBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      })
+      .catch(function() {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Skicka anmälan';
+        alert('Något gick fel. Försök igen eller kontakta oss direkt.');
+      });
     });
 
     // Clear errors on input
