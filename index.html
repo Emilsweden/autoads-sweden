@@ -87,6 +87,23 @@
     }
     .logo span { color: var(--gold); }
 
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+    }
+    .nav-link {
+      font-size: 0.8rem;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      text-decoration: none;
+      white-space: nowrap;
+      transition: color 0.3s ease;
+    }
+    .nav-link:hover { color: var(--gold); }
+
     .nav-cta {
       font-size: 0.8rem;
       font-weight: 500;
@@ -756,6 +773,15 @@
       letter-spacing: 0.12em;
       text-transform: uppercase;
     }
+    .footer-link {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      text-decoration: none;
+      transition: color 0.3s ease;
+    }
+    .footer-link:hover { color: var(--gold); }
 
     /* ── RESPONSIVE ── */
     @media (max-width: 900px) {
@@ -770,6 +796,12 @@
       section { padding: 80px 20px; }
       .form-container { padding: 40px 24px; }
       .form-row { grid-template-columns: 1fr; }
+      /* På mobil får menyns högersida stapla, precis som logotypen gör. */
+      nav { padding: 18px 16px; }
+      nav.scrolled { padding: 12px 16px; }
+      .nav-right { flex-direction: column; align-items: flex-end; gap: 9px; }
+      .nav-link { font-size: 0.7rem; letter-spacing: 0.08em; }
+      .nav-cta { font-size: 0.7rem; letter-spacing: 0.08em; padding: 9px 14px; white-space: nowrap; }
       footer { flex-direction: column; text-align: center; padding: 24px; }
       .trust-item { padding: 4px 16px; }
       .trust-dot { display: none; }
@@ -785,7 +817,10 @@
   <!-- NAVIGATION -->
   <nav id="navbar">
     <a href="#hero" class="logo">Autoads <span>Sweden</span></a>
-    <a href="#signup" class="nav-cta">Anmäl ditt företag</a>
+    <div class="nav-right">
+      <a href="/falt/" class="nav-link" rel="nofollow">Fältsystem</a>
+      <a href="#signup" class="nav-cta">Anmäl ditt företag</a>
+    </div>
   </nav>
 
   <!-- HERO -->
@@ -1035,6 +1070,7 @@
   <!-- FOOTER -->
   <footer>
     <div class="footer-copy">© 2025 Autoads Sweden</div>
+    <a class="footer-link" href="/falt/" rel="nofollow">Fältsystem — logga in</a>
     <div class="footer-right">Byggd för företag</div>
   </footer>
 
