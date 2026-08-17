@@ -756,6 +756,15 @@
       letter-spacing: 0.12em;
       text-transform: uppercase;
     }
+    .footer-link {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      text-decoration: none;
+      transition: color 0.3s ease;
+    }
+    .footer-link:hover { color: var(--gold); }
 
     /* ── RESPONSIVE ── */
     @media (max-width: 900px) {
@@ -1035,6 +1044,7 @@
   <!-- FOOTER -->
   <footer>
     <div class="footer-copy">© 2025 Autoads Sweden</div>
+    <a class="footer-link" href="/falt/" rel="nofollow">Fältsystem — logga in</a>
     <div class="footer-right">Byggd för företag</div>
   </footer>
 
