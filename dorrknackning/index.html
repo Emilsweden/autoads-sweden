@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0d0d0d" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Dörrknackning — Autoads Sweden</title>
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="icon.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+<meta name="apple-mobile-web-app-title" content="Dörrknackning" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --gold: #c9a84c;
+    --gold-light: #e2c47a;
+    --gold-dim: rgba(201, 168, 76, 0.14);
+    --bg: #0d0d0d;
+    --bg-2: #141414;
+    --bg-card: #171717;
+    --bg-input: #1d1d1d;
+    --text: #f0ede8;
+    --text-muted: #8a8580;
+    --text-dim: #5a5650;
+    --border: rgba(201, 168, 76, 0.2);
+    --border-subtle: rgba(255,255,255,0.07);
+    --green: #4caf7d;
+    --green-dim: rgba(76, 175, 125, 0.14);
+    --amber: #d99b3c;
+    --amber-dim: rgba(217, 155, 60, 0.14);
+    --red: #d9564c;
+    --red-dim: rgba(217, 86, 76, 0.14);
+    --blue: #5b8fd6;
+    --blue-dim: rgba(91, 143, 214, 0.14);
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior-y: none;
+    padding-bottom: calc(96px + var(--safe-bottom));
+  }
+
+  button, input, select, textarea { font-family: inherit; font-size: 16px; color: inherit; }
+  button { cursor: pointer; border: none; background: none; }
+
+  /* ── HEADER ── */
+  header {
+    position: sticky; top: 0; z-index: 40;
+    background: rgba(13,13,13,0.94);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border-subtle);
+    padding: calc(14px + var(--safe-top)) 16px 0;
+  }
+  .head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .brand { display: flex; align-items: baseline; gap: 8px; }
+  .brand h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+  .brand span { font-size: 11px; color: var(--gold); letter-spacing: 0.12em; text-transform: uppercase; }
+  .icon-btn {
+    width: 38px; height: 38px; border-radius: 10px;
+    background: var(--bg-card); border: 1px solid var(--border-subtle);
+    display: grid; place-items: center; color: var(--text-muted);
+  }
+  .icon-btn:active { background: var(--bg-input); }
+
+  /* ── STATS ── */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
+  .stat {
+    background: var(--bg-card); border: 1px solid var(--border-subtle);
+    border-radius: 10px; padding: 8px 6px; text-align: center;
+  }
+  .stat b { display: block; font-size: 18px; font-weight: 600; line-height: 1.2; }
+  .stat small { font-size: 9.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .stat.gold b { color: var(--gold); }
+  .stat.amber b { color: var(--amber); }
+
+  /* ── TABS ── */
+  .tabs {
+    display: flex; gap: 6px; margin-top: 14px;
+    overflow-x: auto; scrollbar-width: none; padding-bottom: 12px;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    flex: 0 0 auto; padding: 8px 14px; border-radius: 999px;
+    background: var(--bg-card); border: 1px solid var(--border-subtle);
+    color: var(--text-muted); font-size: 13.5px; font-weight: 500;
+    display: flex; align-items: center; gap: 6px; white-space: nowrap;
+  }
+  .tab.active { background: var(--gold); border-color: var(--gold); color: #0d0d0d; font-weight: 600; }
+  .tab .cnt {
+    font-size: 11px; padding: 1px 6px; border-radius: 999px;
+    background: rgba(255,255,255,0.08); color: var(--text-muted);
+  }
+  .tab.active .cnt { background: rgba(0,0,0,0.18); color: #0d0d0d; }
+
+  /* ── SEARCH ── */
+  .search-wrap { padding: 14px 16px 4px; }
+  .search {
+    width: 100%; padding: 11px 14px; border-radius: 10px;
+    background: var(--bg-input); border: 1px solid var(--border-subtle);
+    color: var(--text); font-size: 15px;
+  }
+  .search::placeholder { color: var(--text-dim); }
+  .search:focus { outline: none; border-color: var(--border); }
+
+  /* ── LIST ── */
+  main { padding: 10px 16px 0; }
+  .day-label {
+    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-dim); margin: 18px 2px 8px; font-weight: 600;
+  }
+  .day-label:first-child { margin-top: 6px; }
+  .day-label.due { color: var(--amber); }
+
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border-subtle);
+    border-radius: 14px; padding: 14px; margin-bottom: 10px;
+    border-left: 3px solid var(--border-subtle);
+  }
+  .card.s-bokad { border-left-color: var(--green); }
+  .card.s-ejsvar { border-left-color: var(--amber); }
+  .card.s-fundera { border-left-color: var(--blue); }
+  .card.s-nej { border-left-color: var(--red); }
+  .card.done { opacity: 0.5; }
+
+  .card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .addr { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
+  .name { font-size: 14px; color: var(--text-muted); margin-top: 2px; }
+  .badge {
+    flex: 0 0 auto; font-size: 10.5px; font-weight: 600; padding: 4px 9px;
+    border-radius: 999px; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .b-bokad { background: var(--green-dim); color: var(--green); }
+  .b-ejsvar { background: var(--amber-dim); color: var(--amber); }
+  .b-fundera { background: var(--blue-dim); color: var(--blue); }
+  .b-nej { background: var(--red-dim); color: var(--red); }
+
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 10px; font-size: 13.5px; color: var(--text-muted); }
+  .meta div { display: flex; align-items: center; gap: 5px; }
+  .meta svg { flex: 0 0 auto; opacity: 0.7; }
+  .meta .hot { color: var(--amber); font-weight: 600; }
+  .note {
+    margin-top: 10px; padding: 9px 11px; border-radius: 8px;
+    background: rgba(255,255,255,0.03); font-size: 13.5px; color: var(--text-muted);
+    white-space: pre-wrap; word-break: break-word;
+  }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+  .act {
+    padding: 7px 11px; border-radius: 8px; font-size: 13px; font-weight: 500;
+    background: var(--bg-input); border: 1px solid var(--border-subtle); color: var(--text-muted);
+    display: inline-flex; align-items: center; gap: 5px; text-decoration: none;
+  }
+  .act:active { background: #262626; }
+  .act.primary { background: var(--gold-dim); border-color: var(--border); color: var(--gold-light); }
+  .act.danger { color: var(--red); }
+
+  .empty { text-align: center; padding: 60px 24px; color: var(--text-dim); }
+  .empty svg { opacity: 0.35; margin-bottom: 14px; }
+  .empty p { font-size: 14.5px; line-height: 1.6; }
+
+  /* ── FAB ── */
+  .fab {
+    position: fixed; z-index: 45;
+    left: 16px; right: 16px; bottom: calc(16px + var(--safe-bottom));
+    height: 56px; border-radius: 14px;
+    background: var(--gold); color: #0d0d0d;
+    font-size: 16px; font-weight: 600; letter-spacing: -0.01em;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.55);
+  }
+  .fab:active { background: var(--gold-light); }
+
+  /* ── SHEET / MODAL ── */
+  .overlay {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(0,0,0,0.65); backdrop-filter: blur(3px);
+    display: none; align-items: flex-end; justify-content: center;
+  }
+  .overlay.open { display: flex; }
+  .sheet {
+    width: 100%; max-width: 560px; max-height: 92vh; overflow-y: auto;
+    background: var(--bg-2); border: 1px solid var(--border-subtle); border-bottom: none;
+    border-radius: 20px 20px 0 0;
+    padding: 8px 16px calc(20px + var(--safe-bottom));
+    animation: up 0.22s cubic-bezier(0.16,1,0.3,1);
+  }
+  @keyframes up { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .grabber { width: 38px; height: 4px; border-radius: 2px; background: #333; margin: 6px auto 14px; }
+  .sheet h2 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+  .sheet .sub { font-size: 13px; color: var(--text-dim); margin-bottom: 18px; }
+
+  .field { margin-bottom: 14px; }
+  .field label {
+    display: block; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-dim); font-weight: 600; margin-bottom: 6px;
+  }
+  .field input, .field textarea, .field select {
+    width: 100%; padding: 12px 13px; border-radius: 10px;
+    background: var(--bg-input); border: 1px solid var(--border-subtle); color: var(--text);
+  }
+  .field input:focus, .field textarea:focus, .field select:focus { outline: none; border-color: var(--gold); }
+  .field textarea { resize: vertical; min-height: 74px; line-height: 1.5; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .seg button {
+    padding: 12px 8px; border-radius: 10px; font-size: 13.5px; font-weight: 600;
+    background: var(--bg-input); border: 1px solid var(--border-subtle); color: var(--text-muted);
+    text-align: center; line-height: 1.3;
+  }
+  .seg button small { display: block; font-size: 10.5px; font-weight: 400; color: var(--text-dim); margin-top: 2px; }
+  .seg button[aria-pressed="true"] { background: var(--gold-dim); border-color: var(--gold); color: var(--gold-light); }
+  .seg button[aria-pressed="true"] small { color: var(--gold); opacity: 0.8; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
+  .chip {
+    padding: 7px 11px; border-radius: 999px; font-size: 12.5px;
+    background: var(--bg-input); border: 1px solid var(--border-subtle); color: var(--text-muted);
+  }
+  .chip:active { border-color: var(--gold); color: var(--gold-light); }
+
+  .sheet-actions { display: flex; gap: 10px; margin-top: 20px; }
+  .btn {
+    flex: 1; height: 50px; border-radius: 12px; font-size: 15.5px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+  }
+  .btn-primary { background: var(--gold); color: #0d0d0d; }
+  .btn-ghost { background: var(--bg-input); border: 1px solid var(--border-subtle); color: var(--text-muted); flex: 0 0 92px; }
+
+  .menu-item {
+    width: 100%; text-align: left; padding: 15px 4px; font-size: 15px;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex; align-items: center; gap: 12px; color: var(--text);
+  }
+  .menu-item:last-of-type { border-bottom: none; }
+  .menu-item svg { color: var(--gold); opacity: 0.85; flex: 0 0 auto; }
+  .menu-item small { display: block; font-size: 12px; color: var(--text-dim); font-weight: 400; }
+  .menu-item.danger, .menu-item.danger svg { color: var(--red); }
+
+  /* ── TOAST ── */
+  .toast {
+    position: fixed; z-index: 60; left: 50%; transform: translateX(-50%);
+    bottom: calc(84px + var(--safe-bottom));
+    background: #262626; border: 1px solid var(--border);
+    color: var(--text); padding: 11px 18px; border-radius: 999px;
+    font-size: 14px; font-weight: 500; box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+    opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s;
+    max-width: 90vw; text-align: center;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(-6px); }
+
+  .err { color: var(--red); font-size: 12.5px; margin-top: 6px; display: none; }
+  .err.show { display: block; }
+
+  .hint {
+    display: none; margin-top: 8px; padding: 8px 11px; border-radius: 8px;
+    background: var(--gold-dim); border: 1px solid var(--border);
+    color: var(--gold-light); font-size: 12.5px; line-height: 1.45;
+  }
+  .hint.show { display: block; }
+
+  @media (min-width: 620px) {
+    header, .search-wrap, main { max-width: 620px; margin-left: auto; margin-right: auto; }
+    .fab { left: 50%; transform: translateX(-50%); width: 588px; right: auto; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="head-row">
+    <div class="brand">
+      <h1>Dörrknackning</h1>
+      <span>Autoads</span>
+    </div>
+    <button class="icon-btn" id="menuBtn" aria-label="Meny">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M4 6h16M4 12h16M4 18h16"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="stats">
+    <div class="stat gold"><b id="stBokade">0</b><small>Bokade</small></div>
+    <div class="stat amber"><b id="stAter">0</b><small>Återk.</small></div>
+    <div class="stat"><b id="stIdag">0</b><small>Idag</small></div>
+    <div class="stat"><b id="stKonv">0%</b><small>Träff</small></div>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="tab active" data-tab="idag">Idag <span class="cnt" id="cIdag">0</span></button>
+    <button class="tab" data-tab="bokningar">Bokningar <span class="cnt" id="cBok">0</span></button>
+    <button class="tab" data-tab="aterkoppling">Återkoppling <span class="cnt" id="cAter">0</span></button>
+    <button class="tab" data-tab="alla">Alla <span class="cnt" id="cAlla">0</span></button>
+  </div>
+</header>
+
+<div class="search-wrap">
+  <input class="search" id="search" type="search" placeholder="Sök adress, namn eller telefon…" autocomplete="off" />
+</div>
+
+<main id="list"></main>
+
+<button class="fab" id="addBtn">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+    <path d="M12 5v14M5 12h14"/>
+  </svg>
+  Ny registrering
+</button>
+
+<!-- FORMULÄR -->
+<div class="overlay" id="formOverlay">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <div class="grabber"></div>
+    <h2 id="formTitle">Ny registrering</h2>
+    <p class="sub" id="formSub">Registrera resultatet av dörrknackningen.</p>
+
+    <div class="field">
+      <label>Utfall</label>
+      <div class="seg" id="segStatus">
+        <button type="button" data-status="bokad" aria-pressed="true">Bokad<small>Besiktning bokad</small></button>
+        <button type="button" data-status="ejsvar" aria-pressed="false">Ej svar<small>Återkoppling</small></button>
+        <button type="button" data-status="fundera" aria-pressed="false">Ska tänka<small>Återkoppling</small></button>
+        <button type="button" data-status="nej" aria-pressed="false">Ej intresse<small>Avslutad</small></button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="fAdress">Adress <span style="color:var(--red)">*</span></label>
+      <input id="fAdress" type="text" placeholder="Storgatan 12, lgh 1102" autocomplete="street-address" enterkeyhint="next" />
+      <div class="err" id="errAdress">Adress måste fyllas i.</div>
+      <div class="hint" id="histHint"></div>
+    </div>
+
+    <div class="row2">
+      <div class="field">
+        <label for="fNamn">Namn</label>
+        <input id="fNamn" type="text" placeholder="Anna Andersson" autocomplete="name" />
+      </div>
+      <div class="field">
+        <label for="fTel">Telefon</label>
+        <input id="fTel" type="tel" placeholder="070-123 45 67" autocomplete="tel" inputmode="tel" />
+      </div>
+    </div>
+
+    <div id="tidBlock">
+      <div class="row2">
+        <div class="field" style="margin-bottom:6px">
+          <label id="labDatum" for="fDatum">Datum</label>
+          <input id="fDatum" type="date" />
+        </div>
+        <div class="field" style="margin-bottom:6px">
+          <label for="fTid">Tid</label>
+          <input id="fTid" type="time" step="900" />
+        </div>
+      </div>
+      <div class="chips" id="dateChips">
+        <button type="button" class="chip" data-days="0">Idag</button>
+        <button type="button" class="chip" data-days="1">Imorgon</button>
+        <button type="button" class="chip" data-days="2">Om 2 dgr</button>
+        <button type="button" class="chip" data-days="7">Om 1 vecka</button>
+      </div>
+      <div class="err" id="errDatum" style="margin-bottom:12px">Välj datum för bokningen.</div>
+    </div>
+
+    <div class="field" style="margin-top:14px">
+      <label for="fNot">Anteckning</label>
+      <textarea id="fNot" placeholder="T.ex. bil: Volvo V70, besiktning går ut i mars. Vill bli uppringd efter kl 17."></textarea>
+    </div>
+
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" id="cancelBtn">Avbryt</button>
+      <button class="btn btn-primary" id="saveBtn">Spara</button>
+    </div>
+  </div>
+</div>
+
+<!-- MENY -->
+<div class="overlay" id="menuOverlay">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <div class="grabber"></div>
+    <h2>Meny</h2>
+    <p class="sub">Data sparas lokalt i den här telefonen/webbläsaren.</p>
+
+    <button class="menu-item" id="expCsv">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+      <span>Exportera CSV<small>Öppna i Excel eller Google Kalkylark</small></span>
+    </button>
+    <button class="menu-item" id="expJson">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21V8a2 2 0 0 0-2-2h-6l-2-3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2z"/></svg>
+      <span>Säkerhetskopiera<small>Ladda ner all data som fil</small></span>
+    </button>
+    <button class="menu-item" id="impJson">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+      <span>Återställ från fil<small>Läs in en säkerhetskopia</small></span>
+    </button>
+    <button class="menu-item danger" id="wipe">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+      <span>Rensa all data<small>Går inte att ångra</small></span>
+    </button>
+
+    <div class="sheet-actions">
+      <button class="btn btn-primary" id="menuClose">Stäng</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept=".json,application/json" hidden />
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var KEY = 'autoads_dorrknack_v1';
+  var STATUS = {
+    bokad:   { label: 'Bokad',       cls: 'bokad'   },
+    ejsvar:  { label: 'Ej svar',     cls: 'ejsvar'  },
+    fundera: { label: 'Ska tänka',   cls: 'fundera' },
+    nej:     { label: 'Ej intresse', cls: 'nej'     }
+  };
+  var FOLLOWUP = ['ejsvar', 'fundera'];
+
+  var db = [];
+  var tab = 'idag';
+  var query = '';
+  var editId = null;
+  var formStatus = 'bokad';
+
+  /* ── LAGRING ── */
+  function load() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      db = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(db)) db = [];
+    } catch (e) { db = []; }
+  }
+  function save() {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(db));
+    } catch (e) {
+      toast('Kunde inte spara – lagringen är full.');
+    }
+  }
+
+  /* ── HJÄLPARE ── */
+  function $(id) { return document.getElementById(id); }
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function iso(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function today() { return iso(new Date()); }
+  function plusDays(n) { var d = new Date(); d.setDate(d.getDate() + n); return iso(d); }
+
+  function prettyDate(s) {
+    if (!s) return '';
+    if (s === today()) return 'Idag';
+    if (s === plusDays(1)) return 'Imorgon';
+    if (s === plusDays(-1)) return 'Igår';
+    var p = s.split('-');
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    if (isNaN(d)) return s;
+    var days = ['sön', 'mån', 'tis', 'ons', 'tors', 'fre', 'lör'];
+    var mon = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+    return days[d.getDay()] + ' ' + d.getDate() + ' ' + mon[d.getMonth()];
+  }
+
+  function toast(msg) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () { t.classList.remove('show'); }, 2600);
+  }
+
+  function isFollowup(e) { return FOLLOWUP.indexOf(e.status) !== -1 && !e.klar; }
+  function isBooking(e) { return e.status === 'bokad' && !e.klar; }
+  function isDue(e) { return isFollowup(e) && e.datum && e.datum <= today(); }
+
+  /* ── URVAL ── */
+  function filtered() {
+    var t = today();
+    var out = db.filter(function (e) {
+      if (tab === 'idag')         return (isBooking(e) && e.datum === t) || isDue(e);
+      if (tab === 'bokningar')    return isBooking(e);
+      if (tab === 'aterkoppling') return isFollowup(e);
+      return true;
+    });
+
+    if (query) {
+      var q = query.toLowerCase();
+      out = out.filter(function (e) {
+        return ((e.adress || '') + ' ' + (e.namn || '') + ' ' + (e.telefon || '') + ' ' + (e.not || ''))
+          .toLowerCase().indexOf(q) !== -1;
+      });
+    }
+
+    out.sort(function (a, b) {
+      if (!!a.klar !== !!b.klar) return a.klar ? 1 : -1;
+      var ad = a.datum || '9999-99-99', bd = b.datum || '9999-99-99';
+      if (ad !== bd) return ad < bd ? -1 : 1;
+      var at = a.tid || '99:99', bt = b.tid || '99:99';
+      if (at !== bt) return at < bt ? -1 : 1;
+      return (b.skapad || 0) - (a.skapad || 0);
+    });
+    return out;
+  }
+
+  /* ── RENDERING ── */
+  function render() {
+    var t = today();
+    var bokade = db.filter(isBooking).length;
+    var ater = db.filter(isFollowup).length;
+    var idag = db.filter(function (e) { return (isBooking(e) && e.datum === t) || isDue(e); }).length;
+    var konv = db.length ? Math.round(db.filter(function (e) { return e.status === 'bokad'; }).length / db.length * 100) : 0;
+
+    $('stBokade').textContent = bokade;
+    $('stAter').textContent = ater;
+    $('stIdag').textContent = idag;
+    $('stKonv').textContent = konv + '%';
+    $('cIdag').textContent = idag;
+    $('cBok').textContent = bokade;
+    $('cAter').textContent = ater;
+    $('cAlla').textContent = db.length;
+
+    var items = filtered();
+    var list = $('list');
+
+    if (!items.length) {
+      list.innerHTML = '<div class="empty">' +
+        '<svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M3 21h18M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16M15 12h.01"/></svg>' +
+        '<p>' + esc(emptyText()) + '</p></div>';
+      return;
+    }
+
+    var html = '';
+    var lastGroup = null;
+    items.forEach(function (e) {
+      var g = groupOf(e);
+      if (g !== lastGroup) {
+        html += '<div class="day-label' + (g === 'Att göra nu' ? ' due' : '') + '">' + esc(g) + '</div>';
+        lastGroup = g;
+      }
+      html += card(e);
+    });
+    list.innerHTML = html;
+  }
+
+  function emptyText() {
+    if (query) return 'Inga träffar på "' + query + '".';
+    if (tab === 'idag') return 'Inget inbokat idag och inga återkopplingar som förfallit.\nTryck på "Ny registrering" när du knackat en dörr.';
+    if (tab === 'bokningar') return 'Inga bokade besiktningar än.';
+    if (tab === 'aterkoppling') return 'Inga adresser att återkomma till.';
+    return 'Inga registreringar än.\nTryck på "Ny registrering" för att komma igång.';
+  }
+
+  function groupOf(e) {
+    if (e.klar) return 'Avklarat';
+    if (isDue(e)) return 'Att göra nu';
+    if (!e.datum) return 'Utan datum';
+    if (e.datum === today()) return 'Idag';
+    if (e.datum === plusDays(1)) return 'Imorgon';
+    if (e.datum < today()) return 'Passerat';
+    return prettyDate(e.datum);
+  }
+
+  function card(e) {
+    var st = STATUS[e.status] || STATUS.bokad;
+    var telClean = (e.telefon || '').replace(/[^\d+]/g, '');
+    var when = '';
+    if (e.datum) when = prettyDate(e.datum) + (e.tid ? ' kl ' + e.tid : '');
+
+    var h = '<div class="card s-' + st.cls + (e.klar ? ' done' : '') + '" data-id="' + e.id + '">';
+    h += '<div class="card-top"><div><div class="addr">' + esc(e.adress) + '</div>' +
+         (e.namn ? '<div class="name">' + esc(e.namn) + '</div>' : '') +
+         '</div><span class="badge b-' + st.cls + '">' + esc(e.klar ? 'Klar' : st.label) + '</span></div>';
+
+    h += '<div class="meta">';
+    if (when) {
+      h += '<div class="' + (isDue(e) ? 'hot' : '') + '">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>' +
+        esc((isFollowup(e) ? 'Återkoppla ' : '') + when) + '</div>';
+    }
+    if (e.telefon) {
+      h += '<div><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>' +
+        esc(e.telefon) + '</div>';
+    }
+    if (e.besok > 1) {
+      h += '<div><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 21h18M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"/></svg>' +
+        e.besok + ' besök</div>';
+    }
+    h += '</div>';
+
+    if (e.not) h += '<div class="note">' + esc(e.not) + '</div>';
+
+    h += '<div class="actions">';
+    if (telClean) h += '<a class="act" href="tel:' + esc(telClean) + '">Ring</a>';
+    if (e.adress) h += '<a class="act" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(e.adress) + '">Karta</a>';
+    if (!e.klar && isFollowup(e)) h += '<button class="act primary" data-act="boka">Boka in</button>';
+    if (!e.klar && isBooking(e)) h += '<button class="act primary" data-act="ics">Kalender</button>';
+    if (!e.klar) h += '<button class="act" data-act="klar">Markera klar</button>';
+    else h += '<button class="act" data-act="oklar">Ångra klar</button>';
+    h += '<button class="act" data-act="edit">Ändra</button>';
+    h += '<button class="act danger" data-act="del">Ta bort</button>';
+    h += '</div></div>';
+    return h;
+  }
+
+  /* ── FORMULÄR ── */
+  function setStatus(s) {
+    formStatus = s;
+    Array.prototype.forEach.call($('segStatus').children, function (b) {
+      b.setAttribute('aria-pressed', b.dataset.status === s ? 'true' : 'false');
+    });
+    var lab = $('labDatum');
+    if (s === 'bokad') {
+      $('tidBlock').style.display = '';
+      lab.textContent = 'Datum för besiktning';
+    } else if (s === 'nej') {
+      $('tidBlock').style.display = 'none';
+    } else {
+      $('tidBlock').style.display = '';
+      lab.textContent = 'Återkoppla datum';
+    }
+  }
+
+  /* Visar om adressen redan är knackad tidigare. */
+  function updateHint() {
+    var hint = $('histHint');
+    var val = $('fAdress').value.trim().toLowerCase();
+    var prev = editId || !val ? null : db.filter(function (e) {
+      return !e.klar && (e.adress || '').toLowerCase().trim() === val;
+    })[0];
+
+    if (!prev) { hint.classList.remove('show'); hint.textContent = ''; return; }
+
+    var st = (STATUS[prev.status] || {}).label || prev.status;
+    var txt = 'Redan registrerad: ' + st.toLowerCase() +
+      (prev.besok > 1 ? ', ' + prev.besok + ' besök' : '') +
+      (prev.datum ? ' — ' + prettyDate(prev.datum) + (prev.tid ? ' kl ' + prev.tid : '') : '') +
+      '. Sparar du nu uppdateras den posten.';
+    hint.textContent = txt;
+    hint.classList.add('show');
+  }
+
+  function openForm(id) {
+    editId = id || null;
+    var e = id ? db.filter(function (x) { return x.id === id; })[0] : null;
+
+    $('formTitle').textContent = e ? 'Ändra registrering' : 'Ny registrering';
+    $('formSub').textContent = e ? 'Uppdatera uppgifterna för adressen.' : 'Registrera resultatet av dörrknackningen.';
+    $('fAdress').value = e ? (e.adress || '') : '';
+    $('fNamn').value = e ? (e.namn || '') : '';
+    $('fTel').value = e ? (e.telefon || '') : '';
+    $('fDatum').value = e ? (e.datum || '') : today();
+    $('fTid').value = e ? (e.tid || '') : '';
+    $('fNot').value = e ? (e.not || '') : '';
+    setStatus(e ? e.status : 'bokad');
+    $('errAdress').classList.remove('show');
+    $('errDatum').classList.remove('show');
+    updateHint();
+
+    $('formOverlay').classList.add('open');
+    if (!e) setTimeout(function () { $('fAdress').focus(); }, 120);
+  }
+
+  function closeForm() { $('formOverlay').classList.remove('open'); editId = null; }
+
+  function saveForm() {
+    var adress = $('fAdress').value.trim();
+    var datum = $('fDatum').value;
+    var ok = true;
+
+    $('errAdress').classList.toggle('show', !adress);
+    if (!adress) ok = false;
+
+    var needDate = formStatus === 'bokad';
+    $('errDatum').classList.toggle('show', needDate && !datum);
+    if (needDate && !datum) ok = false;
+    if (!ok) return;
+
+    var data = {
+      adress: adress,
+      namn: $('fNamn').value.trim(),
+      telefon: $('fTel').value.trim(),
+      status: formStatus,
+      datum: formStatus === 'nej' ? '' : datum,
+      tid: formStatus === 'nej' ? '' : $('fTid').value,
+      not: $('fNot').value.trim()
+    };
+
+    if (editId) {
+      db.forEach(function (e) {
+        if (e.id === editId) {
+          for (var k in data) e[k] = data[k];
+          e.klar = false;
+          e.uppdaterad = Date.now();
+        }
+      });
+      toast('Ändringen sparad');
+    } else {
+      /* Knackar man på samma adress igen uppdateras den befintliga posten
+         i stället för att skapa en dubblett – besöksräknaren tickar upp. */
+      var prev = db.filter(function (e) {
+        return !e.klar && (e.adress || '').toLowerCase().trim() === adress.toLowerCase();
+      })[0];
+
+      if (prev) {
+        prev.status = data.status;
+        prev.datum = data.datum;
+        prev.tid = data.tid;
+        prev.adress = data.adress;
+        if (data.namn) prev.namn = data.namn;
+        if (data.telefon) prev.telefon = data.telefon;
+        if (data.not) prev.not = prev.not ? prev.not + '\n— ' + prettyDate(today()) + ': ' + data.not : data.not;
+        prev.besok = (prev.besok || 1) + 1;
+        prev.uppdaterad = Date.now();
+        toast('Besök ' + prev.besok + ' på ' + prev.adress);
+      } else {
+        data.id = uid();
+        data.klar = false;
+        data.besok = 1;
+        data.skapad = Date.now();
+        data.uppdaterad = Date.now();
+        db.push(data);
+        toast(formStatus === 'bokad' ? 'Bokning registrerad ✓' :
+              formStatus === 'nej'   ? 'Registrerad' : 'Inlagd för återkoppling');
+      }
+    }
+
+    save();
+    closeForm();
+    render();
+  }
+
+  /* ── EXPORT ── */
+  function download(name, mime, text) {
+    var blob = new Blob([text], { type: mime });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+  }
+
+  function csv() {
+    var cols = ['Status', 'Adress', 'Namn', 'Telefon', 'Datum', 'Tid', 'Antal besök', 'Klar', 'Anteckning'];
+    var rows = [cols];
+    db.slice().sort(function (a, b) { return (a.datum || '') < (b.datum || '') ? -1 : 1; }).forEach(function (e) {
+      rows.push([
+        (STATUS[e.status] || {}).label || e.status,
+        e.adress || '', e.namn || '', e.telefon || '', e.datum || '', e.tid || '',
+        e.besok || 1, e.klar ? 'Ja' : 'Nej', e.not || ''
+      ]);
+    });
+    var body = rows.map(function (r) {
+      return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(';');
+    }).join('\r\n');
+    download('dorrknackning-' + today() + '.csv', 'text/csv;charset=utf-8', '﻿' + body);
+  }
+
+  function ics(e) {
+    if (!e.datum) { toast('Bokningen saknar datum'); return; }
+    var start = e.datum.replace(/-/g, '') + 'T' + (e.tid ? e.tid.replace(':', '') : '0900') + '00';
+    var endH = e.tid ? String(Math.min(23, parseInt(e.tid.slice(0, 2), 10) + 1)).padStart(2, '0') : '10';
+    var end = e.datum.replace(/-/g, '') + 'T' + endH + (e.tid ? e.tid.slice(3, 5) : '00') + '00';
+    var lines = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Autoads Sweden//Dorrknackning//SV',
+      'BEGIN:VEVENT',
+      'UID:' + e.id + '@autoads.se',
+      'DTSTART:' + start,
+      'DTEND:' + end,
+      'SUMMARY:Besiktning - ' + (e.namn || e.adress),
+      'LOCATION:' + (e.adress || ''),
+      'DESCRIPTION:' + [e.namn, e.telefon, e.not].filter(Boolean).join(' | ').replace(/\n/g, ' '),
+      'BEGIN:VALARM', 'TRIGGER:-PT60M', 'ACTION:DISPLAY', 'DESCRIPTION:Besiktning om 1 timme', 'END:VALARM',
+      'END:VEVENT', 'END:VCALENDAR'
+    ];
+    download('besiktning-' + (e.datum || '') + '.ics', 'text/calendar;charset=utf-8', lines.join('\r\n'));
+  }
+
+  /* ── HÄNDELSER ── */
+  $('addBtn').addEventListener('click', function () { openForm(null); });
+  $('cancelBtn').addEventListener('click', closeForm);
+  $('saveBtn').addEventListener('click', saveForm);
+
+  $('fAdress').addEventListener('input', function () {
+    $('errAdress').classList.remove('show');
+    updateHint();
+  });
+
+  $('segStatus').addEventListener('click', function (ev) {
+    var b = ev.target.closest('button[data-status]');
+    if (b) setStatus(b.dataset.status);
+  });
+
+  $('dateChips').addEventListener('click', function (ev) {
+    var b = ev.target.closest('button[data-days]');
+    if (b) { $('fDatum').value = plusDays(+b.dataset.days); $('errDatum').classList.remove('show'); }
+  });
+
+  $('tabs').addEventListener('click', function (ev) {
+    var b = ev.target.closest('.tab');
+    if (!b) return;
+    tab = b.dataset.tab;
+    Array.prototype.forEach.call($('tabs').children, function (x) { x.classList.toggle('active', x === b); });
+    render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  $('search').addEventListener('input', function (ev) { query = ev.target.value.trim(); render(); });
+
+  $('list').addEventListener('click', function (ev) {
+    var btn = ev.target.closest('button[data-act]');
+    if (!btn) return;
+    var id = btn.closest('.card').dataset.id;
+    var e = db.filter(function (x) { return x.id === id; })[0];
+    if (!e) return;
+    var act = btn.dataset.act;
+
+    if (act === 'edit') { openForm(id); return; }
+    if (act === 'boka') { openForm(id); setStatus('bokad'); return; }
+    if (act === 'ics')  { ics(e); return; }
+    if (act === 'klar') { e.klar = true; e.uppdaterad = Date.now(); toast('Markerad som klar'); }
+    if (act === 'oklar') { e.klar = false; e.uppdaterad = Date.now(); }
+    if (act === 'del') {
+      if (!confirm('Ta bort ' + (e.adress || 'registreringen') + '?')) return;
+      db = db.filter(function (x) { return x.id !== id; });
+      toast('Borttagen');
+    }
+    save(); render();
+  });
+
+  /* Meny */
+  $('menuBtn').addEventListener('click', function () { $('menuOverlay').classList.add('open'); });
+  $('menuClose').addEventListener('click', function () { $('menuOverlay').classList.remove('open'); });
+  $('expCsv').addEventListener('click', function () {
+    if (!db.length) { toast('Ingen data att exportera'); return; }
+    csv(); toast('CSV nedladdad');
+  });
+  $('expJson').addEventListener('click', function () {
+    download('dorrknackning-backup-' + today() + '.json', 'application/json', JSON.stringify(db, null, 2));
+    toast('Säkerhetskopia nedladdad');
+  });
+  $('impJson').addEventListener('click', function () { $('fileInput').click(); });
+  $('fileInput').addEventListener('change', function (ev) {
+    var f = ev.target.files[0];
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      try {
+        var data = JSON.parse(r.result);
+        if (!Array.isArray(data)) throw new Error('fel format');
+        var ids = {};
+        db.forEach(function (e) { ids[e.id] = true; });
+        var added = 0;
+        data.forEach(function (e) {
+          if (e && e.adress && !ids[e.id]) { db.push(e); ids[e.id] = true; added++; }
+        });
+        save(); render();
+        toast(added + ' registreringar inlästa');
+      } catch (err) { toast('Kunde inte läsa filen'); }
+      ev.target.value = '';
+    };
+    r.readAsText(f);
+  });
+  $('wipe').addEventListener('click', function () {
+    if (!confirm('Rensa ALL data? Detta går inte att ångra.\nExportera en säkerhetskopia först om du vill spara den.')) return;
+    db = []; save(); render();
+    $('menuOverlay').classList.remove('open');
+    toast('All data rensad');
+  });
+
+  /* Stäng sheets vid klick utanför */
+  ['formOverlay', 'menuOverlay'].forEach(function (idn) {
+    $(idn).addEventListener('click', function (ev) {
+      if (ev.target === this) this.classList.remove('open');
+    });
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') {
+      $('formOverlay').classList.remove('open');
+      $('menuOverlay').classList.remove('open');
+    }
+  });
+
+  /* ── START ── */
+  load();
+  render();
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function () {});
+    });
+  }
+})();
+</script>
+</body>
+</html>
