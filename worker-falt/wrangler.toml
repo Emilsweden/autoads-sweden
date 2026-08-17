@@ -1,0 +1,13 @@
+name = "autoads-falt"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# Skapas med:  npx wrangler d1 create autoads-falt
+# Klistra in database_id som kommandot skriver ut.
+[[d1_databases]]
+binding = "DB"
+database_name = "autoads-falt"
+database_id = "FYLL_I_DATABASE_ID_HAR"
+
+# Hemligheter sätts separat, inte här:
+#   npx wrangler secret put INSTALL_NYCKEL   (används en gång, för första admin)

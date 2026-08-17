@@ -1,0 +1,93 @@
+/** Anrop mot fältsystemets API, med kö för registreringar gjorda utan täckning. */
+
+const NYCKEL_BAS = 'falt_server';
+const NYCKEL_TOKEN = 'falt_token';
+const NYCKEL_KO = 'falt_ko';
+
+export function bas() {
+  return (localStorage.getItem(NYCKEL_BAS) || '').replace(/\/+$/, '');
+}
+export function sattBas(url) {
+  localStorage.setItem(NYCKEL_BAS, (url || '').trim().replace(/\/+$/, ''));
+}
+export function token() {
+  return localStorage.getItem(NYCKEL_TOKEN) || '';
+}
+export function sattToken(t) {
+  if (t) localStorage.setItem(NYCKEL_TOKEN, t);
+  else localStorage.removeItem(NYCKEL_TOKEN);
+}
+
+export class ApiFel extends Error {
+  constructor(meddelande, status, data) {
+    super(meddelande);
+    this.status = status;
+    this.data = data;
+  }
+}
+
+/** Skickar ett anrop. Kastar ApiFel vid fel; status 0 betyder att nätet inte gick att nå. */
+export async function anrop(namn, data = {}) {
+  if (!bas()) throw new ApiFel('Ingen serveradress angiven', 0);
+
+  let svar;
+  try {
+    svar = await fetch(bas() + '/api/' + namn, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token() ? { Authorization: 'Bearer ' + token() } : {}),
+      },
+      body: JSON.stringify(data),
+    });
+  } catch (e) {
+    throw new ApiFel('Ingen kontakt med servern', 0);
+  }
+
+  const kropp = await svar.json().catch(() => ({}));
+  if (!svar.ok || !kropp.ok) {
+    // Spärrad dörr svarar 409 med detaljer om det tidigare besöket.
+    let detaljer = null;
+    if (svar.status === 409) { try { detaljer = JSON.parse(kropp.fel); } catch (e) { /* vanligt fel */ } }
+    throw new ApiFel(detaljer ? 'Dörren är nyligen bearbetad' : (kropp.fel || 'Fel ' + svar.status), svar.status, detaljer);
+  }
+  return kropp;
+}
+
+/* ── Kö för dörrbesök registrerade utan täckning ── */
+
+export function ko() {
+  try { return JSON.parse(localStorage.getItem(NYCKEL_KO) || '[]'); } catch (e) { return []; }
+}
+function sparaKo(k) {
+  localStorage.setItem(NYCKEL_KO, JSON.stringify(k.slice(0, 500)));
+}
+export function laggIKo(data) {
+  const k = ko();
+  k.push({ ...data, ko_tid: Date.now() });
+  sparaKo(k);
+}
+
+/**
+ * Skickar upp köade dörrbesök. Returnerar antalet som gick igenom.
+ * Poster som servern avvisar med ett riktigt fel slängs, annars fastnar kön.
+ */
+export async function tommeKo() {
+  let k = ko();
+  if (!k.length || !bas() || !token()) return 0;
+  let skickade = 0;
+
+  while (k.length) {
+    const post = k[0];
+    try {
+      await anrop('handelse', { ...post, bekrafta: true });
+      skickade++;
+    } catch (e) {
+      if (e.status === 0) break;       // fortfarande utan täckning — behåll kön
+      if (e.status === 401) break;     // utloggad — försök igen efter inloggning
+    }
+    k = ko().slice(1);
+    sparaKo(k);
+  }
+  return skickade;
+}

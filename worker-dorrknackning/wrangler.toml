@@ -1,0 +1,13 @@
+name = "autoads-dorrknackning"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# Skapas med:  npx wrangler d1 create autoads-dorrknackning
+# Klistra in database_id som kommandot skriver ut.
+[[d1_databases]]
+binding = "DB"
+database_name = "autoads-dorrknackning"
+database_id = "FYLL_I_DATABASE_ID_HAR"
+
+# Teamnyckeln sätts som secret, inte här:
+#   npx wrangler secret put TEAM_KEY

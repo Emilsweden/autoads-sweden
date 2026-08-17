@@ -1,5 +1,5 @@
 /* Service worker för dörrknackningsappen — gör appen användbar utan täckning. */
-const CACHE = 'dorrknack-v1';
+const CACHE = 'dorrknack-v2';
 const SHELL = [
   './',
   './index.html',
