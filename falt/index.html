@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0d0d0d" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Autoads Fältsystem</title>
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="icon.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+<meta name="apple-mobile-web-app-title" content="Fältsystem" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="app.css" />
+</head>
+<body>
+
+<!-- ══ INLOGGNING ══ -->
+<div id="login" class="login">
+  <div class="login-box">
+    <div class="login-brand">
+      <h1>Fältsystem</h1>
+      <span>Autoads Sweden</span>
+    </div>
+    <p class="login-sub">Dörrknackning, områdeskontroll och bokning av takbesiktningar.</p>
+    <form id="loginForm">
+      <div class="field">
+        <label for="lEpost">E-post</label>
+        <input id="lEpost" type="email" autocomplete="username" required />
+      </div>
+      <div class="field">
+        <label for="lLosen">Lösenord</label>
+        <input id="lLosen" type="password" autocomplete="current-password" required />
+      </div>
+      <div class="err" id="lFel"></div>
+      <button class="btn btn-primary" type="submit" id="lKnapp">Logga in</button>
+    </form>
+  </div>
+</div>
+
+<!-- ══ APP ══ -->
+<div id="app" hidden>
+
+  <header id="topp">
+    <div class="topp-rad">
+      <div>
+        <h1 id="vyTitel">Karta</h1>
+        <p class="topp-sub" id="vySub">—</p>
+      </div>
+      <div class="topp-hoger">
+        <button class="pill" id="koPill" hidden><span class="dot"></span><span id="koTxt">0 väntar</span></button>
+        <button class="ikonknapp" id="profilKnapp" aria-label="Profil"><span id="initialer">–</span></button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── KARTA ── -->
+  <section class="vy" id="vy-karta">
+    <div class="kartverktyg">
+      <select id="omradeVal" class="valj"></select>
+      <button class="knapp-guld" id="nastaDorr">Nästa dörr</button>
+    </div>
+    <div id="karta"></div>
+    <div class="teckenforklaring" id="teckenforklaring"></div>
+  </section>
+
+  <!-- ── LISTA ── -->
+  <section class="vy" id="vy-lista" hidden>
+    <div class="flikar" id="listFlikar">
+      <button class="flik aktiv" data-lista="aterbesok">Återbesök</button>
+      <button class="flik" data-lista="ejbesokt">Ej besökta</button>
+      <button class="flik" data-lista="alla">Alla dörrar</button>
+    </div>
+    <input class="sok" id="sokDorr" type="search" placeholder="Sök adress…" />
+    <div id="listInnehall"></div>
+  </section>
+
+  <!-- ── BOKNINGAR ── -->
+  <section class="vy" id="vy-bokningar" hidden>
+    <div class="filterrad">
+      <input type="date" id="bokFran" class="valj" />
+      <input type="date" id="bokTill" class="valj" />
+      <select id="bokSaljare" class="valj"></select>
+    </div>
+    <div id="bokInnehall"></div>
+  </section>
+
+  <!-- ── DASHBOARD ── -->
+  <section class="vy" id="vy-dashboard" hidden>
+    <div class="filterrad">
+      <select id="dPeriod" class="valj">
+        <option value="idag">Idag</option>
+        <option value="igar">Igår</option>
+        <option value="vecka">Denna vecka</option>
+        <option value="forravecka">Förra veckan</option>
+        <option value="manad">Denna månad</option>
+        <option value="forramanad">Förra månaden</option>
+        <option value="allt">All time</option>
+        <option value="eget">Eget intervall…</option>
+      </select>
+      <select id="dOmrade" class="valj"></select>
+    </div>
+    <div class="filterrad" id="dEgetRad" hidden>
+      <input type="date" id="dFran" class="valj" />
+      <input type="date" id="dTill" class="valj" />
+    </div>
+    <div id="dashInnehall"></div>
+  </section>
+
+  <!-- ── ADMIN ── -->
+  <section class="vy" id="vy-admin" hidden>
+    <div class="flikar" id="adminFlikar">
+      <button class="flik aktiv" data-admin="omraden">Områden</button>
+      <button class="flik" data-admin="anvandare">Användare</button>
+      <button class="flik" data-admin="regler">Regler &amp; mål</button>
+    </div>
+    <div id="adminInnehall"></div>
+  </section>
+
+  <nav id="botten"></nav>
+</div>
+
+<!-- ══ DÖRRPANEL ══ -->
+<div class="overlay" id="dorrOverlay">
+  <div class="panel" id="dorrPanel" role="dialog" aria-modal="true"></div>
+</div>
+
+<!-- ══ ALLMÄN PANEL (profil, admin-formulär m.m.) ══ -->
+<div class="overlay" id="modalOverlay">
+  <div class="panel" id="modalPanel" role="dialog" aria-modal="true"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
