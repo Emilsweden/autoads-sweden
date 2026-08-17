@@ -67,6 +67,20 @@
   .brand { display: flex; align-items: baseline; gap: 8px; }
   .brand h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
   .brand span { font-size: 11px; color: var(--gold); letter-spacing: 0.12em; text-transform: uppercase; }
+
+  .sync-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; color: var(--text-dim); padding: 4px 9px 4px 8px;
+    border-radius: 999px; background: var(--bg-card); border: 1px solid var(--border-subtle);
+  }
+  .sync-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); flex: 0 0 auto; }
+  .sync-pill.on .dot { background: var(--green); }
+  .sync-pill.on { color: var(--green); }
+  .sync-pill.busy .dot { background: var(--gold); animation: pulse 1s ease-in-out infinite; }
+  .sync-pill.busy { color: var(--gold); }
+  .sync-pill.warn .dot { background: var(--amber); }
+  .sync-pill.warn { color: var(--amber); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
   .icon-btn {
     width: 38px; height: 38px; border-radius: 10px;
     background: var(--bg-card); border: 1px solid var(--border-subtle);
@@ -283,7 +297,7 @@
   <div class="head-row">
     <div class="brand">
       <h1>Dörrknackning</h1>
-      <span>Autoads</span>
+      <button class="sync-pill" id="syncPill" title="Synkstatus"><span class="dot"></span><span id="syncTxt">Lokal</span></button>
     </div>
     <button class="icon-btn" id="menuBtn" aria-label="Meny">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -392,8 +406,12 @@
   <div class="sheet" role="dialog" aria-modal="true">
     <div class="grabber"></div>
     <h2>Meny</h2>
-    <p class="sub">Data sparas lokalt i den här telefonen/webbläsaren.</p>
+    <p class="sub" id="menuSub">Data sparas lokalt i den här telefonen/webbläsaren.</p>
 
+    <button class="menu-item" id="openSync">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-7.8-4.5M3 12a9 9 0 0 1 9-9 9 9 0 0 1 7.8 4.5M21 3v4.5h-4.5M3 21v-4.5h4.5"/></svg>
+      <span>Delad lista<small id="syncSub">Av — bara den här telefonen</small></span>
+    </button>
     <button class="menu-item" id="expCsv">
       <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
       <span>Exportera CSV<small>Öppna i Excel eller Google Kalkylark</small></span>
@@ -417,6 +435,39 @@
   </div>
 </div>
 
+<!-- DELAD LISTA -->
+<div class="overlay" id="syncOverlay">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <div class="grabber"></div>
+    <h2>Delad lista</h2>
+    <p class="sub">Fyll i uppgifterna du fått så ser hela säljteamet samma bokningar. Lämnar du fälten tomma sparas allt bara i den här telefonen.</p>
+
+    <div class="field">
+      <label for="cUrl">Serveradress</label>
+      <input id="cUrl" type="url" placeholder="https://autoads-dorrknackning.workers.dev" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    </div>
+    <div class="field">
+      <label for="cKey">Teamnyckel</label>
+      <input id="cKey" type="password" placeholder="••••••••••••" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label for="cNamn">Ditt namn</label>
+      <input id="cNamn" type="text" placeholder="Emil" autocomplete="off" />
+    </div>
+
+    <div class="hint show" id="syncInfo" style="color:var(--text-muted);background:rgba(255,255,255,0.03);border-color:var(--border-subtle)"></div>
+
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" id="syncCancel">Stäng</button>
+      <button class="btn btn-primary" id="syncSave">Spara &amp; synka</button>
+    </div>
+    <button class="menu-item danger" id="syncOff" style="margin-top:10px">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      <span>Koppla från delad lista<small>Data ligger kvar i telefonen</small></span>
+    </button>
+  </div>
+</div>
+
 <input type="file" id="fileInput" accept=".json,application/json" hidden />
 <div class="toast" id="toast"></div>
 
@@ -425,6 +476,8 @@
   'use strict';
 
   var KEY = 'autoads_dorrknack_v1';
+  var KEY_CFG = 'autoads_dorrknack_cfg_v1';
+  var TOMBSTONE_DAGAR = 90;
   var STATUS = {
     bokad:   { label: 'Bokad',       cls: 'bokad'   },
     ejsvar:  { label: 'Ej svar',     cls: 'ejsvar'  },
@@ -434,6 +487,7 @@
   var FOLLOWUP = ['ejsvar', 'fundera'];
 
   var db = [];
+  var cfg = {};
   var tab = 'idag';
   var query = '';
   var editId = null;
@@ -446,13 +500,39 @@
       db = raw ? JSON.parse(raw) : [];
       if (!Array.isArray(db)) db = [];
     } catch (e) { db = []; }
+
+    try {
+      cfg = JSON.parse(localStorage.getItem(KEY_CFG) || '{}') || {};
+    } catch (e) { cfg = {}; }
+
+    // Städa bort gamla raderingar så listan inte växer i onödan.
+    var grans = Date.now() - TOMBSTONE_DAGAR * 86400000;
+    var innan = db.length;
+    db = db.filter(function (e) { return !(e.borttagen && (e.uppdaterad || 0) < grans); });
+    if (db.length !== innan) save();
   }
-  function save() {
+
+  function saveCfg() {
+    try { localStorage.setItem(KEY_CFG, JSON.stringify(cfg)); } catch (e) {}
+  }
+
+  /* Poster som inte är raderade – allt i gränssnittet utgår från den här. */
+  function levande() {
+    return db.filter(function (e) { return !e.borttagen; });
+  }
+  function skrivDb() {
     try {
       localStorage.setItem(KEY, JSON.stringify(db));
     } catch (e) {
       toast('Kunde inte spara – lagringen är full.');
     }
+  }
+
+  /* Sparar och skickar vidare till den delade listan om den är påslagen. */
+  function save() {
+    skrivDb();
+    synkaSnart();
+    visaSynk();
   }
 
   /* ── HJÄLPARE ── */
@@ -497,7 +577,7 @@
   /* ── URVAL ── */
   function filtered() {
     var t = today();
-    var out = db.filter(function (e) {
+    var out = levande().filter(function (e) {
       if (tab === 'idag')         return (isBooking(e) && e.datum === t) || isDue(e);
       if (tab === 'bokningar')    return isBooking(e);
       if (tab === 'aterkoppling') return isFollowup(e);
@@ -526,10 +606,11 @@
   /* ── RENDERING ── */
   function render() {
     var t = today();
-    var bokade = db.filter(isBooking).length;
-    var ater = db.filter(isFollowup).length;
-    var idag = db.filter(function (e) { return (isBooking(e) && e.datum === t) || isDue(e); }).length;
-    var konv = db.length ? Math.round(db.filter(function (e) { return e.status === 'bokad'; }).length / db.length * 100) : 0;
+    var alla = levande();
+    var bokade = alla.filter(isBooking).length;
+    var ater = alla.filter(isFollowup).length;
+    var idag = alla.filter(function (e) { return (isBooking(e) && e.datum === t) || isDue(e); }).length;
+    var konv = alla.length ? Math.round(alla.filter(function (e) { return e.status === 'bokad'; }).length / alla.length * 100) : 0;
 
     $('stBokade').textContent = bokade;
     $('stAter').textContent = ater;
@@ -538,7 +619,7 @@
     $('cIdag').textContent = idag;
     $('cBok').textContent = bokade;
     $('cAter').textContent = ater;
-    $('cAlla').textContent = db.length;
+    $('cAlla').textContent = levande().length;
 
     var items = filtered();
     var list = $('list');
@@ -603,6 +684,10 @@
       h += '<div><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>' +
         esc(e.telefon) + '</div>';
     }
+    if (e.saljare && delad()) {
+      h += '<div class="saljare"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' +
+        esc(e.saljare) + '</div>';
+    }
     if (e.besok > 1) {
       h += '<div><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 21h18M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"/></svg>' +
         e.besok + ' besök</div>';
@@ -646,7 +731,7 @@
   function updateHint() {
     var hint = $('histHint');
     var val = $('fAdress').value.trim().toLowerCase();
-    var prev = editId || !val ? null : db.filter(function (e) {
+    var prev = editId || !val ? null : levande().filter(function (e) {
       return !e.klar && (e.adress || '').toLowerCase().trim() === val;
     })[0];
 
@@ -712,14 +797,14 @@
         if (e.id === editId) {
           for (var k in data) e[k] = data[k];
           e.klar = false;
-          e.uppdaterad = Date.now();
+          stampla(e);
         }
       });
       toast('Ändringen sparad');
     } else {
       /* Knackar man på samma adress igen uppdateras den befintliga posten
          i stället för att skapa en dubblett – besöksräknaren tickar upp. */
-      var prev = db.filter(function (e) {
+      var prev = levande().filter(function (e) {
         return !e.klar && (e.adress || '').toLowerCase().trim() === adress.toLowerCase();
       })[0];
 
@@ -732,14 +817,14 @@
         if (data.telefon) prev.telefon = data.telefon;
         if (data.not) prev.not = prev.not ? prev.not + '\n— ' + prettyDate(today()) + ': ' + data.not : data.not;
         prev.besok = (prev.besok || 1) + 1;
-        prev.uppdaterad = Date.now();
+        stampla(prev);
         toast('Besök ' + prev.besok + ' på ' + prev.adress);
       } else {
         data.id = uid();
         data.klar = false;
         data.besok = 1;
         data.skapad = Date.now();
-        data.uppdaterad = Date.now();
+        stampla(data);
         db.push(data);
         toast(formStatus === 'bokad' ? 'Bokning registrerad ✓' :
               formStatus === 'nej'   ? 'Registrerad' : 'Inlagd för återkoppling');
@@ -749,6 +834,155 @@
     save();
     closeForm();
     render();
+  }
+
+  /* ── SYNK MOT DELAD LISTA ── */
+
+  var FALT = ['adress', 'namn', 'telefon', 'status', 'datum', 'tid', 'not',
+              'besok', 'klar', 'borttagen', 'saljare', 'skapad', 'uppdaterad'];
+  var synkPagar = false;
+  var synkTimer = null;
+  var synkFel = '';
+
+  /* Varje ändring får ny tidsstämpel och flaggas som ej skickad. */
+  function stampla(e) {
+    e.uppdaterad = Date.now();
+    e.osynkad = true;
+    if (!e.saljare && cfg.namn) e.saljare = cfg.namn;
+  }
+
+  function delad() { return !!(cfg.url && cfg.key); }
+
+  function tillServer(e) {
+    var ut = { id: e.id };
+    FALT.forEach(function (k) { ut[k] = e[k]; });
+    return ut;
+  }
+
+  /* Nyaste ändringen vinner när samma adress ändrats på två telefoner. */
+  function slaSamman(poster) {
+    var index = {};
+    db.forEach(function (e) { index[e.id] = e; });
+
+    poster.forEach(function (r) {
+      if (!r || !r.id) return;
+      var lokal = index[r.id];
+      if (!lokal) {
+        r.osynkad = false;
+        db.push(r);
+        index[r.id] = r;
+      } else if ((r.uppdaterad || 0) > (lokal.uppdaterad || 0)) {
+        FALT.forEach(function (k) { lokal[k] = r[k]; });
+        lokal.osynkad = false;
+      }
+    });
+  }
+
+  function synka(manuell) {
+    if (!delad()) { visaSynk(); return Promise.resolve(); }
+    if (synkPagar) return Promise.resolve();
+
+    if (navigator.onLine === false) {
+      synkFel = 'Ingen uppkoppling';
+      visaSynk();
+      if (manuell) toast('Ingen uppkoppling — data sparas lokalt');
+      return Promise.resolve();
+    }
+
+    var utgaende = db.filter(function (e) { return e.osynkad; }).slice(0, 500);
+    synkPagar = true;
+    visaSynk('busy');
+
+    return fetch(cfg.url.replace(/\/+$/, '') + '/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.key },
+      body: JSON.stringify({ since: cfg.lastSync || 0, poster: utgaende.map(tillServer) })
+    })
+      .then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          if (!r.ok || !j.ok) {
+            throw new Error(j.fel || (r.status === 401 ? 'Fel teamnyckel' : 'Serverfel ' + r.status));
+          }
+          return j;
+        });
+      })
+      .then(function (res) {
+        utgaende.forEach(function (e) { e.osynkad = false; });
+        slaSamman(res.poster || []);
+        cfg.lastSync = res.nu || Date.now();
+        cfg.senast = Date.now();
+        synkFel = '';
+        saveCfg();
+        skrivDb();
+        render();
+        if (manuell) toast('Synkad ✓');
+        // Fler ändringar än vad som fick plats i en omgång.
+        if (utgaende.length === 500) setTimeout(synka, 500);
+      })
+      .catch(function (err) {
+        synkFel = err.message || 'Kunde inte nå servern';
+        if (manuell) toast('Synk misslyckades: ' + synkFel);
+      })
+      .then(function () {
+        synkPagar = false;
+        visaSynk();
+      });
+  }
+
+  function synkaSnart() {
+    if (!delad()) return;
+    clearTimeout(synkTimer);
+    synkTimer = setTimeout(function () { synka(false); }, 900);
+  }
+
+  function klockan(ts) {
+    if (!ts) return 'aldrig';
+    var d = new Date(ts);
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
+  function visaSynk(tvinga) {
+    var pill = $('syncPill');
+    var txt = $('syncTxt');
+    var osynkade = db.filter(function (e) { return e.osynkad; }).length;
+
+    pill.className = 'sync-pill';
+    if (!delad()) {
+      txt.textContent = 'Lokal';
+    } else if (tvinga === 'busy' || synkPagar) {
+      pill.className = 'sync-pill busy';
+      txt.textContent = 'Synkar…';
+    } else if (synkFel) {
+      pill.className = 'sync-pill warn';
+      txt.textContent = osynkade ? osynkade + ' väntar' : 'Väntar';
+    } else {
+      pill.className = 'sync-pill on';
+      txt.textContent = 'Delad';
+    }
+
+    var sub = $('syncSub');
+    if (sub) {
+      sub.textContent = !delad() ? 'Av — bara den här telefonen'
+        : synkFel ? 'Problem: ' + synkFel
+        : 'På — senast synkad ' + klockan(cfg.senast);
+    }
+    var msub = $('menuSub');
+    if (msub) {
+      msub.textContent = delad()
+        ? 'Delad lista — alla i teamet ser samma bokningar.'
+        : 'Data sparas lokalt i den här telefonen/webbläsaren.';
+    }
+
+    var info = $('syncInfo');
+    if (info) {
+      info.textContent = !delad()
+        ? 'Just nu sparas allt bara här. Fyller du i serveradress och teamnyckel läggs bokningarna även upp centralt, och du ser vad de andra i teamet registrerat.'
+        : synkFel
+          ? 'Kunde inte synka: ' + synkFel + '. Kontrollera adress och nyckel — allt du registrerar sparas i telefonen och skickas upp så fort anslutningen fungerar' +
+            (osynkade ? ' (' + osynkade + ' väntar).' : '.')
+          : 'Ansluten. Senast synkad ' + klockan(cfg.senast) + '.' +
+            (osynkade ? ' ' + osynkade + ' ändringar väntar på att skickas.' : ' Allt är skickat.');
+    }
   }
 
   /* ── EXPORT ── */
@@ -764,7 +998,7 @@
   function csv() {
     var cols = ['Status', 'Adress', 'Namn', 'Telefon', 'Datum', 'Tid', 'Antal besök', 'Klar', 'Anteckning'];
     var rows = [cols];
-    db.slice().sort(function (a, b) { return (a.datum || '') < (b.datum || '') ? -1 : 1; }).forEach(function (e) {
+    levande().sort(function (a, b) { return (a.datum || '') < (b.datum || '') ? -1 : 1; }).forEach(function (e) {
       rows.push([
         (STATUS[e.status] || {}).label || e.status,
         e.adress || '', e.namn || '', e.telefon || '', e.datum || '', e.tid || '',
@@ -839,11 +1073,12 @@
     if (act === 'edit') { openForm(id); return; }
     if (act === 'boka') { openForm(id); setStatus('bokad'); return; }
     if (act === 'ics')  { ics(e); return; }
-    if (act === 'klar') { e.klar = true; e.uppdaterad = Date.now(); toast('Markerad som klar'); }
-    if (act === 'oklar') { e.klar = false; e.uppdaterad = Date.now(); }
+    if (act === 'klar') { e.klar = true; stampla(e); toast('Markerad som klar'); }
+    if (act === 'oklar') { e.klar = false; stampla(e); }
     if (act === 'del') {
       if (!confirm('Ta bort ' + (e.adress || 'registreringen') + '?')) return;
-      db = db.filter(function (x) { return x.id !== id; });
+      e.borttagen = true;
+      stampla(e);
       toast('Borttagen');
     }
     save(); render();
@@ -853,7 +1088,7 @@
   $('menuBtn').addEventListener('click', function () { $('menuOverlay').classList.add('open'); });
   $('menuClose').addEventListener('click', function () { $('menuOverlay').classList.remove('open'); });
   $('expCsv').addEventListener('click', function () {
-    if (!db.length) { toast('Ingen data att exportera'); return; }
+    if (!levande().length) { toast('Ingen data att exportera'); return; }
     csv(); toast('CSV nedladdad');
   });
   $('expJson').addEventListener('click', function () {
@@ -889,8 +1124,73 @@
     toast('All data rensad');
   });
 
+  /* Delad lista */
+  function oppnaSynk() {
+    $('menuOverlay').classList.remove('open');
+    $('cUrl').value = cfg.url || '';
+    $('cKey').value = cfg.key || '';
+    $('cNamn').value = cfg.namn || '';
+    visaSynk();
+    $('syncOverlay').classList.add('open');
+  }
+  $('openSync').addEventListener('click', oppnaSynk);
+  $('syncPill').addEventListener('click', function () {
+    if (delad() && !synkPagar) synka(true); else oppnaSynk();
+  });
+  $('syncCancel').addEventListener('click', function () { $('syncOverlay').classList.remove('open'); });
+
+  $('syncSave').addEventListener('click', function () {
+    var url = $('cUrl').value.trim().replace(/\/+$/, '');
+    var key = $('cKey').value.trim();
+    var namn = $('cNamn').value.trim();
+
+    if (url && !/^https:\/\/|^http:\/\/localhost/.test(url)) {
+      toast('Serveradressen måste börja med https://');
+      return;
+    }
+    if ((url && !key) || (key && !url)) {
+      toast('Fyll i både serveradress och teamnyckel');
+      return;
+    }
+
+    var bytteServer = url !== (cfg.url || '') || key !== (cfg.key || '');
+    cfg.url = url; cfg.key = key; cfg.namn = namn;
+    if (bytteServer) cfg.lastSync = 0;
+    saveCfg();
+    synkFel = '';
+
+    if (!delad()) {
+      visaSynk(); render();
+      toast('Delad lista avstängd');
+      $('syncOverlay').classList.remove('open');
+      return;
+    }
+    // Allt lokalt skickas upp första gången man ansluter.
+    if (bytteServer) db.forEach(function (e) { e.osynkad = true; });
+    skrivDb();
+    synka(true).then(function () {
+      if (!synkFel) $('syncOverlay').classList.remove('open');
+      render();
+    });
+  });
+
+  $('syncOff').addEventListener('click', function () {
+    if (!confirm('Koppla från den delade listan? Bokningarna ligger kvar i telefonen.')) return;
+    cfg.url = ''; cfg.key = ''; cfg.lastSync = 0;
+    saveCfg(); visaSynk(); render();
+    $('syncOverlay').classList.remove('open');
+    toast('Frånkopplad — appen sparar bara lokalt nu');
+  });
+
+  window.addEventListener('online', function () { synkFel = ''; synka(false); });
+  window.addEventListener('offline', visaSynk);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) synka(false);
+  });
+  setInterval(function () { if (!document.hidden) synka(false); }, 60000);
+
   /* Stäng sheets vid klick utanför */
-  ['formOverlay', 'menuOverlay'].forEach(function (idn) {
+  ['formOverlay', 'menuOverlay', 'syncOverlay'].forEach(function (idn) {
     $(idn).addEventListener('click', function (ev) {
       if (ev.target === this) this.classList.remove('open');
     });
@@ -899,12 +1199,15 @@
     if (ev.key === 'Escape') {
       $('formOverlay').classList.remove('open');
       $('menuOverlay').classList.remove('open');
+      $('syncOverlay').classList.remove('open');
     }
   });
 
   /* ── START ── */
   load();
   render();
+  visaSynk();
+  synka(false);
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {

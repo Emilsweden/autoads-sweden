@@ -40,10 +40,34 @@ ingen server, inget konto, inga personuppgifter lämnar enheten.
 - **Boka in** flyttar en återkoppling till en riktig bokning.
 - Appen fungerar **utan täckning** — allt sparas lokalt och synkas inte.
 
+## Delad lista för teamet
+
+Som standard ligger allt bara i din egen telefon. Vill ni att flera säljare ser
+samma bokningar går det att koppla appen mot en server: menyn (☰) → **Delad
+lista** → fyll i serveradress, teamnyckel och ditt namn.
+
+Då synkas registret automatiskt — vid start, efter varje registrering, varje
+minut appen är öppen och så fort telefonen får nät igen. Prickan uppe till
+vänster visar läget:
+
+| Status | Betyder |
+|---|---|
+| **Lokal** | Ingen server inlagd — allt stannar i telefonen. |
+| **Delad** (grön) | Ansluten och allt är uppskickat. |
+| **Synkar…** | Skickar just nu. |
+| **3 väntar** (gul) | Ingen kontakt med servern; ändringarna skickas upp av sig själva när nätet är tillbaka. |
+
+Tryck på prickan för att synka direkt. Ändrar två säljare samma adress vinner
+den senaste ändringen, och besöksräknaren behåller det högsta värdet. Korten
+visar vem som registrerat adressen.
+
+Servern sätts upp enligt `worker-dorrknackning/README.md` — sju kommandon, och
+kostar inget i Cloudflares gratisnivå.
+
 ## Säkerhetskopiering
 
-Data ligger bara i den webbläsare du använder. Rensar du webbläsardata eller
-byter telefon försvinner registret. Under menyn (☰) finns:
+Utan delad lista ligger data bara i den webbläsare du använder — rensar du
+webbläsardata eller byter telefon försvinner registret. Under menyn (☰) finns:
 
 - **Exportera CSV** — öppnas i Excel eller Google Kalkylark.
 - **Säkerhetskopiera** — laddar ner all data som JSON-fil.
