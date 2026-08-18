@@ -145,12 +145,17 @@ jobs:
             exit 1
           fi
 
-          for forsok in 1 2 3; do
+          # Hemligheten är uppladdad men behöver några sekunder innan den är
+          # aktiv i workern — tills dess svarar den 401 på den nya nyckeln.
+          for forsok in $(seq 1 8); do
             kod=$(curl -s -o svar.json -w '%{http_code}' -X POST "$URL/api/installera" \
               -H 'Content-Type: application/json' -d "$kropp")
-            [ "$kod" = "404" ] || break
-            echo "Fick 404, försöker igen om 15 sekunder ($forsok/3)."
-            sleep 15
+            case "$kod" in
+              401|404|5*) ;;
+              *) break ;;
+            esac
+            echo "Fick $kod — nyckeln har inte slagit igenom än, försöker igen ($forsok/8)."
+            sleep 10
           done
 
           case "$kod" in
