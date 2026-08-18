@@ -124,9 +124,15 @@ function sparrTill(resultat, aterkomDatum, inst, nu) {
 
 /* ══ Inloggning och behörighet ══ */
 
-async function anvandareFranToken(env, request) {
+/** Sessionen kommer i kroppen (enkel förfrågan) eller i Authorization-headern. */
+function tokenFran(request, body) {
   const auth = request.headers.get('Authorization') || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (auth.startsWith('Bearer ')) return auth.slice(7);
+  return txt(body && body.token, 128) || '';
+}
+
+async function anvandareFranToken(env, request, body) {
+  const token = tokenFran(request, body);
   if (!token) throw new Fel('Inte inloggad', 401);
 
   const rad = await en(env,
@@ -181,9 +187,9 @@ api['logga-in'] = async (env, request, body) => {
   return { token, anvandare: { id: anv.id, namn: anv.namn, epost: anv.epost, roll: anv.roll, team: anv.team } };
 };
 
-api['logga-ut'] = async (env, request) => {
-  const auth = request.headers.get('Authorization') || '';
-  if (auth.startsWith('Bearer ')) await kor(env, 'DELETE FROM sessioner WHERE token = ?1', auth.slice(7));
+api['logga-ut'] = async (env, request, body) => {
+  const token = tokenFran(request, body);
+  if (token) await kor(env, 'DELETE FROM sessioner WHERE token = ?1', token);
   return {};
 };
 
@@ -794,7 +800,7 @@ export default {
 
     try {
       const body = (await request.json().catch(() => ({}))) || {};
-      const anv = OSKYDDADE.includes(namn) ? null : await anvandareFranToken(env, request);
+      const anv = OSKYDDADE.includes(namn) ? null : await anvandareFranToken(env, request, body);
       const data = await fn(env, request, body || {}, anv);
       return svar(request, { ok: true, ...data });
     } catch (err) {
