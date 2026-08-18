@@ -6,7 +6,35 @@ områden, adressdatabas, dörrhistorik, bokningar, spärregler och statistik.
 Cloudflare Worker + D1 (SQLite). Ryms i Cloudflares gratisnivå för ett säljteam
 av den här storleken.
 
-## Sätt upp — åtta steg
+## Sätt upp
+
+Tre vägar, välj en. Alla ger samma resultat och går att köra om.
+
+### A. Via GitHub — inget behöver köras lokalt
+
+1. Skapa en API-token i Cloudflare: **My Profile → API Tokens → Create Token**,
+   mallen *Edit Cloudflare Workers*, och lägg till behörigheten **D1 → Edit**.
+2. Lägg in två hemligheter i repot under
+   **Settings → Secrets and variables → Actions**:
+   - `CLOUDFLARE_API_TOKEN` — token från steg 1
+   - `ADMIN_LOSENORD` — lösenordet du vill logga in med (minst 8 tecken)
+   - valfritt `CLOUDFLARE_ACCOUNT_ID` om token når flera konton
+3. Gå till **Actions → Sätt upp fältsystemet → Run workflow**, fyll i namn och
+   e-post och kör.
+
+Sammanfattningen från körningen visar serveradressen du ska klistra in i appen.
+
+### B. Ett kommando lokalt
+
+```bash
+npx wrangler login
+cd worker-falt && ./satt-upp.sh "Emil" emil@autoads.se
+```
+
+Skriptet skapar databasen, fyller i `database_id`, lägger upp tabellerna,
+publicerar, sätter installationsnyckeln och skapar administratören.
+
+### C. Steg för steg
 
 Kör i den här mappen (`worker-falt/`). Du behöver Node och samma
 Cloudflare-konto som SMS-workern.

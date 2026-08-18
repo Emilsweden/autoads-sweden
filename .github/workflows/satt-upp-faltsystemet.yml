@@ -1,0 +1,158 @@
+# Sätter upp fältsystemets server på Cloudflare — databas, tabeller, publicering
+# och den första administratören — utan att något behöver köras lokalt.
+#
+# Körs manuellt från fliken Actions. Kräver två hemligheter under
+# Settings → Secrets and variables → Actions:
+#   CLOUDFLARE_API_TOKEN   token med behörighet för Workers och D1
+#   ADMIN_LOSENORD         lösenordet du vill logga in med (minst 8 tecken)
+# Valfritt: CLOUDFLARE_ACCOUNT_ID om token har tillgång till flera konton.
+
+name: Sätt upp fältsystemet
+
+on:
+  workflow_dispatch:
+    inputs:
+      admin_namn:
+        description: 'Namn på administratören'
+        required: true
+        default: 'Emil'
+      admin_epost:
+        description: 'E-post att logga in med'
+        required: true
+        default: 'emil@autoads.se'
+
+jobs:
+  satt-upp:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker-falt
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Kontrollera hemligheter
+        env:
+          ADMIN_LOSENORD: ${{ secrets.ADMIN_LOSENORD }}
+        run: |
+          saknas=""
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || saknas="$saknas CLOUDFLARE_API_TOKEN"
+          [ -n "$ADMIN_LOSENORD" ] || saknas="$saknas ADMIN_LOSENORD"
+          if [ -n "$saknas" ]; then
+            echo "Följande hemligheter saknas i repots inställningar:$saknas" >&2
+            echo "Lägg till dem under Settings → Secrets and variables → Actions." >&2
+            exit 1
+          fi
+
+      - name: Installera wrangler
+        run: npm install --no-save wrangler@4
+
+      - name: Skapa databasen om den saknas
+        run: |
+          set -euo pipefail
+
+          hamta_id() {
+            npx wrangler d1 list --json 2>/dev/null | node -e "
+              let s = '';
+              process.stdin.on('data', (d) => (s += d)).on('end', () => {
+                const i = s.indexOf('[');
+                if (i < 0) return console.log('');
+                try {
+                  const lista = JSON.parse(s.slice(i));
+                  const db = lista.find((d) => d.name === 'autoads-falt');
+                  console.log(db ? (db.uuid || db.database_id || '') : '');
+                } catch (e) { console.log(''); }
+              });
+            "
+          }
+
+          id=$(hamta_id)
+          if [ -z "$id" ]; then
+            echo "Databasen finns inte — skapar den."
+            npx wrangler d1 create autoads-falt
+            id=$(hamta_id)
+          else
+            echo "Databasen finns redan, återanvänder den."
+          fi
+
+          if [ -z "$id" ]; then
+            echo "Kunde inte läsa ut database_id från Cloudflare." >&2
+            exit 1
+          fi
+
+          sed -i "s/FYLL_I_DATABASE_ID_HAR/$id/" wrangler.toml
+          echo "Databas-id: $id"
+
+      - name: Skapa tabellerna
+        run: npx wrangler d1 execute autoads-falt --remote --file=./schema.sql --yes
+
+      - name: Publicera workern
+        id: publicera
+        run: |
+          set -euo pipefail
+          utdata=$(npx wrangler deploy 2>&1)
+          echo "$utdata"
+          url=$(printf '%s' "$utdata" | grep -oE 'https://[a-z0-9._-]+\.workers\.dev' | head -1)
+          if [ -z "$url" ]; then
+            echo "Hittade ingen adress i deploy-utdatan." >&2
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Skapa den första administratören
+        env:
+          ADMIN_LOSENORD: ${{ secrets.ADMIN_LOSENORD }}
+          ADMIN_NAMN: ${{ inputs.admin_namn }}
+          ADMIN_EPOST: ${{ inputs.admin_epost }}
+          URL: ${{ steps.publicera.outputs.url }}
+        run: |
+          set -euo pipefail
+
+          # Installationsnyckeln lever bara inne i det här jobbet och maskas i loggen.
+          nyckel=$(openssl rand -base64 24)
+          echo "::add-mask::$nyckel"
+          printf '%s' "$nyckel" | npx wrangler secret put INSTALL_NYCKEL
+
+          kropp=$(NYCKEL="$nyckel" node -e '
+            console.log(JSON.stringify({
+              nyckel: process.env.NYCKEL,
+              namn: process.env.ADMIN_NAMN,
+              epost: process.env.ADMIN_EPOST,
+              losenord: process.env.ADMIN_LOSENORD,
+            }));
+          ')
+
+          kod=$(curl -s -o svar.json -w '%{http_code}' -X POST "$URL/api/installera" \
+            -H 'Content-Type: application/json' -d "$kropp")
+
+          case "$kod" in
+            200) echo "Administratören är skapad." ;;
+            409) echo "Systemet var redan installerat — befintliga konton lämnas orörda." ;;
+            *)   echo "Misslyckades ($kod):"; cat svar.json; exit 1 ;;
+          esac
+          rm -f svar.json
+
+      - name: Sammanfattning
+        if: success()
+        env:
+          URL: ${{ steps.publicera.outputs.url }}
+        run: |
+          {
+            echo "## Fältsystemet är uppsatt"
+            echo
+            echo "**Serveradress:** \`$URL\`"
+            echo
+            echo "1. Öppna <https://autoads.se/falt/> i mobilen"
+            echo "2. Klistra in serveradressen ovan i fältet **Serveradress**"
+            echo "3. Logga in med \`${{ inputs.admin_epost }}\` och lösenordet från ADMIN_LOSENORD"
+            echo "4. Lägg till appen på hemskärmen"
+            echo
+            echo "Övriga säljare läggs upp inifrån appen under **Admin → Användare**."
+          } >> "$GITHUB_STEP_SUMMARY"
