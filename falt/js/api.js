@@ -53,13 +53,14 @@ export async function anrop(namn, data = {}) {
 
   let svar;
   try {
+    // Content-Type text/plain och ingen Authorization-header gör anropet till
+    // en "enkel" förfrågan: webbläsaren hoppar över den separata OPTIONS-
+    // förfrågan, som inte tar sig fram överallt på mobildata. Sessionen
+    // skickas därför i kroppen i stället.
     svar = await fetch(bas() + '/api/' + namn, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token() ? { Authorization: 'Bearer ' + token() } : {}),
-      },
-      body: JSON.stringify(data),
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body: JSON.stringify(token() ? { ...data, token: token() } : data),
     });
   } catch (e) {
     throw new ApiFel('Ingen kontakt med servern. ' + varforInteKontakt(), 0);
