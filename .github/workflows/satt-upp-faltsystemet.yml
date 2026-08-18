@@ -129,8 +129,29 @@ jobs:
             }));
           ')
 
-          kod=$(curl -s -o svar.json -w '%{http_code}' -X POST "$URL/api/installera" \
-            -H 'Content-Type: application/json' -d "$kropp")
+          # En nyskapad workers.dev-adress svarar 404 (error code 1042) tills den
+          # blivit aktiv. Vänta in den innan kontot skapas.
+          echo "Väntar på att adressen ska svara…"
+          aktiv=nej
+          for i in $(seq 1 30); do
+            halsa=$(curl -s -o /dev/null -w '%{http_code}' "$URL/halsa" || true)
+            if [ "$halsa" = "200" ]; then aktiv=ja; echo "Adressen svarar efter $((i * 10 - 10)) sekunder."; break; fi
+            sleep 10
+          done
+
+          if [ "$aktiv" != "ja" ]; then
+            echo "Adressen $URL svarade inte inom fem minuter." >&2
+            echo "Workern är publicerad — kör om det här jobbet om en stund." >&2
+            exit 1
+          fi
+
+          for forsok in 1 2 3; do
+            kod=$(curl -s -o svar.json -w '%{http_code}' -X POST "$URL/api/installera" \
+              -H 'Content-Type: application/json' -d "$kropp")
+            [ "$kod" = "404" ] || break
+            echo "Fick 404, försöker igen om 15 sekunder ($forsok/3)."
+            sleep 15
+          done
 
           case "$kod" in
             200) echo "Administratören är skapad." ;;
