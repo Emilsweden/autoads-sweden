@@ -1,6 +1,7 @@
 /** Startpunkt: inloggning, navigering, GPS och automatisk uppdatering. */
 
 import { anrop, ApiFel, bas, sattBas, token, sattToken, ko, tommeKo } from './api.js';
+import { VERSION } from '../config.js';
 import { $, esc, toast, oppnaPanel, stangPanel, kopplaStangning, idag } from './ui.js';
 import { S, buss, arRoll, dataAndrad } from './state.js';
 import * as karta from './karta.js';
@@ -265,6 +266,7 @@ window.addEventListener('online', skickaKo);
 setInterval(skickaKo, 30000);
 setInterval(() => { if (!document.hidden && S.anvandare && S.vy !== 'dashboard') laddaDorrar(); }, 45000);
 
+$('appVersion').textContent = 'Version ' + VERSION;
 visaKo();
 visaServerfalt();
 if (token() && bas()) start();
