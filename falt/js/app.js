@@ -166,6 +166,8 @@ function visaServerfalt() {
   const giltig = franLank && /^https:\/\/[^\s]+$|^http:\/\/localhost(:\d+)?$/.test(franLank)
     ? franLank.replace(/\/+$/, '') : '';
 
+  // Med en standardserver i config.js behöver ingen ange adressen alls;
+  // fältet visas bara om den saknas eller om en annan skickats med i länken.
   if (bas() && !giltig) return;
 
   if (!$('lServer')) {

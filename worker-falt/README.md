@@ -72,8 +72,20 @@ curl -X POST https://autoads-falt.<konto>.workers.dev/api/installera \
   -d '{"nyckel":"DIN_INSTALLATIONSNYCKEL","namn":"Emil","epost":"emil@autoads.se","losenord":"ett-langt-losenord"}'
 ```
 
-**8.** Öppna `https://autoads.se/falt/` i mobilen, fyll i serveradressen från
-steg 6 och logga in. Lägg sedan till appen på hemskärmen.
+**8.** Lägg in serveradressen från steg 6 i `falt/config.js`:
+
+```js
+export const STANDARD_SERVER = 'https://autoads-falt.<konto>.workers.dev';
+```
+
+Då behöver ingen säljare ange adressen — appen hittar sin server själv, och
+inloggningen frågar bara efter e-post och lösenord. Öppna
+`https://autoads.se/falt/` i mobilen, logga in och lägg till appen på
+hemskärmen.
+
+Behöver du ändå peka appen mot en annan server, t.ex. en testmiljö, går det med
+`https://autoads.se/falt/?server=https://...` — adressen fylls då i på
+inloggningsskärmen utan att sparas.
 
 Därefter skapas alla andra användare inifrån appen under **Admin → Användare**.
 `installera` slutar fungera så fort det finns en användare, så nyckeln kan inte
