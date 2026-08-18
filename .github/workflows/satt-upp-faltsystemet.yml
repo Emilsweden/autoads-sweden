@@ -45,6 +45,11 @@ jobs:
           saknas=""
           [ -n "$CLOUDFLARE_API_TOKEN" ] || saknas="$saknas CLOUDFLARE_API_TOKEN"
           [ -n "$ADMIN_LOSENORD" ] || saknas="$saknas ADMIN_LOSENORD"
+          if [ -n "$ADMIN_LOSENORD" ] && [ "${#ADMIN_LOSENORD}" -lt 8 ]; then
+            echo "ADMIN_LOSENORD är kortare än 8 tecken — appen kräver minst 8." >&2
+            echo "Uppdatera hemligheten under Settings → Secrets and variables → Actions." >&2
+            exit 1
+          fi
           if [ -n "$saknas" ]; then
             echo "Följande hemligheter saknas i repots inställningar:$saknas" >&2
             echo "Lägg till dem under Settings → Secrets and variables → Actions." >&2
