@@ -50,6 +50,14 @@ button { cursor: pointer; border: none; background: none; }
 .login-brand span { font-size: 11px; color: var(--gold); letter-spacing: 0.14em; text-transform: uppercase; }
 .login-sub { color: var(--dim); font-size: 13.5px; margin: 6px 0 26px; }
 
+.version {
+  margin-top: 20px;
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+
 /* ══ TOPP ══ */
 #topp {
   position: sticky; top: 0; z-index: 30;
