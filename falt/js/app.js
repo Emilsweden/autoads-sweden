@@ -160,12 +160,25 @@ async function loggaUt() {
 /* ══ Inloggning ══ */
 
 function visaServerfalt() {
-  if (bas() || $('lServer')) return;
-  const falt = document.createElement('div');
-  falt.className = 'field';
-  falt.innerHTML = '<label for="lServer">Serveradress</label>' +
-    '<input id="lServer" type="url" placeholder="https://autoads-falt.workers.dev" autocapitalize="off" spellcheck="false">';
-  $('loginForm').insertBefore(falt, $('loginForm').firstChild);
+  // Serveradressen kan följa med i länken, så att säljarna slipper knappa in
+  // den på telefonen: /falt/?server=https://...workers.dev
+  const franLank = new URLSearchParams(location.search).get('server');
+  const giltig = franLank && /^https:\/\/[^\s]+$|^http:\/\/localhost(:\d+)?$/.test(franLank)
+    ? franLank.replace(/\/+$/, '') : '';
+
+  if (bas() && !giltig) return;
+
+  if (!$('lServer')) {
+    const falt = document.createElement('div');
+    falt.className = 'field';
+    falt.innerHTML = '<label for="lServer">Serveradress</label>' +
+      '<input id="lServer" type="url" placeholder="https://autoads-falt.workers.dev" autocapitalize="off" spellcheck="false">';
+    $('loginForm').insertBefore(falt, $('loginForm').firstChild);
+  }
+
+  // Adressen fylls bara i, den sparas först när du loggar in — så att du
+  // alltid ser vilken server du är på väg att skicka lösenordet till.
+  $('lServer').value = giltig || bas();
 }
 
 async function loggaIn(ev) {
