@@ -1,11 +1,14 @@
 /** Anrop mot fältsystemets API, med kö för registreringar gjorda utan täckning. */
 
+import { STANDARD_SERVER } from '../config.js';
+
 const NYCKEL_BAS = 'falt_server';
 const NYCKEL_TOKEN = 'falt_token';
 const NYCKEL_KO = 'falt_ko';
 
 export function bas() {
-  return (localStorage.getItem(NYCKEL_BAS) || '').replace(/\/+$/, '');
+  // Sparad adress vinner, annars den servern appen levereras tillsammans med.
+  return (localStorage.getItem(NYCKEL_BAS) || STANDARD_SERVER || '').replace(/\/+$/, '');
 }
 export function sattBas(url) {
   localStorage.setItem(NYCKEL_BAS, (url || '').trim().replace(/\/+$/, ''));
