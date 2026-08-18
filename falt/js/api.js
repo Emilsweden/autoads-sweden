@@ -18,6 +18,24 @@ export function sattToken(t) {
   else localStorage.removeItem(NYCKEL_TOKEN);
 }
 
+/**
+ * Ett misslyckat anrop ser likadant ut oavsett orsak, så det här pekar ut
+ * de vanliga fällorna: fel webbadress för appen, eller http i stället för https.
+ */
+function varforInteKontakt() {
+  const harifran = location.origin;
+  const tillaten = /^https:\/\/(www\.)?autoads\.se$/.test(harifran) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(harifran);
+
+  if (location.protocol === 'https:' && bas().startsWith('http://')) {
+    return 'Serveradressen måste börja med https:// när appen körs över https.';
+  }
+  if (!tillaten) {
+    return 'Appen är öppnad från ' + harifran + ', men servern tar bara emot anrop från autoads.se. ' +
+      'Öppna appen på https://autoads.se/falt/ i stället.';
+  }
+  return 'Kontrollera serveradressen och att telefonen har internet.';
+}
+
 export class ApiFel extends Error {
   constructor(meddelande, status, data) {
     super(meddelande);
@@ -41,7 +59,7 @@ export async function anrop(namn, data = {}) {
       body: JSON.stringify(data),
     });
   } catch (e) {
-    throw new ApiFel('Ingen kontakt med servern', 0);
+    throw new ApiFel('Ingen kontakt med servern. ' + varforInteKontakt(), 0);
   }
 
   const kropp = await svar.json().catch(() => ({}));

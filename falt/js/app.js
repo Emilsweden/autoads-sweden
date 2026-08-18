@@ -192,9 +192,7 @@ async function loggaIn(ev) {
     sattToken(data.token);
     await start();
   } catch (e) {
-    $('lFel').textContent = e.status === 0
-      ? 'Ingen kontakt med servern. Kontrollera serveradressen.'
-      : e.message;
+    $('lFel').textContent = e.message;
   } finally {
     $('lKnapp').textContent = 'Logga in';
   }
