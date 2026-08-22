@@ -2,8 +2,9 @@
 
 import { anrop } from './api.js';
 import { $, esc, toast, STATUS_FARG, visaTidpunkt } from './ui.js';
-import { S, arRoll } from './state.js';
-import { oppna as oppnaDorr } from './dorr.js';
+import { S, arRoll, dataAndrad } from './state.js';
+import { oppna as oppnaDorr, manuell as manuellDorr } from './dorr.js';
+import { adressVid } from './geo.js';
 
 let karta = null;
 let dorrLager = null;
@@ -43,11 +44,106 @@ function skapa() {
   });
   dorrLager = L.layerGroup().addTo(karta);
   saljarLager = L.layerGroup().addTo(karta);
+  karta.on('click', (ev) => vidKartklick(ev.latlng));
 
   $('teckenforklaring').innerHTML = [
     ['ejbesokt', 'Ej besökt'], ['bokat', 'Bokad'], ['ejsvar', 'Inget svar'],
     ['aterkom', 'Återkom'], ['nej', 'Nej'], ['sparrad', 'Nyligen besökt'],
   ].map(([k, t]) => '<span><i style="background:' + STATUS_FARG[k] + '"></i>' + t + '</span>').join('');
+}
+
+/* ── Tryck på kartan ── */
+
+/** Meter mellan två punkter, tillräckligt exakt på kvartersavstånd. */
+function avstand(a, lat, lon) {
+  const dx = (a.lon - lon) * 111320 * Math.cos((lat * Math.PI) / 180);
+  const dy = (a.lat - lat) * 110540;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function narmasteDorr(lat, lon, max) {
+  let bast = null;
+  let bastAvstand = max;
+  S.adresser.forEach((a) => {
+    if (!a.lat || !a.lon) return;
+    const d = avstand(a, lat, lon);
+    if (d <= bastAvstand) { bast = a; bastAvstand = d; }
+  });
+  return bast;
+}
+
+/** Skapar (eller återanvänder) dörren på den tryckta punkten och öppnar den. */
+async function oppnaNyDorr(traff, latlng) {
+  try {
+    const svar = await anrop('adress-ny', {
+      gata: traff.gata,
+      nummer: traff.nummer,
+      postort: traff.postort,
+      omrade_id: S.valtOmrade || undefined,
+      lat: latlng.lat,
+      lon: latlng.lng,
+    });
+    karta.closePopup();
+    dataAndrad();
+    oppnaDorr(svar.adress.id);
+  } catch (e) {
+    toast('Kunde inte lägga till dörren: ' + e.message);
+  }
+}
+
+/**
+ * Trycker säljaren på ett hus ska dörren öppnas — finns den redan används
+ * den, annars slås adressen upp på kartan så att ingen behöver skriva in den.
+ */
+async function vidKartklick(latlng) {
+  const nara = narmasteDorr(latlng.lat, latlng.lng, 25);
+  if (nara) { oppnaDorr(nara.id); return; }
+
+  const ruta = document.createElement('div');
+  ruta.className = 'kartpopp';
+  ruta.textContent = 'Hämtar adressen…';
+  karta.openPopup(L.popup({ offset: [0, -6] }).setLatLng(latlng).setContent(ruta));
+
+  let traff = null;
+  try {
+    traff = await adressVid(latlng.lat, latlng.lng);
+  } catch (e) { /* uppslaget kan misslyckas — då får man skriva själv */ }
+
+  const skrivSjalv = (text) => {
+    const knapp = document.createElement('button');
+    knapp.className = 'kartpopp-knapp ghost';
+    knapp.textContent = text;
+    knapp.onclick = () => {
+      karta.closePopup();
+      manuellDorr(S.omraden, S.valtOmrade, {
+        gata: (traff && traff.gata) || '',
+        nummer: (traff && traff.nummer) || '',
+        postort: (traff && traff.postort) || '',
+        lat: latlng.lat, lon: latlng.lng,
+      });
+    };
+    return knapp;
+  };
+
+  ruta.textContent = '';
+  if (traff && traff.gata && traff.nummer) {
+    const rubrik = document.createElement('b');
+    rubrik.textContent = traff.gata + ' ' + traff.nummer;
+    const ort = document.createElement('div');
+    ort.className = 'kartpopp-ort';
+    ort.textContent = traff.postort || '';
+    const oppna = document.createElement('button');
+    oppna.className = 'kartpopp-knapp';
+    oppna.textContent = 'Öppna dörren';
+    oppna.onclick = () => oppnaNyDorr(traff, latlng);
+    ruta.append(rubrik, ort, oppna, skrivSjalv('Ändra adressen'));
+  } else {
+    const text = document.createElement('div');
+    text.textContent = traff && traff.gata
+      ? 'Hittade ' + traff.gata + ', men inget husnummer på den här punkten.'
+      : 'Hittade ingen adress här.';
+    ruta.append(text, skrivSjalv('Skriv in adressen'));
+  }
 }
 
 let saknarKoordinat = 0;

@@ -496,7 +496,17 @@ api['adress-ny'] = async (env, request, body, anv) => {
   const befintlig = await en(env,
     `SELECT a.*, u.namn AS senast_namn FROM adresser a
      LEFT JOIN anvandare u ON u.id = a.senast_av WHERE a.nyckel = ?1`, nyckel);
-  if (befintlig) return { adress: putsaAdress(befintlig), fanns: true };
+  if (befintlig) {
+    // Dörren fanns men saknade läge — inklistrade adresser gör det. Trycker
+    // säljaren på huset på kartan vet vi var den ligger och sparar det.
+    if (!befintlig.lat && body.lat !== undefined && body.lon !== undefined) {
+      await kor(env, 'UPDATE adresser SET lat=?1, lon=?2 WHERE id=?3',
+        nr(body.lat, null), nr(body.lon, null), befintlig.id);
+      befintlig.lat = nr(body.lat, null);
+      befintlig.lon = nr(body.lon, null);
+    }
+    return { adress: putsaAdress(befintlig), fanns: true };
+  }
 
   // Område: det säljaren valt, annars en samlingsplats för lösa adresser.
   const synliga = await synligaOmraden(env, anv);
@@ -521,6 +531,51 @@ api['adress-ny'] = async (env, request, body, anv) => {
 
   const skapad = await en(env, 'SELECT * FROM adresser WHERE id = ?1', id);
   return { adress: putsaAdress(skapad), fanns: false };
+};
+
+/**
+ * Rättar en adress som blivit fel, t.ex. när hela adressen hamnat i
+ * gatunamnet. Historiken följer med dörren, bara texten ändras.
+ */
+api['adress-andra'] = async (env, request, body, anv) => {
+  kraver(anv, 'teamleader');
+  const id = txt(body.id, 40);
+  const adress = await en(env, 'SELECT * FROM adresser WHERE id = ?1', id);
+  if (!adress) throw new Fel('Adressen finns inte', 404);
+
+  const gata = txt(body.gata, 120) || adress.gata;
+  const nummer = txt(body.nummer, 20) || adress.nummer;
+  const postort = body.postort === undefined ? adress.postort : txt(body.postort, 80);
+  const nyckel = adressnyckel(gata, nummer, postort);
+
+  const krock = await en(env, 'SELECT id FROM adresser WHERE nyckel = ?1 AND id <> ?2', nyckel, id);
+  if (krock) throw new Fel('En annan dörr har redan den adressen', 409);
+
+  await kor(env,
+    'UPDATE adresser SET gata=?1, nummer=?2, postort=?3, nyckel=?4, lat=?5, lon=?6 WHERE id=?7',
+    gata, nummer, postort, nyckel,
+    body.lat === undefined ? adress.lat : nr(body.lat, null),
+    body.lon === undefined ? adress.lon : nr(body.lon, null), id);
+
+  const uppdaterad = await en(env,
+    `SELECT a.*, u.namn AS senast_namn FROM adresser a
+     LEFT JOIN anvandare u ON u.id = a.senast_av WHERE a.id = ?1`, id);
+  return { adress: putsaAdress(uppdaterad) };
+};
+
+/** Tar bort en felaktig dörr. Dörrar med historik lämnas kvar. */
+api['adress-ta-bort'] = async (env, request, body, anv) => {
+  kraver(anv, 'teamleader');
+  const id = txt(body.id, 40);
+  const adress = await en(env, 'SELECT * FROM adresser WHERE id = ?1', id);
+  if (!adress) throw new Fel('Adressen finns inte', 404);
+
+  const besok = await en(env, 'SELECT COUNT(*) AS antal FROM handelser WHERE adress_id = ?1', id);
+  if (besok && besok.antal) {
+    throw new Fel('Dörren har ' + besok.antal + ' registrerade besök och tas därför inte bort', 409);
+  }
+  await kor(env, 'DELETE FROM adresser WHERE id = ?1', id);
+  return { borttagen: true };
 };
 
 /** Dörrar som ska besökas igen — säljarens arbetslista. */

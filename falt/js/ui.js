@@ -21,7 +21,10 @@ export function toast(text) {
 export function oppnaPanel(vilken, html) {
   const overlay = $(vilken === 'dorr' ? 'dorrOverlay' : 'modalOverlay');
   const panel = $(vilken === 'dorr' ? 'dorrPanel' : 'modalPanel');
-  panel.innerHTML = '<div class="greppa"></div>' + html;
+  panel.innerHTML =
+    '<div class="panelhuvud"><div class="greppa"></div>' +
+    '<button class="stangkryss" type="button" aria-label="Stäng">✕</button></div>' + html;
+  panel.querySelector('.stangkryss').onclick = () => stangPanel(vilken);
   overlay.classList.add('open');
   panel.scrollTop = 0;
   return panel;
@@ -38,6 +41,28 @@ export function kopplaStangning() {
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') { stangPanel('dorr'); stangPanel('modal'); }
   });
+}
+
+/**
+ * Håller layouten inom det som faktiskt syns. I telefonens inbyggda
+ * webbläsare ligger verktygsfälten ovanpå sidan, så 100dvh blir högre än
+ * ytan man ser — kartan hamnade delvis utanför och panelen klipptes.
+ */
+export function kopplaLayout() {
+  const rot = document.documentElement;
+  const mat = () => {
+    const vv = window.visualViewport;
+    rot.style.setProperty('--app-h', Math.round(vv ? vv.height : window.innerHeight) + 'px');
+    const topp = $('topp');
+    if (topp && topp.offsetHeight) rot.style.setProperty('--topp-h', topp.offsetHeight + 'px');
+  };
+  mat();
+  ['resize', 'orientationchange'].forEach((h) => window.addEventListener(h, mat));
+  if (window.visualViewport) {
+    ['resize', 'scroll'].forEach((h) => window.visualViewport.addEventListener(h, mat));
+  }
+  if (window.ResizeObserver && $('topp')) new ResizeObserver(mat).observe($('topp'));
+  return mat;
 }
 
 /* ── Datum och tid ── */
