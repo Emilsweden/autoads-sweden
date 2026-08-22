@@ -91,6 +91,21 @@ Därefter skapas alla andra användare inifrån appen under **Admin → Använda
 `installera` slutar fungera så fort det finns en användare, så nyckeln kan inte
 missbrukas i efterhand.
 
+## Var appen ligger
+
+Workern serverar både API:et och appen, så adressen från deployen är hela
+systemet:
+
+```
+https://autoads-falt.<konto>.workers.dev
+```
+
+Det gör appen oberoende av autoads.se — ligger sajten nere fungerar fältsystemet
+ändå. App och API hamnar dessutom på samma adress, vilket tar bort alla
+korsdomänanrop.
+
+Kopian på `autoads.se/falt/` fungerar parallellt när domänen är uppe.
+
 ## Kom igång i appen
 
 1. **Admin → Områden → Nytt område** — t.ex. "Västeråsvägen", ort "Västerås".

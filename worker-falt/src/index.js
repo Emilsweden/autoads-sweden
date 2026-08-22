@@ -7,13 +7,6 @@
  * som "Authorization: Bearer <token>".
  */
 
-const TILLATNA_ORIGIN = [
-  'https://autoads.se',
-  'https://www.autoads.se',
-  'http://localhost:8080',
-  'http://127.0.0.1:8080',
-];
-
 const RESULTAT = ['bokat', 'ejsvar', 'nej', 'aterkom'];
 const ROLLER = { saljare: 1, teamleader: 2, admin: 3 };
 const SESSION_DAGAR = 30;
@@ -21,10 +14,16 @@ const DAG = 86400000;
 
 /* ══ Grundverktyg ══ */
 
+/**
+ * Alla adresser tillåts. Skyddet ligger i inloggningen: sessionen skickas i
+ * anropets kropp och inte i en kaka, så en främmande sajt kan inte rida på
+ * någons inloggning. Med en vitlista slutade appen i stället fungera varje
+ * gång den nåddes från en ny adress.
+ */
 function cors(request) {
   const origin = request.headers.get('Origin') || '';
   return {
-    'Access-Control-Allow-Origin': TILLATNA_ORIGIN.includes(origin) ? origin : TILLATNA_ORIGIN[0],
+    'Access-Control-Allow-Origin': origin || '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '86400',

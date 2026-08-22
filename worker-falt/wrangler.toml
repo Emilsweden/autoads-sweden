@@ -9,5 +9,11 @@ binding = "DB"
 database_name = "autoads-falt"
 database_id = "FYLL_I_DATABASE_ID_HAR"
 
+# Samma worker serverar appen, så den fungerar oberoende av autoads.se.
+# Filer som matchar en fil i falt/ serveras direkt; allt annat (/api/*, /halsa)
+# går vidare till koden i src/index.js.
+[assets]
+directory = "../falt"
+
 # Hemligheter sätts separat, inte här:
 #   npx wrangler secret put INSTALL_NYCKEL   (används en gång, för första admin)

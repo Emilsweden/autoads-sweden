@@ -180,10 +180,11 @@ jobs:
             echo
             echo "**Serveradress:** \`$URL\`"
             echo
-            echo "1. Öppna <https://autoads.se/falt/> i mobilen"
-            echo "2. Klistra in serveradressen ovan i fältet **Serveradress**"
-            echo "3. Logga in med \`${{ inputs.admin_epost }}\` och lösenordet från ADMIN_LOSENORD"
-            echo "4. Lägg till appen på hemskärmen"
+            echo "Appen serveras av samma adress — öppna den i mobilen och logga in."
+            echo
+            echo "1. Öppna <$URL> i mobilen"
+            echo "2. Logga in med \`${{ inputs.admin_epost }}\` och lösenordet från ADMIN_LOSENORD"
+            echo "3. Lägg till appen på hemskärmen"
             echo
             echo "Övriga säljare läggs upp inifrån appen under **Admin → Användare**."
           } >> "$GITHUB_STEP_SUMMARY"
