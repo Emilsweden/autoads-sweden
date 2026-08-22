@@ -1,7 +1,7 @@
 /** Kartvyn — alla dörrar i området som färgade punkter, plus säljarnas position. */
 
 import { anrop } from './api.js';
-import { $, esc, toast, STATUS_TEXT, STATUS_FARG, visaTidpunkt } from './ui.js';
+import { $, esc, toast, STATUS_FARG, visaTidpunkt } from './ui.js';
 import { S, arRoll } from './state.js';
 import { oppna as oppnaDorr } from './dorr.js';
 
@@ -10,6 +10,8 @@ let dorrLager = null;
 let saljarLager = null;
 let jagMarkor = null;
 let harCentrerat = false;
+let centreratOmrade = null;   // vilket urval kartan senast zoomade till
+let kartrutorFel = false;     // kartbilden kunde inte hämtas (nät/brandvägg)
 
 const VASTERAS = [59.6099, 16.5448];
 
@@ -23,10 +25,22 @@ function skapa() {
     return;
   }
   karta = L.map('karta', { zoomControl: true, attributionControl: true }).setView(VASTERAS, 13);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  const rutor = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap',
   }).addTo(karta);
+  // Utan kartbild ser kartan bara grå ut. Säg vad som hänt i stället —
+  // punkterna fungerar ändå, de ligger i ett eget lager.
+  rutor.on('tileerror', () => {
+    if (kartrutorFel) return;
+    kartrutorFel = true;
+    uppdateraBanner();
+  });
+  rutor.on('tileload', () => {
+    if (!kartrutorFel) return;
+    kartrutorFel = false;
+    uppdateraBanner();
+  });
   dorrLager = L.layerGroup().addTo(karta);
   saljarLager = L.layerGroup().addTo(karta);
 
@@ -34,6 +48,32 @@ function skapa() {
     ['ejbesokt', 'Ej besökt'], ['bokat', 'Bokad'], ['ejsvar', 'Inget svar'],
     ['aterkom', 'Återkom'], ['nej', 'Nej'], ['sparrad', 'Nyligen besökt'],
   ].map(([k, t]) => '<span><i style="background:' + STATUS_FARG[k] + '"></i>' + t + '</span>').join('');
+}
+
+let saknarKoordinat = 0;
+let harDorrar = 0;
+
+/**
+ * Förklarar varför kartan ser tom ut. Två skäl kan gälla samtidigt:
+ * inklistrade adresser utan koordinater, och kartbild som inte gick att hämta.
+ */
+function uppdateraBanner() {
+  const banner = $('kartBanner');
+  if (!banner) return;
+  const rader = [];
+  if (saknarKoordinat) {
+    rader.push(harDorrar
+      ? saknarKoordinat + ' av dörrarna saknar koordinater och syns inte här. ' +
+        'Hämta dem under Admin → Områden, eller använd listan under Dörrar.'
+      : 'Ingen av de ' + saknarKoordinat + ' dörrarna har koordinater, så kartan är tom. ' +
+        'Hämta koordinater under Admin → Områden — eller jobba i listan under Dörrar så länge.');
+  }
+  if (kartrutorFel) {
+    rader.push('Kartbilden kunde inte hämtas just nu (dålig täckning eller blockerat nät). ' +
+      'Dörrpunkterna fungerar ändå.');
+  }
+  banner.hidden = rader.length === 0;
+  banner.innerHTML = rader.map(esc).join('<br>');
 }
 
 /** Ritar om alla dörrpunkter utifrån aktuellt urval. */
@@ -49,7 +89,7 @@ export function rita() {
     const sparrad = a.sparrad_till > nu && a.status !== 'ejbesokt';
     const markor = L.circleMarker([a.lat, a.lon], {
       radius: 8,
-      color: sparrad ? STATUS_FARG.sparrad : '#0d0d0d',
+      color: sparrad ? STATUS_FARG.sparrad : '#ffffff',
       weight: sparrad ? 3 : 1.5,
       fillColor: STATUS_FARG[a.status] || STATUS_FARG.ejbesokt,
       fillOpacity: 0.95,
@@ -65,8 +105,16 @@ export function rita() {
     synliga.length + ' dörrar på kartan' +
     (utanKoordinat ? ' · ' + utanKoordinat + ' saknar koordinat' : '');
 
-  if (!harCentrerat && synliga.length) {
+  saknarKoordinat = utanKoordinat;
+  harDorrar = synliga.length;
+  uppdateraBanner();
+
+  // Zooma till dörrarna första gången, och varje gång området byts —
+  // annars blev man kvar på förra områdets vy.
+  const urval = S.valtOmrade || 'alla';
+  if (synliga.length && centreratOmrade !== urval) {
     karta.fitBounds(L.latLngBounds(synliga.map((a) => [a.lat, a.lon])), { padding: [40, 40], maxZoom: 17 });
+    centreratOmrade = urval;
     harCentrerat = true;
   }
 }
@@ -75,10 +123,22 @@ export function rita() {
 export function visa() {
   skapa();
   if (!karta) return;
-  setTimeout(() => karta.invalidateSize(), 60);
+  // Två omräkningar: en direkt och en när layouten hunnit sätta sig.
+  karta.invalidateSize();
+  setTimeout(() => karta.invalidateSize(), 200);
   rita();
   if (arRoll('teamleader')) ritaSaljare();
 }
+
+// Rotation och storleksändring gör annars kartan grå tills man rör den.
+let omraknare = null;
+['resize', 'orientationchange'].forEach((h) => {
+  window.addEventListener(h, () => {
+    if (!karta) return;
+    clearTimeout(omraknare);
+    omraknare = setTimeout(() => karta.invalidateSize(), 150);
+  });
+});
 
 export function centreraPa(adress) {
   if (!karta || !adress.lat) return;
@@ -89,12 +149,16 @@ export function egenPosition(lat, lon) {
   if (!karta) return;
   if (!jagMarkor) {
     jagMarkor = L.circleMarker([lat, lon], {
-      radius: 7, color: '#fff', weight: 2, fillColor: '#c9a84c', fillOpacity: 1,
+      radius: 7, color: '#ffffff', weight: 3, fillColor: '#1c1a17', fillOpacity: 1,
     }).addTo(karta).bindTooltip('Du');
   } else {
     jagMarkor.setLatLng([lat, lon]);
   }
-  if (!harCentrerat) { karta.setView([lat, lon], 17); harCentrerat = true; }
+  // Dörrarna har företräde; hoppa hit bara när det inte finns några att visa.
+  if (!harCentrerat && !dorrLager.getLayers().length) {
+    karta.setView([lat, lon], 17);
+    harCentrerat = true;
+  }
 }
 
 async function ritaSaljare() {
@@ -106,8 +170,8 @@ async function ritaSaljare() {
       L.marker([p.lat, p.lon], {
         icon: L.divIcon({
           className: '',
-          html: '<div style="background:#c9a84c;color:#0d0d0d;font-size:10px;font-weight:700;' +
-            'padding:3px 7px;border-radius:999px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.6)">' +
+          html: '<div style="background:#8a6d23;color:#fff;font-size:10px;font-weight:700;' +
+            'padding:3px 7px;border-radius:999px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.35)">' +
             esc(p.namn) + '</div>',
           iconAnchor: [20, 10],
         }),
@@ -133,8 +197,4 @@ export async function nastaDorr() {
   } catch (e) {
     toast('Kunde inte hämta nästa dörr: ' + e.message);
   }
-}
-
-export function statusText(a) {
-  return STATUS_TEXT[a.status] || a.status;
 }
