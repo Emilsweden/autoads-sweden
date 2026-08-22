@@ -482,6 +482,48 @@ api['handelse'] = async (env, request, body, anv) => {
   return { handelse_id: handelseId, bokning, status };
 };
 
+/**
+ * Skapar en adress på plats när säljaren står vid en dörr som inte finns i
+ * området — t.ex. en manuell bokning. Finns adressen redan återanvänds den,
+ * så att historiken hänger ihop och inga dubbletter uppstår.
+ */
+api['adress-ny'] = async (env, request, body, anv) => {
+  const gata = txt(body.gata, 120);
+  const nummer = txt(body.nummer, 20);
+  if (!gata || !nummer) throw new Fel('Gata och husnummer krävs');
+  const postort = txt(body.postort, 80);
+  const nyckel = adressnyckel(gata, nummer, postort);
+
+  const befintlig = await en(env,
+    `SELECT a.*, u.namn AS senast_namn FROM adresser a
+     LEFT JOIN anvandare u ON u.id = a.senast_av WHERE a.nyckel = ?1`, nyckel);
+  if (befintlig) return { adress: putsaAdress(befintlig), fanns: true };
+
+  // Område: det säljaren valt, annars en samlingsplats för lösa adresser.
+  const synliga = await synligaOmraden(env, anv);
+  let omradeId = txt(body.omrade_id, 40);
+  if (!omradeId || !synliga.some((o) => o.id === omradeId)) {
+    let ovriga = synliga.find((o) => o.namn === 'Övriga adresser');
+    if (!ovriga) {
+      ovriga = { id: uid() };
+      await kor(env, 'INSERT INTO omraden (id,namn,ort,skapad) VALUES (?1,?2,?3,?4)',
+        ovriga.id, 'Övriga adresser', postort, Date.now());
+    }
+    omradeId = ovriga.id;
+  }
+
+  const id = uid();
+  await kor(env,
+    `INSERT INTO adresser (id,omrade_id,gata,nummer,postort,nyckel,lat,lon,status,skapad)
+     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'ejbesokt',?9)`,
+    id, omradeId, gata, nummer, postort, nyckel,
+    body.lat === undefined ? null : nr(body.lat, null),
+    body.lon === undefined ? null : nr(body.lon, null), Date.now());
+
+  const skapad = await en(env, 'SELECT * FROM adresser WHERE id = ?1', id);
+  return { adress: putsaAdress(skapad), fanns: false };
+};
+
 /** Dörrar som ska besökas igen — säljarens arbetslista. */
 api['aterbesok'] = async (env, request, body, anv) => {
   const synliga = (await synligaOmraden(env, anv)).map((o) => o.id);
