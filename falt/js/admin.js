@@ -94,8 +94,86 @@ function ritaOmraden() {
     '<button class="chip" data-import="' + esc(o.id) + '">Importera adresser</button>' +
     '<button class="chip" data-tilldela="' + esc(o.id) + '">Tilldela säljare</button>' +
     '<button class="chip" data-redigera="' + esc(o.id) + '">Byt namn</button>' +
+    (saknarKoordinat(o.id) ? '<button class="chip" data-koord="' + esc(o.id) + '">Hämta koordinater (' +
+      saknarKoordinat(o.id) + ')</button>' : '') +
     '</div></div>').join('') +
     '</div><div class="sektion"><button class="btn btn-primary" id="nyttOmrade">Nytt område</button></div>';
+}
+
+/** Antal adresser i området som inte kan ritas på kartan. */
+function saknarKoordinat(omradeId) {
+  return S.adresser.filter((a) => a.omrade_id === omradeId && (!a.lat || !a.lon)).length;
+}
+
+/**
+ * Fyller på koordinater för adresser som saknar dem — typiskt sådana som
+ * klistrats in. Slår upp en gata i taget mot kartan i stället för en adress
+ * i taget, och matchar husnumren mot det som redan finns i området.
+ */
+async function hamtaKoordinater(o) {
+  const utan = S.adresser.filter((a) => a.omrade_id === o.id && (!a.lat || !a.lon));
+  if (!utan.length) { toast('Alla adresser har redan koordinater'); return; }
+
+  const gator = [...new Set(utan.map((a) => a.gata))];
+  const ort = o.ort || (utan.find((a) => a.postort) || {}).postort || '';
+  if (!ort) { toast('Området saknar ort — fyll i den under Byt namn först'); return; }
+
+  oppnaPanel('modal',
+    '<h2>Hämtar koordinater</h2>' +
+    '<p class="sub">' + esc(utan.length + ' adresser på ' + gator.length +
+      (gator.length === 1 ? ' gata' : ' gator') + ' i ' + ort + '.') + '</p>' +
+    '<pre class="testsvar" id="koordLogg">Startar…</pre>' +
+    '<div class="btn-rad"><button class="btn btn-primary" id="koordStang">Stäng</button></div>');
+  $('koordStang').onclick = () => stangPanel('modal');
+
+  const logg = [];
+  const skriv = (rad) => {
+    logg.push(rad);
+    const ruta = $('koordLogg');
+    if (ruta) ruta.textContent = logg.join('\n');
+  };
+
+  const nyckel = (n) => String(n || '').toLowerCase().replace(/\s+/g, '');
+  let uppdaterade = 0;
+
+  for (const gata of gator) {
+    skriv('Söker ' + gata + '…');
+    let traffar = [];
+    try {
+      traffar = await hamtaFranKarta(gata, ort);
+    } catch (e) {
+      skriv('  kartsökningen misslyckades: ' + e.message);
+      continue;
+    }
+
+    const karta = new Map(traffar.map((t) => [nyckel(t.nummer), t]));
+    const uppdatering = utan
+      .filter((a) => a.gata === gata && karta.has(nyckel(a.nummer)))
+      .map((a) => ({
+        gata: a.gata,
+        nummer: a.nummer,
+        postort: a.postort,
+        lat: karta.get(nyckel(a.nummer)).lat,
+        lon: karta.get(nyckel(a.nummer)).lon,
+      }));
+
+    if (!uppdatering.length) {
+      skriv('  hittade ' + traffar.length + ' husnummer, men inget som matchade');
+      continue;
+    }
+    try {
+      await anrop('adresser-importera', { omrade_id: o.id, adresser: uppdatering });
+      uppdaterade += uppdatering.length;
+      skriv('  ' + uppdatering.length + ' av ' + utan.filter((a) => a.gata === gata).length + ' fick koordinater');
+    } catch (e) {
+      skriv('  kunde inte spara: ' + e.message);
+    }
+  }
+
+  skriv(uppdaterade
+    ? '\nKlart — ' + uppdaterade + ' adresser syns nu på kartan.'
+    : '\nInga koordinater kunde hämtas. Kontrollera att ortsnamnet stämmer.');
+  if (uppdaterade) { dataAndrad(); await rita(); }
 }
 
 function omradesFormular(o) {
@@ -323,6 +401,9 @@ export async function rita() {
   });
   behallare.querySelectorAll('[data-redigera]').forEach((b) => {
     b.onclick = () => omradesFormular(omradesData.find((o) => o.id === b.dataset.redigera));
+  });
+  behallare.querySelectorAll('[data-koord]').forEach((b) => {
+    b.onclick = () => hamtaKoordinater(omradesData.find((o) => o.id === b.dataset.koord));
   });
 
   const nyAnv = $('nyAnvandare');
