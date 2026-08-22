@@ -110,11 +110,11 @@ export const RESULTAT_TEXT = {
 };
 
 export const STATUS_FARG = {
-  ejbesokt: '#5b8fd6',
-  bokat: '#4caf7d',
-  ejsvar: '#d9b23c',
-  aterkom: '#e08a3c',
-  nej: '#d9564c',
+  ejbesokt: '#2a63a8',
+  bokat: '#217a4b',
+  ejsvar: '#8a6a12',
+  aterkom: '#b3591a',
+  nej: '#b3271c',
   sparrad: '#6d6864',
 };
 
