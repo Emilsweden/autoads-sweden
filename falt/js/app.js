@@ -5,6 +5,7 @@ import { VERSION } from '../config.js';
 import { $, esc, toast, oppnaPanel, stangPanel, kopplaStangning, idag } from './ui.js';
 import { S, buss, arRoll, dataAndrad } from './state.js';
 import * as karta from './karta.js';
+import { manuell as manuellBokning } from './dorr.js';
 import * as listor from './listor.js';
 import * as dashboard from './dashboard.js';
 import * as admin from './admin.js';
@@ -184,6 +185,43 @@ function visaServerfalt() {
   $('lServer').value = giltig || bas();
 }
 
+/**
+ * Kontrollerar anslutningen steg för steg och skriver ut vad som händer.
+ * Finns för att ett misslyckat anrop annars inte säger något alls om orsaken.
+ */
+async function testaAnslutning() {
+  const ruta = $('testaSvar');
+  ruta.hidden = false;
+  ruta.textContent = 'Testar…';
+
+  const rader = [
+    'Version: ' + VERSION,
+    'Sida: ' + location.origin,
+    'Server: ' + (bas() || '(saknas)'),
+    'Uppkopplad enligt telefonen: ' + (navigator.onLine ? 'ja' : 'nej'),
+  ];
+
+  try {
+    const r = await fetch(bas() + '/halsa', { cache: 'no-store' });
+    rader.push('1. Hämta /halsa: ' + r.status + ' ' + (r.ok ? 'OK' : 'fel'));
+  } catch (e) {
+    rader.push('1. Hämta /halsa: MISSLYCKADES — ' + e.name + ': ' + e.message);
+  }
+
+  try {
+    const r = await fetch(bas() + '/api/logga-in', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body: '{}',
+    });
+    rader.push('2. Skicka POST: ' + r.status + (r.status === 400 ? ' (väntat — tomt formulär)' : ''));
+  } catch (e) {
+    rader.push('2. Skicka POST: MISSLYCKADES — ' + e.name + ': ' + e.message);
+  }
+
+  ruta.textContent = rader.join('\n');
+}
+
 async function loggaIn(ev) {
   ev.preventDefault();
   if ($('lServer')) sattBas($('lServer').value);
@@ -244,6 +282,9 @@ $('loginForm').addEventListener('submit', loggaIn);
 $('profilKnapp').addEventListener('click', visaProfil);
 $('koPill').addEventListener('click', skickaKo);
 $('nastaDorr').addEventListener('click', karta.nastaDorr);
+['manuellDorr', 'manuellDorr2'].forEach((id) => {
+  $(id).addEventListener('click', () => manuellBokning(S.omraden, S.valtOmrade));
+});
 $('omradeVal').addEventListener('change', async (ev) => {
   S.valtOmrade = ev.target.value;
   await laddaDorrar();
@@ -267,6 +308,7 @@ setInterval(skickaKo, 30000);
 setInterval(() => { if (!document.hidden && S.anvandare && S.vy !== 'dashboard') laddaDorrar(); }, 45000);
 
 $('appVersion').textContent = 'Version ' + VERSION;
+$('testaKnapp').addEventListener('click', testaAnslutning);
 visaKo();
 visaServerfalt();
 if (token() && bas()) start();

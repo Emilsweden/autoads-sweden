@@ -248,8 +248,12 @@ function statusruta() {
     (nyligen ? '<b>Nyligen bearbetad dörr</b><br>' : '') + rader.join('<br>') + '</div>';
 }
 
-/** Öppnar dörrpanelen för en adress. */
-export async function oppna(adressId) {
+/**
+ * Öppnar dörrpanelen för en adress.
+ * `direktBokning` hoppar rakt till bokningsformuläret, vilket används av
+ * manuell bokning där säljaren redan vet att kunden tackat ja.
+ */
+export async function oppna(adressId, direktBokning) {
   oppnaPanel('dorr', '<h2>Hämtar…</h2>');
   try {
     const data = await anrop('adress', { id: adressId });
@@ -284,4 +288,57 @@ export async function oppna(adressId) {
       else visaTidsval(r);
     };
   });
+
+  if (direktBokning) visaBokning();
+}
+
+/**
+ * Manuell bokning: säljaren skriver in en adress som inte finns i området,
+ * den skapas (eller återanvänds om den redan finns) och bokningen öppnas.
+ */
+export function manuell(omraden, valtOmrade) {
+  const omradesVal = omraden.length
+    ? '<div class="field"><label for="mOmrade">Område</label><select id="mOmrade">' +
+      '<option value="">Övriga adresser</option>' +
+      omraden.map((o) => '<option value="' + esc(o.id) + '"' +
+        (o.id === valtOmrade ? ' selected' : '') + '>' + esc(o.namn) + '</option>').join('') +
+      '</select></div>'
+    : '';
+
+  oppnaPanel('dorr',
+    '<h2>Manuell bokning</h2>' +
+    '<p class="sub">För en adress som inte finns i listan. Finns den redan används den befintliga dörren, så historiken hänger ihop.</p>' +
+    '<div class="field" style="margin-top:16px"><label for="mGata">Gata</label>' +
+    '<input id="mGata" type="text" placeholder="Västeråsvägen" autocomplete="off"></div>' +
+    '<div class="rad2">' +
+    '<div class="field"><label for="mNummer">Husnummer</label><input id="mNummer" type="text" placeholder="17" autocomplete="off"></div>' +
+    '<div class="field"><label for="mPostort">Postort</label><input id="mPostort" type="text" placeholder="Västerås" autocomplete="off"></div>' +
+    '</div>' + omradesVal +
+    '<div class="err" id="mFel"></div>' +
+    '<div class="btn-rad"><button class="btn btn-ghost" id="mAvbryt">Avbryt</button>' +
+    '<button class="btn btn-primary" id="mNasta">Fortsätt</button></div>');
+
+  $('mAvbryt').onclick = () => stangPanel('dorr');
+  $('mNasta').onclick = async () => {
+    const gata = $('mGata').value.trim();
+    const nummer = $('mNummer').value.trim();
+    if (!gata || !nummer) { $('mFel').textContent = 'Fyll i gata och husnummer.'; return; }
+
+    $('mNasta').textContent = 'Hämtar…';
+    try {
+      const svar = await anrop('adress-ny', {
+        gata,
+        nummer,
+        postort: $('mPostort').value.trim(),
+        omrade_id: $('mOmrade') ? $('mOmrade').value || undefined : undefined,
+        ...(S.position ? { lat: S.position.lat, lon: S.position.lon } : {}),
+      });
+      if (svar.fanns) toast('Adressen fanns redan — öppnar den');
+      dataAndrad();
+      oppna(svar.adress.id, true);
+    } catch (e) {
+      $('mNasta').textContent = 'Fortsätt';
+      $('mFel').textContent = e.message;
+    }
+  };
 }
