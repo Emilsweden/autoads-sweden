@@ -2,7 +2,7 @@
 
 import { anrop, ApiFel, bas, sattBas, token, sattToken, ko, tommeKo } from './api.js';
 import { VERSION } from '../config.js';
-import { $, esc, toast, oppnaPanel, stangPanel, kopplaStangning, idag } from './ui.js';
+import { $, esc, toast, oppnaPanel, stangPanel, kopplaStangning, kopplaLayout } from './ui.js';
 import { S, buss, arRoll, dataAndrad } from './state.js';
 import * as karta from './karta.js';
 import { manuell as manuellBokning } from './dorr.js';
@@ -263,6 +263,7 @@ async function start() {
   $('initialer').textContent = (S.anvandare.namn || '?')
     .split(/\s+/).slice(0, 2).map((d) => d[0]).join('').toUpperCase();
 
+  matLayout();
   fyllOmradesval();
   dashboard.koppla();
   listor.kopplaBokningar(arRoll('teamleader') ? (await hamtaSaljare()) : [S.anvandare]);
@@ -294,6 +295,7 @@ $('omradeVal').addEventListener('change', async (ev) => {
 listor.kopplaLista();
 admin.koppla();
 kopplaStangning();
+const matLayout = kopplaLayout();
 
 buss.addEventListener('data', async () => {
   await laddaDorrar();

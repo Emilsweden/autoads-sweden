@@ -28,6 +28,9 @@
 
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* Höjden på det som faktiskt syns; sätts från JS eftersom telefonens
+     verktygsfält ligger ovanpå sidan och gör 100dvh för högt. */
+  --app-h: 100dvh;
   --botten-h: calc(62px + var(--safe-bottom));
 }
 
@@ -123,7 +126,7 @@ button { cursor: pointer; border: none; background: none; }
    fast höjd bort, vilket blev fel så fort teckenförklaringen radbröts. */
 #vy-karta {
   display: flex; flex-direction: column;
-  height: calc(100dvh - var(--botten-h) - var(--topp-h, 84px));
+  height: calc(var(--app-h) - var(--botten-h) - var(--topp-h, 84px));
 }
 #karta { flex: 1 1 auto; min-height: 200px; background: var(--bg-2); }
 .kartbanner {
@@ -132,6 +135,19 @@ button { cursor: pointer; border: none; background: none; }
   color: #7a3d10; font-size: 12.5px; line-height: 1.5;
 }
 .leaflet-container { background: #e9e6e1; font: inherit; }
+
+/* Rutan som kommer upp när man trycker på ett hus utan registrerad dörr. */
+.kartpopp { min-width: 150px; font-size: 13.5px; line-height: 1.4; }
+.kartpopp b { font-size: 15px; }
+.kartpopp-ort { color: var(--dim); font-size: 12.5px; margin-bottom: 8px; }
+.kartpopp-knapp {
+  display: block; width: 100%; margin-top: 6px; padding: 9px 12px; border-radius: 9px;
+  background: var(--gold); color: #fff; font-weight: 600; font-size: 13.5px;
+}
+.kartpopp-knapp.ghost { background: var(--bg-input); border: 1px solid var(--linje); color: var(--text); font-weight: 500; }
+.karttips {
+  flex: 0 0 auto; padding: 8px 16px 0; font-size: 11.5px; color: var(--dim);
+}
 .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--bg-card); color: var(--text); }
 .leaflet-popup-content { margin: 10px 12px; font-size: 13.5px; }
 .leaflet-bar a { background: var(--bg-card); color: var(--text); border-color: var(--linje); }
@@ -210,18 +226,29 @@ button { cursor: pointer; border: none; background: none; }
 
 /* ══ PANELER ══ */
 .overlay {
-  position: fixed; inset: 0; z-index: 50; background: rgba(28,26,23,0.45);
+  position: fixed; top: 0; left: 0; right: 0; height: var(--app-h);
+  z-index: 50; background: rgba(28,26,23,0.45);
   backdrop-filter: blur(3px); display: none; align-items: flex-end; justify-content: center;
 }
 .overlay.open { display: flex; }
 .panel {
-  width: 100%; max-width: 560px; max-height: 92dvh; overflow-y: auto;
+  width: 100%; max-width: 560px; max-height: calc(var(--app-h) - 20px); overflow-y: auto;
   background: var(--bg-2); border: 1px solid var(--linje); border-bottom: none;
   border-radius: 20px 20px 0 0; padding: 8px 16px calc(20px + var(--safe-bottom));
   animation: upp 0.2s cubic-bezier(0.16,1,0.3,1);
 }
 @keyframes upp { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-.greppa { width: 38px; height: 4px; border-radius: 2px; background: rgba(0,0,0,0.18); margin: 6px auto 14px; }
+/* Panelens huvud ligger kvar överst när innehållet rullar, så att
+   krysset alltid går att nå. */
+.panelhuvud {
+  position: sticky; top: 0; z-index: 2; margin: 0 -16px 8px;
+  padding: 6px 16px 4px; background: var(--bg-2);
+}
+.greppa { width: 38px; height: 4px; border-radius: 2px; background: rgba(0,0,0,0.18); margin: 6px auto 8px; }
+.stangkryss {
+  position: absolute; right: 12px; top: 2px; width: 34px; height: 34px; border-radius: 50%;
+  background: var(--bg-input); border: 1px solid var(--linje); color: var(--dim); font-size: 14px;
+}
 .panel h2 { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
 .panel h3 { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); margin: 20px 0 9px; }
 .panel .sub { font-size: 13px; color: var(--dim); margin-top: 3px; }

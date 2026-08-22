@@ -8,7 +8,8 @@ import {
   $, esc, toast, oppnaPanel, stangPanel, idag, plusDagar, visaDatum, visaTidpunkt,
   sedan, STATUS_TEXT, RESULTAT_TEXT, NEJ_ORSAKER,
 } from './ui.js';
-import { S, dataAndrad } from './state.js';
+import { S, arRoll, dataAndrad } from './state.js';
+import { delaAdress } from './geo.js';
 
 let aktuell = null;   // { adress, historik, bokningar }
 
@@ -277,7 +278,10 @@ export async function oppna(adressId, direktBokning) {
     '<button class="r-nej" data-r="nej">NEJ</button>' +
     '<button class="r-aterkom" data-r="aterkom">ÅTERKOM</button>' +
     '</div>' +
-    '<h3>Historik</h3>' + historikHtml();
+    '<h3>Historik</h3>' + historikHtml() +
+    (arRoll('teamleader') && !aktuell.offline
+      ? '<div class="btn-rad"><button class="btn btn-ghost" id="dRatta">Rätta adressen</button></div>'
+      : '');
 
   const panel = oppnaPanel('dorr', html);
   panel.querySelectorAll('.resultat button').forEach((b) => {
@@ -288,15 +292,79 @@ export async function oppna(adressId, direktBokning) {
       else visaTidsval(r);
     };
   });
+  if ($('dRatta')) $('dRatta').onclick = visaRatta;
 
   if (direktBokning) visaBokning();
+}
+
+/**
+ * Rättar en dörr som fått fel adress — t.ex. när hela adressen klistrats in
+ * i gatufältet — eller tar bort den helt om den aldrig har besökts.
+ */
+function visaRatta() {
+  const a = aktuell.adress;
+  oppnaPanel('dorr',
+    '<h2>Rätta adressen</h2>' +
+    '<p class="sub">Historiken följer med dörren, bara adresstexten ändras.</p>' +
+    '<div class="field" style="margin-top:16px"><label for="rGata">Gata</label>' +
+    '<input id="rGata" type="text" value="' + esc(a.gata || '') + '" autocomplete="off"></div>' +
+    '<div class="rad2">' +
+    '<div class="field"><label for="rNummer">Husnummer</label>' +
+    '<input id="rNummer" type="text" value="' + esc(a.nummer || '') + '" autocomplete="off"></div>' +
+    '<div class="field"><label for="rPostort">Postort</label>' +
+    '<input id="rPostort" type="text" value="' + esc(a.postort || '') + '" autocomplete="off"></div>' +
+    '</div>' +
+    '<div class="err" id="rFel"></div>' +
+    '<div class="btn-rad"><button class="btn btn-ghost" id="rTillbaka">Tillbaka</button>' +
+    '<button class="btn btn-primary" id="rSpara">Spara</button></div>' +
+    '<button class="btn btn-ghost" id="rBort" style="margin-top:10px">Ta bort dörren</button>');
+
+  delaVidInmatning('rGata', 'rNummer', 'rPostort');
+
+  $('rTillbaka').onclick = () => oppna(a.id);
+  $('rSpara').onclick = async () => {
+    try {
+      await anrop('adress-andra', {
+        id: a.id,
+        gata: $('rGata').value.trim(),
+        nummer: $('rNummer').value.trim(),
+        postort: $('rPostort').value.trim(),
+      });
+      toast('Adressen är rättad ✓');
+      dataAndrad();
+      oppna(a.id);
+    } catch (e) { $('rFel').textContent = e.message; }
+  };
+  $('rBort').onclick = async () => {
+    if (!confirm('Ta bort ' + (a.adress || 'dörren') + ' helt?')) return;
+    try {
+      await anrop('adress-ta-bort', { id: a.id });
+      toast('Dörren är borttagen');
+      stangPanel('dorr');
+      dataAndrad();
+    } catch (e) { $('rFel').textContent = e.message; }
+  };
+}
+
+/**
+ * Delar upp en hel adress som skrivits i gatufältet, så att
+ * "Sippgatan 9, 942 33 Byske" hamnar i rätt rutor i stället för allt i en.
+ */
+function delaVidInmatning(gataId, nummerId, postortId) {
+  $(gataId).addEventListener('blur', () => {
+    const delad = delaAdress($(gataId).value);
+    if (!delad.nummer && !delad.postort) return;
+    $(gataId).value = delad.gata;
+    if (delad.nummer && !$(nummerId).value.trim()) $(nummerId).value = delad.nummer;
+    if (delad.postort && !$(postortId).value.trim()) $(postortId).value = delad.postort;
+  });
 }
 
 /**
  * Manuell bokning: säljaren skriver in en adress som inte finns i området,
  * den skapas (eller återanvänds om den redan finns) och bokningen öppnas.
  */
-export function manuell(omraden, valtOmrade) {
+export function manuell(omraden, valtOmrade, forval = {}) {
   const omradesVal = omraden.length
     ? '<div class="field"><label for="mOmrade">Område</label><select id="mOmrade">' +
       '<option value="">Övriga adresser</option>' +
@@ -309,33 +377,43 @@ export function manuell(omraden, valtOmrade) {
     '<h2>Manuell bokning</h2>' +
     '<p class="sub">För en adress som inte finns i listan. Finns den redan används den befintliga dörren, så historiken hänger ihop.</p>' +
     '<div class="field" style="margin-top:16px"><label for="mGata">Gata</label>' +
-    '<input id="mGata" type="text" placeholder="Västeråsvägen" autocomplete="off"></div>' +
+    '<input id="mGata" type="text" placeholder="Västeråsvägen" autocomplete="off" value="' + esc(forval.gata || '') + '"></div>' +
     '<div class="rad2">' +
-    '<div class="field"><label for="mNummer">Husnummer</label><input id="mNummer" type="text" placeholder="17" autocomplete="off"></div>' +
-    '<div class="field"><label for="mPostort">Postort</label><input id="mPostort" type="text" placeholder="Västerås" autocomplete="off"></div>' +
+    '<div class="field"><label for="mNummer">Husnummer</label><input id="mNummer" type="text" placeholder="17" autocomplete="off" value="' + esc(forval.nummer || '') + '"></div>' +
+    '<div class="field"><label for="mPostort">Postort</label><input id="mPostort" type="text" placeholder="Västerås" autocomplete="off" value="' + esc(forval.postort || '') + '"></div>' +
     '</div>' + omradesVal +
     '<div class="err" id="mFel"></div>' +
     '<div class="btn-rad"><button class="btn btn-ghost" id="mAvbryt">Avbryt</button>' +
     '<button class="btn btn-primary" id="mNasta">Fortsätt</button></div>');
 
+  delaVidInmatning('mGata', 'mNummer', 'mPostort');
+
   $('mAvbryt').onclick = () => stangPanel('dorr');
   $('mNasta').onclick = async () => {
-    const gata = $('mGata').value.trim();
-    const nummer = $('mNummer').value.trim();
+    // Har hela adressen skrivits i gatufältet delas den upp här också,
+    // för den som trycker direkt utan att lämna fältet.
+    const delad = delaAdress($('mGata').value);
+    const gata = (delad.nummer ? delad.gata : $('mGata').value).trim();
+    const nummer = ($('mNummer').value || delad.nummer || '').trim();
+    const postort = ($('mPostort').value || delad.postort || '').trim();
     if (!gata || !nummer) { $('mFel').textContent = 'Fyll i gata och husnummer.'; return; }
 
     $('mNasta').textContent = 'Hämtar…';
     try {
+      const lage = forval.lat !== undefined ? { lat: forval.lat, lon: forval.lon }
+        : (S.position ? { lat: S.position.lat, lon: S.position.lon } : {});
       const svar = await anrop('adress-ny', {
         gata,
         nummer,
-        postort: $('mPostort').value.trim(),
+        postort,
         omrade_id: $('mOmrade') ? $('mOmrade').value || undefined : undefined,
-        ...(S.position ? { lat: S.position.lat, lon: S.position.lon } : {}),
+        ...lage,
       });
       if (svar.fanns) toast('Adressen fanns redan — öppnar den');
       dataAndrad();
-      oppna(svar.adress.id, true);
+      // Från kartan vill man välja utfall, från knappen Manuell bokning
+      // är kunden redan bokad och då öppnas bokningsformuläret direkt.
+      oppna(svar.adress.id, !forval.lat);
     } catch (e) {
       $('mNasta').textContent = 'Fortsätt';
       $('mFel').textContent = e.message;

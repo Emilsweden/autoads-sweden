@@ -3,6 +3,7 @@
 import { anrop } from './api.js';
 import { $, esc, toast, oppnaPanel, stangPanel, procent } from './ui.js';
 import { S, arRoll, dataAndrad } from './state.js';
+import { husnummerPaGata } from './geo.js';
 
 let flik = 'omraden';
 let omradesData = [];
@@ -35,33 +36,6 @@ export function tolkaAdresser(text, postort) {
     });
   });
   return ut;
-}
-
-/** Hämtar husnummer med koordinater från OpenStreetMap. */
-async function hamtaFranKarta(gata, ort) {
-  const fraga =
-    '[out:json][timeout:30];' +
-    'area[name="' + ort.replace(/"/g, '') + '"]->.a;' +
-    '(node["addr:street"="' + gata.replace(/"/g, '') + '"](area.a);' +
-    'way["addr:street"="' + gata.replace(/"/g, '') + '"](area.a););' +
-    'out center;';
-
-  const svar = await fetch('https://overpass-api.de/api/interpreter', {
-    method: 'POST',
-    body: 'data=' + encodeURIComponent(fraga),
-  });
-  if (!svar.ok) throw new Error('Kartsökningen svarade ' + svar.status);
-  const data = await svar.json();
-
-  return (data.elements || [])
-    .map((e) => ({
-      gata: (e.tags && e.tags['addr:street']) || gata,
-      nummer: e.tags && e.tags['addr:housenumber'],
-      postort: (e.tags && e.tags['addr:city']) || ort,
-      lat: e.lat || (e.center && e.center.lat),
-      lon: e.lon || (e.center && e.center.lon),
-    }))
-    .filter((a) => a.nummer && a.lat);
 }
 
 /* ══ Områden ══ */
@@ -140,7 +114,7 @@ async function hamtaKoordinater(o) {
     skriv('Söker ' + gata + '…');
     let traffar = [];
     try {
-      traffar = await hamtaFranKarta(gata, ort);
+      traffar = await husnummerPaGata(gata, ort);
     } catch (e) {
       skriv('  kartsökningen misslyckades: ' + e.message);
       continue;
@@ -258,7 +232,7 @@ function importFormular(o) {
     if (!gata || !ort) { $('iFel').textContent = 'Fyll i både gata och ort.'; return; }
     $('iHamta').textContent = 'Söker…';
     try {
-      franKarta = await hamtaFranKarta(gata, ort);
+      franKarta = await husnummerPaGata(gata, ort);
       $('iHamta').textContent = franKarta.length
         ? 'Hittade ' + franKarta.length + ' husnummer — tryck Importera'
         : 'Hittade inga husnummer — klistra in istället';
