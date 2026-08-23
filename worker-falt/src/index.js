@@ -534,6 +534,38 @@ api['adress-ny'] = async (env, request, body, anv) => {
 };
 
 /**
+ * Sparar en omgång dörrar från säljarens anteckningar: varje rad blir en
+ * adress (befintlig återanvänds) och, om ett utfall angetts, ett besök.
+ * Anteckningarna skrivs efter besöket, så spärren behöver inte bekräftas.
+ */
+api['anteckningar-importera'] = async (env, request, body, anv) => {
+  const rader = Array.isArray(body.rader) ? body.rader.slice(0, 100) : [];
+  const postort = txt(body.postort, 80);
+  const omradeId = txt(body.omrade_id, 40);
+  const ut = [];
+
+  for (const r of rader) {
+    const gata = txt(r.gata, 120);
+    const nummer = txt(r.nummer, 20);
+    if (!gata || !nummer) { ut.push({ gata, nummer, fel: 'Gata och husnummer krävs' }); continue; }
+    try {
+      const { adress, fanns } = await api['adress-ny'](env, request,
+        { gata, nummer, postort: txt(r.postort, 80) || postort, omrade_id: omradeId }, anv);
+
+      const resultat = RESULTAT.includes(r.resultat) ? r.resultat : null;
+      if (resultat) {
+        await api['handelse'](env, request,
+          { adress_id: adress.id, resultat, kommentar: txt(r.kommentar, 1000), bekrafta: true }, anv);
+      }
+      ut.push({ id: adress.id, adress: adress.adress, fanns, resultat });
+    } catch (e) {
+      ut.push({ gata, nummer, fel: e instanceof Fel ? e.message : 'Kunde inte sparas' });
+    }
+  }
+  return { rader: ut };
+};
+
+/**
  * Rättar en adress som blivit fel, t.ex. när hela adressen hamnat i
  * gatunamnet. Historiken följer med dörren, bara texten ändras.
  */

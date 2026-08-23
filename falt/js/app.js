@@ -6,6 +6,7 @@ import { $, esc, toast, oppnaPanel, stangPanel, kopplaStangning, kopplaLayout } 
 import { S, buss, arRoll, dataAndrad } from './state.js';
 import * as karta from './karta.js';
 import { manuell as manuellBokning } from './dorr.js';
+import { visaImport as visaAnteckningar } from './anteckningar.js';
 import * as listor from './listor.js';
 import * as dashboard from './dashboard.js';
 import * as admin from './admin.js';
@@ -286,6 +287,7 @@ $('nastaDorr').addEventListener('click', karta.nastaDorr);
 ['manuellDorr', 'manuellDorr2'].forEach((id) => {
   $(id).addEventListener('click', () => manuellBokning(S.omraden, S.valtOmrade));
 });
+$('anteckningarKnapp').addEventListener('click', () => visaAnteckningar(S.omraden, S.valtOmrade));
 $('omradeVal').addEventListener('change', async (ev) => {
   S.valtOmrade = ev.target.value;
   await laddaDorrar();

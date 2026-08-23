@@ -119,8 +119,30 @@ button { cursor: pointer; border: none; background: none; }
   background: var(--bg-input); border: 1px solid var(--border); color: var(--gold-light);
 }
 .knapp-mork:active { background: var(--gold-dim); }
-.listverktyg { padding: 10px 16px 0; }
-.listverktyg .knapp-guld { width: 100%; padding: 12px; }
+.listverktyg { padding: 10px 16px 0; display: flex; gap: 8px; }
+.listverktyg .knapp-guld, .listverktyg .knapp-mork { flex: 1; padding: 12px 8px; text-align: center; }
+
+/* Granskning av inklistrade anteckningar */
+.an-lista { margin-top: 6px; }
+.an-gata { margin-bottom: 14px; }
+.an-gatnamn {
+  width: 100%; padding: 9px 12px; border-radius: 9px; font-weight: 600;
+  background: var(--bg-input); border: 1px solid var(--linje); color: var(--text);
+}
+.an-rad { display: flex; align-items: center; gap: 8px; padding: 6px 2px; border-bottom: 1px solid var(--linje); }
+.an-nr { flex: 0 0 52px; font-weight: 600; font-size: 14px; }
+.an-utfall {
+  flex: 0 0 132px; padding: 7px 8px; border-radius: 8px; font-size: 13px;
+  background: var(--bg-input); border: 1px solid var(--linje); color: var(--text);
+}
+.an-komm { flex: 1 1 auto; min-width: 0; font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.an-oklar { font-size: 13px; color: var(--muted); }
+.an-oklar div { padding: 4px 0; border-bottom: 1px solid var(--linje); }
+.importlogg {
+  white-space: pre-wrap; font-size: 12.5px; line-height: 1.6; color: var(--muted);
+  background: var(--bg-input); border-radius: 10px; padding: 12px; margin-bottom: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 
 /* Kartvyn fyller skärmen mellan toppen och bottenmenyn. Tidigare drogs en
    fast höjd bort, vilket blev fel så fort teckenförklaringen radbröts. */
