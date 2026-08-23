@@ -25,18 +25,34 @@ export function oppnaPanel(vilken, html) {
     '<div class="panelhuvud"><div class="greppa"></div>' +
     '<button class="stangkryss" type="button" aria-label="Stäng">✕</button></div>' + html;
   panel.querySelector('.stangkryss').onclick = () => stangPanel(vilken);
+
+  // Ska något skrivas tar formuläret hela skärmen. Som låg ruta i underkant
+  // blev det ont om plats när tangentbordet kom upp, och kartan syntes emellan.
+  panel.classList.toggle('panel-fyll', !!panel.querySelector('input, textarea, select'));
+
   overlay.classList.add('open');
+  document.body.classList.add('panel-oppen');
   panel.scrollTop = 0;
   return panel;
 }
 
 export function stangPanel(vilken) {
   $(vilken === 'dorr' ? 'dorrOverlay' : 'modalOverlay').classList.remove('open');
+  if (!document.querySelector('.overlay.open')) document.body.classList.remove('panel-oppen');
 }
 
 export function kopplaStangning() {
   ['dorrOverlay', 'modalOverlay'].forEach((id) => {
-    $(id).addEventListener('click', (ev) => { if (ev.target === ev.currentTarget) ev.currentTarget.classList.remove('open'); });
+    $(id).addEventListener('click', (ev) => {
+      if (ev.target !== ev.currentTarget) return;
+      ev.currentTarget.classList.remove('open');
+      if (!document.querySelector('.overlay.open')) document.body.classList.remove('panel-oppen');
+    });
+    // Tangentbordet täcker underkanten; rulla fram fältet man skriver i.
+    $(id).addEventListener('focusin', (ev) => {
+      if (!ev.target.matches('input, textarea, select')) return;
+      setTimeout(() => ev.target.scrollIntoView({ block: 'center', behavior: 'smooth' }), 320);
+    });
   });
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') { stangPanel('dorr'); stangPanel('modal'); }
@@ -53,6 +69,8 @@ export function kopplaLayout() {
   const mat = () => {
     const vv = window.visualViewport;
     rot.style.setProperty('--app-h', Math.round(vv ? vv.height : window.innerHeight) + 'px');
+    // När tangentbordet är uppe kan den synliga ytan vara nedflyttad.
+    rot.style.setProperty('--app-top', Math.round(vv ? vv.offsetTop : 0) + 'px');
     const topp = $('topp');
     if (topp && topp.offsetHeight) rot.style.setProperty('--topp-h', topp.offsetHeight + 'px');
   };
