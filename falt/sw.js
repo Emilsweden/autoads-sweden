@@ -1,9 +1,9 @@
 /* Service worker för fältsystemet — appen ska gå att öppna även med dålig täckning. */
-const CACHE = 'falt-v10';
+const CACHE = 'falt-v11';
 const SKAL = [
   './', './index.html', './app.css', './manifest.webmanifest', './icon.svg', './icon-maskable.svg',
   './config.js', './js/app.js', './js/api.js', './js/ui.js', './js/state.js',
-  './js/dorr.js', './js/karta.js', './js/geo.js', './js/listor.js', './js/dashboard.js', './js/admin.js',
+  './js/dorr.js', './js/karta.js', './js/geo.js', './js/anteckningar.js', './js/listor.js', './js/dashboard.js', './js/admin.js',
   './leaflet/leaflet.js', './leaflet/leaflet.css',
 ];
 
