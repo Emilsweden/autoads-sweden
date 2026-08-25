@@ -12,7 +12,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Fältsystem" />
-<link rel="stylesheet" href="leaflet/leaflet.css" />
+<link rel="stylesheet" href="maplibre/maplibre-gl.css" />
 <link rel="stylesheet" href="app.css" />
 </head>
 <body>
@@ -68,7 +68,7 @@
     </div>
     <div class="kartbanner" id="kartBanner" hidden></div>
     <div id="karta"></div>
-    <p class="karttips">Tryck på ett hus på kartan för att öppna eller lägga till dörren.</p>
+    <p class="karttips">Tryck på ett hus för att öppna dörren. Två fingrar vrider och lutar kartan, kompassen ställer tillbaka norrut.</p>
     <div class="teckenforklaring" id="teckenforklaring"></div>
   </section>
 
@@ -144,7 +144,7 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="leaflet/leaflet.js"></script>
+<script src="maplibre/maplibre-gl.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

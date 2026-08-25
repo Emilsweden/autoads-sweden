@@ -1,4 +1,10 @@
-/** Kartvyn — alla dörrar i området som färgade punkter, plus säljarnas position. */
+/**
+ * Kartvyn — alla dörrar i området som färgade punkter, plus säljarnas position.
+ *
+ * Renderas med MapLibre (WebGL) i stället för vanliga kartrutor: det ger
+ * vridning med två fingrar, lutning och steglös zoom, vilket efterfrågades
+ * ute i fält. Kartbilden är fortfarande OpenStreetMap.
+ */
 
 import { anrop } from './api.js';
 import { $, esc, toast, STATUS_FARG, visaTidpunkt } from './ui.js';
@@ -7,44 +13,121 @@ import { oppna as oppnaDorr, manuell as manuellDorr } from './dorr.js';
 import { adressVid } from './geo.js';
 
 let karta = null;
-let dorrLager = null;
-let saljarLager = null;
 let jagMarkor = null;
+let saljarMarkorer = [];
 let harCentrerat = false;
 let centreratOmrade = null;   // vilket urval kartan senast zoomade till
 let kartrutorFel = false;     // kartbilden kunde inte hämtas (nät/brandvägg)
+let laddad = false;
 
-const VASTERAS = [59.6099, 16.5448];
+const VASTERAS = [16.5448, 59.6099];   // MapLibre vill ha [lon, lat]
+const DORRAR = 'dorrar';
+
+/** Färg per status, som ett uttryck MapLibre kan räkna på i renderingen. */
+function fargUttryck() {
+  const ut = ['match', ['get', 'status']];
+  ['bokat', 'ejsvar', 'nej', 'aterkom', 'ejbesokt'].forEach((s) => ut.push(s, STATUS_FARG[s]));
+  ut.push(STATUS_FARG.ejbesokt);
+  return ut;
+}
+
+/** Knapp som hoppar till säljarens egen position. */
+function positionsKnapp() {
+  return {
+    onAdd() {
+      const ruta = document.createElement('div');
+      ruta.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+      const knapp = document.createElement('button');
+      knapp.type = 'button';
+      knapp.className = 'kartknapp-jag';
+      knapp.title = 'Min position';
+      knapp.setAttribute('aria-label', 'Min position');
+      knapp.textContent = '◎';
+      knapp.onclick = () => {
+        if (!S.position) { toast('Ingen position ännu — tillåt platsdelning'); return; }
+        karta.easeTo({ center: [S.position.lon, S.position.lat], zoom: Math.max(karta.getZoom(), 17) });
+      };
+      ruta.appendChild(knapp);
+      return ruta;
+    },
+    onRemove() { /* kartan städar upp själv */ },
+  };
+}
 
 function skapa() {
   if (karta) return;
-  if (typeof L === 'undefined') {
+  if (typeof maplibregl === 'undefined') {
     // Kartbiblioteket kunde inte hämtas (t.ex. helt utan täckning).
     // Resten av appen ska fungera ändå — dörrarna finns i listvyn.
     $('karta').innerHTML =
       '<div class="tom">Kartan kunde inte laddas.<br>Dörrarna finns kvar under <b>Dörrar</b>.</div>';
     return;
   }
-  karta = L.map('karta', { zoomControl: true, attributionControl: true }).setView(VASTERAS, 13);
-  const rutor = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap',
-  }).addTo(karta);
-  // Utan kartbild ser kartan bara grå ut. Säg vad som hänt i stället —
+
+  karta = new maplibregl.Map({
+    container: 'karta',
+    center: VASTERAS,
+    zoom: 13,
+    maxZoom: 21,          // kartrutorna slutar på 19, resten är förstoring
+    maxPitch: 70,
+    attributionControl: { compact: true },
+    style: {
+      version: 8,
+      sources: {
+        osm: {
+          type: 'raster',
+          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          maxzoom: 19,
+          attribution: '&copy; OpenStreetMap',
+        },
+      },
+      layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+    },
+  });
+
+  // Kartan exponeras för felsökning och för de automatiska proven.
+  window.__karta = karta;
+
+  // Vridning och lutning med två fingrar, och en kompass som ställer tillbaka.
+  karta.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }), 'top-left');
+  karta.addControl(positionsKnapp(), 'top-left');
+  karta.touchZoomRotate.enableRotation();
+
+  karta.on('load', () => {
+    laddad = true;
+    karta.addSource(DORRAR, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    karta.addLayer({
+      id: DORRAR,
+      type: 'circle',
+      source: DORRAR,
+      paint: {
+        // Punkterna växer med zoomen så att de går att träffa med tummen.
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 5, 16, 8, 19, 13],
+        'circle-color': fargUttryck(),
+        'circle-opacity': 0.95,
+        'circle-stroke-width': ['case', ['get', 'sparrad'], 3, 1.5],
+        'circle-stroke-color': ['case', ['get', 'sparrad'], STATUS_FARG.sparrad, '#ffffff'],
+      },
+    });
+    karta.on('click', vidKartklick);
+    karta.on('mouseenter', DORRAR, () => { karta.getCanvas().style.cursor = 'pointer'; });
+    karta.on('mouseleave', DORRAR, () => { karta.getCanvas().style.cursor = ''; });
+    rita();
+  });
+
+  // Utan kartbild ser kartan bara tom ut. Säg vad som hänt i stället —
   // punkterna fungerar ändå, de ligger i ett eget lager.
-  rutor.on('tileerror', () => {
-    if (kartrutorFel) return;
+  karta.on('error', (e) => {
+    if (!e || !e.sourceId || e.sourceId !== 'osm' || kartrutorFel) return;
     kartrutorFel = true;
     uppdateraBanner();
   });
-  rutor.on('tileload', () => {
-    if (!kartrutorFel) return;
+  karta.on('data', (e) => {
+    if (!kartrutorFel || !e || e.sourceId !== 'osm' || !e.isSourceLoaded) return;
     kartrutorFel = false;
     uppdateraBanner();
   });
-  dorrLager = L.layerGroup().addTo(karta);
-  saljarLager = L.layerGroup().addTo(karta);
-  karta.on('click', (ev) => vidKartklick(ev.latlng));
 
   $('teckenforklaring').innerHTML = [
     ['ejbesokt', 'Ej besökt'], ['bokat', 'Bokad'], ['ejsvar', 'Inget svar'],
@@ -83,7 +166,7 @@ async function oppnaNyDorr(traff, latlng) {
       lat: latlng.lat,
       lon: latlng.lng,
     });
-    karta.closePopup();
+    if (popp) popp.remove();
     dataAndrad();
     oppnaDorr(svar.adress.id);
   } catch (e) {
@@ -91,18 +174,27 @@ async function oppnaNyDorr(traff, latlng) {
   }
 }
 
+let popp = null;
+
 /**
  * Trycker säljaren på ett hus ska dörren öppnas — finns den redan används
  * den, annars slås adressen upp på kartan så att ingen behöver skriva in den.
  */
-async function vidKartklick(latlng) {
+async function vidKartklick(ev) {
+  const latlng = ev.lngLat;
+
+  // Träffar trycket en utritad dörr är det den som avses.
+  const traffade = karta.queryRenderedFeatures(ev.point, { layers: [DORRAR] });
+  if (traffade.length) { oppnaDorr(traffade[0].properties.id); return; }
+
   const nara = narmasteDorr(latlng.lat, latlng.lng, 25);
   if (nara) { oppnaDorr(nara.id); return; }
 
   const ruta = document.createElement('div');
   ruta.className = 'kartpopp';
   ruta.textContent = 'Hämtar adressen…';
-  karta.openPopup(L.popup({ offset: [0, -6] }).setLatLng(latlng).setContent(ruta));
+  if (popp) popp.remove();
+  popp = new maplibregl.Popup({ offset: 12, closeButton: true }).setLngLat(latlng).setDOMContent(ruta).addTo(karta);
 
   let traff = null;
   try {
@@ -114,7 +206,7 @@ async function vidKartklick(latlng) {
     knapp.className = 'kartpopp-knapp ghost';
     knapp.textContent = text;
     knapp.onclick = () => {
-      karta.closePopup();
+      if (popp) popp.remove();
       manuellDorr(S.omraden, S.valtOmrade, {
         gata: (traff && traff.gata) || '',
         nummer: (traff && traff.nummer) || '',
@@ -174,25 +266,23 @@ function uppdateraBanner() {
 
 /** Ritar om alla dörrpunkter utifrån aktuellt urval. */
 export function rita() {
-  if (!karta) return;
-  dorrLager.clearLayers();
+  if (!karta || !laddad) return;
 
   const nu = Date.now();
   const synliga = S.adresser.filter((a) =>
     (!S.valtOmrade || a.omrade_id === S.valtOmrade) && a.lat && a.lon);
 
-  synliga.forEach((a) => {
-    const sparrad = a.sparrad_till > nu && a.status !== 'ejbesokt';
-    const markor = L.circleMarker([a.lat, a.lon], {
-      radius: 8,
-      color: sparrad ? STATUS_FARG.sparrad : '#ffffff',
-      weight: sparrad ? 3 : 1.5,
-      fillColor: STATUS_FARG[a.status] || STATUS_FARG.ejbesokt,
-      fillOpacity: 0.95,
-    });
-    markor.bindTooltip(a.adress, { direction: 'top' });
-    markor.on('click', () => oppnaDorr(a.id));
-    markor.addTo(dorrLager);
+  karta.getSource(DORRAR).setData({
+    type: 'FeatureCollection',
+    features: synliga.map((a) => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [a.lon, a.lat] },
+      properties: {
+        id: a.id,
+        status: a.status || 'ejbesokt',
+        sparrad: a.sparrad_till > nu && a.status !== 'ejbesokt',
+      },
+    })),
   });
 
   const utanKoordinat = S.adresser.filter((a) =>
@@ -209,7 +299,9 @@ export function rita() {
   // annars blev man kvar på förra områdets vy.
   const urval = S.valtOmrade || 'alla';
   if (synliga.length && centreratOmrade !== urval) {
-    karta.fitBounds(L.latLngBounds(synliga.map((a) => [a.lat, a.lon])), { padding: [40, 40], maxZoom: 17 });
+    const grans = new maplibregl.LngLatBounds();
+    synliga.forEach((a) => grans.extend([a.lon, a.lat]));
+    karta.fitBounds(grans, { padding: 50, maxZoom: 17, duration: 0 });
     centreratOmrade = urval;
     harCentrerat = true;
   }
@@ -220,8 +312,8 @@ export function visa() {
   skapa();
   if (!karta) return;
   // Två omräkningar: en direkt och en när layouten hunnit sätta sig.
-  karta.invalidateSize();
-  setTimeout(() => karta.invalidateSize(), 200);
+  karta.resize();
+  setTimeout(() => karta.resize(), 200);
   rita();
   if (arRoll('teamleader')) ritaSaljare();
 }
@@ -232,27 +324,27 @@ let omraknare = null;
   window.addEventListener(h, () => {
     if (!karta) return;
     clearTimeout(omraknare);
-    omraknare = setTimeout(() => karta.invalidateSize(), 150);
+    omraknare = setTimeout(() => karta.resize(), 150);
   });
 });
 
 export function centreraPa(adress) {
   if (!karta || !adress.lat) return;
-  karta.setView([adress.lat, adress.lon], 18);
+  karta.easeTo({ center: [adress.lon, adress.lat], zoom: 18 });
 }
 
 export function egenPosition(lat, lon) {
   if (!karta) return;
   if (!jagMarkor) {
-    jagMarkor = L.circleMarker([lat, lon], {
-      radius: 7, color: '#ffffff', weight: 3, fillColor: '#1c1a17', fillOpacity: 1,
-    }).addTo(karta).bindTooltip('Du');
+    const prick = document.createElement('div');
+    prick.className = 'jag-punkt';
+    jagMarkor = new maplibregl.Marker({ element: prick }).setLngLat([lon, lat]).addTo(karta);
   } else {
-    jagMarkor.setLatLng([lat, lon]);
+    jagMarkor.setLngLat([lon, lat]);
   }
   // Dörrarna har företräde; hoppa hit bara när det inte finns några att visa.
-  if (!harCentrerat && !dorrLager.getLayers().length) {
-    karta.setView([lat, lon], 17);
+  if (!harCentrerat && !harDorrar) {
+    karta.easeTo({ center: [lon, lat], zoom: 17 });
     harCentrerat = true;
   }
 }
@@ -260,18 +352,15 @@ export function egenPosition(lat, lon) {
 async function ritaSaljare() {
   try {
     const data = await anrop('positioner');
-    saljarLager.clearLayers();
+    saljarMarkorer.forEach((m) => m.remove());
+    saljarMarkorer = [];
     (data.positioner || []).forEach((p) => {
       if (p.anvandare_id === S.anvandare.id || !p.lat) return;
-      L.marker([p.lat, p.lon], {
-        icon: L.divIcon({
-          className: '',
-          html: '<div style="background:#8a6d23;color:#fff;font-size:10px;font-weight:700;' +
-            'padding:3px 7px;border-radius:999px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.35)">' +
-            esc(p.namn) + '</div>',
-          iconAnchor: [20, 10],
-        }),
-      }).addTo(saljarLager).bindTooltip('Senast sedd ' + visaTidpunkt(p.uppdaterad));
+      const etikett = document.createElement('div');
+      etikett.className = 'saljar-etikett';
+      etikett.textContent = p.namn;
+      etikett.title = 'Senast sedd ' + visaTidpunkt(p.uppdaterad);
+      saljarMarkorer.push(new maplibregl.Marker({ element: etikett }).setLngLat([p.lon, p.lat]).addTo(karta));
     });
   } catch (e) { /* positioner är en bonus, inte kritiskt */ }
 }

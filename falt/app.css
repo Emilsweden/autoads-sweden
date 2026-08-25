@@ -150,15 +150,18 @@ button { cursor: pointer; border: none; background: none; }
   display: flex; flex-direction: column;
   height: calc(var(--app-h) - var(--botten-h) - var(--topp-h, 84px));
 }
-/* Egen staplingskontext: Leaflets kontroller och punkter ligger på höga
-   z-index och ritades annars ovanpå headern, menyn och panelerna. */
+/* Egen staplingskontext: kartans kontroller ligger på höga z-index och
+   ritades annars ovanpå headern, menyn och panelerna. */
 #karta { flex: 1 1 auto; min-height: 200px; background: var(--bg-2); position: relative; z-index: 0; }
 .kartbanner {
   flex: 0 0 auto; margin: 0 16px 10px; padding: 11px 13px; border-radius: 10px;
   background: rgba(179,89,26,0.10); border: 1px solid rgba(179,89,26,0.35);
   color: #7a3d10; font-size: 12.5px; line-height: 1.5;
 }
-.leaflet-container { background: #e9e6e1; font: inherit; }
+.maplibregl-canvas { outline: none; }
+.maplibregl-ctrl-group { border-radius: 9px; overflow: hidden; box-shadow: 0 1px 6px rgba(0,0,0,0.18); }
+.maplibregl-ctrl-group button { width: 34px; height: 34px; background: var(--bg-card); }
+.kartknapp-jag { font-size: 17px; color: var(--gold-light); line-height: 1; }
 
 /* Rutan som kommer upp när man trycker på ett hus utan registrerad dörr. */
 .kartpopp { min-width: 150px; font-size: 13.5px; line-height: 1.4; }
@@ -172,9 +175,23 @@ button { cursor: pointer; border: none; background: none; }
 .karttips {
   flex: 0 0 auto; padding: 8px 16px 0; font-size: 11.5px; color: var(--dim);
 }
-.leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--bg-card); color: var(--text); }
-.leaflet-popup-content { margin: 10px 12px; font-size: 13.5px; }
-.leaflet-bar a { background: var(--bg-card); color: var(--text); border-color: var(--linje); }
+.maplibregl-popup-content {
+  background: var(--bg-card); color: var(--text); border-radius: 12px;
+  padding: 12px 13px; box-shadow: 0 6px 22px rgba(0,0,0,0.18); font-size: 13.5px;
+}
+.maplibregl-popup-tip { border-top-color: var(--bg-card); border-bottom-color: var(--bg-card); }
+.maplibregl-popup-close-button { font-size: 17px; color: var(--dim); padding: 2px 7px; }
+
+/* Egen position och säljarnas namn ritas som egna element ovanpå kartan. */
+.jag-punkt {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #1c1a17; border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.25);
+}
+.saljar-etikett {
+  background: var(--gold); color: #fff; font-size: 10px; font-weight: 700;
+  padding: 3px 7px; border-radius: 999px; white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+}
 
 .teckenforklaring {
   display: flex; flex-wrap: wrap; gap: 6px 12px;
