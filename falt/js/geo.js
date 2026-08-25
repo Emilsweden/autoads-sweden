@@ -73,3 +73,31 @@ export function delaAdress(text) {
 
   return { gata, nummer, postort };
 }
+
+/** iPhone och Mac öppnar Apple Kartor, övriga Google Maps. */
+function arApple() {
+  const ua = navigator.userAgent || '';
+  return /iPhone|iPad|iPod|Macintosh/.test(ua);
+}
+
+/**
+ * Länk till vägbeskrivning i telefonens kartapp. Koordinater används när de
+ * finns — adresstexten kan vara feltolkad, punkten på kartan är den vi vet.
+ */
+export function vagbeskrivning(adress) {
+  const text = [adress.adress || [adress.gata, adress.nummer].filter(Boolean).join(' '), adress.postort]
+    .filter(Boolean).join(', ');
+  const punkt = adress.lat && adress.lon ? adress.lat + ',' + adress.lon : '';
+
+  if (arApple()) {
+    return 'https://maps.apple.com/?dirflg=w&daddr=' + encodeURIComponent(punkt || text) +
+      (punkt ? '&q=' + encodeURIComponent(text) : '');
+  }
+  return 'https://www.google.com/maps/dir/?api=1&travelmode=walking&destination=' +
+    encodeURIComponent(punkt || text);
+}
+
+/** Namnet på kartappen, så att knappen säger vart den leder. */
+export function kartappNamn() {
+  return arApple() ? 'Apple Kartor' : 'Google Maps';
+}

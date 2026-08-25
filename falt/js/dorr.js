@@ -9,7 +9,7 @@ import {
   sedan, STATUS_TEXT, RESULTAT_TEXT, NEJ_ORSAKER,
 } from './ui.js';
 import { S, arRoll, dataAndrad } from './state.js';
-import { delaAdress } from './geo.js';
+import { delaAdress, vagbeskrivning, kartappNamn } from './geo.js';
 
 let aktuell = null;   // { adress, historik, bokningar }
 
@@ -279,9 +279,11 @@ export async function oppna(adressId, direktBokning) {
     '<button class="r-aterkom" data-r="aterkom">ÅTERKOM</button>' +
     '</div>' +
     '<h3>Historik</h3>' + historikHtml() +
+    '<div class="btn-rad">' +
+    '<button class="btn btn-ghost" id="dVag">Vägbeskrivning</button>' +
     (arRoll('teamleader') && !aktuell.offline
-      ? '<div class="btn-rad"><button class="btn btn-ghost" id="dRatta">Rätta adressen</button></div>'
-      : '');
+      ? '<button class="btn btn-ghost" id="dRatta">Rätta adressen</button>' : '') +
+    '</div>';
 
   const panel = oppnaPanel('dorr', html);
   panel.querySelectorAll('.resultat button').forEach((b) => {
@@ -293,6 +295,11 @@ export async function oppna(adressId, direktBokning) {
     };
   });
   if ($('dRatta')) $('dRatta').onclick = visaRatta;
+  // Öppnar dörrens adress i telefonens kartapp för att gå eller köra dit.
+  $('dVag').onclick = () => {
+    toast('Öppnar ' + kartappNamn());
+    window.open(vagbeskrivning(aktuell.adress), '_blank', 'noopener');
+  };
 
   if (direktBokning) visaBokning();
 }
