@@ -91,15 +91,60 @@ const kor = (env, sql, ...a) => env.DB.prepare(sql).bind(...a).run();
 /**
  * Normaliserar en adress till en unik nyckel så att "Västeråsvägen 1",
  * "västeråsvägen 1 " och "Västeråsvägen  1" blir samma dörr.
+ *
+ * Även mellanslag och bindestreck tas bort: anteckningar skrivs "Vinkel gatan"
+ * där registret har "Vinkelgatan", och det är samma dörr.
  */
 function adressnyckel(gata, nummer, postort) {
+  const rensa = (s) => String(s || '')
+    .toLowerCase()
+    .normalize('NFC')
+    .replace(/[^0-9a-zåäöæøéèüö]/gi, '');
+  return [rensa(gata), rensa(nummer), rensa(postort)].join('|');
+}
+
+/** Nyckelformen som användes innan mellanslagen togs bort. */
+function gammalNyckel(gata, nummer, postort) {
   const rensa = (s) => String(s || '')
     .toLowerCase()
     .replace(/[.,;:]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  const num = rensa(nummer).replace(/\s+/g, '');
-  return [rensa(gata), num, rensa(postort)].join('|');
+  return [rensa(gata), rensa(nummer).replace(/\s+/g, ''), rensa(postort)].join('|');
+}
+
+/**
+ * Städar upp hur adressen skrivs utan att hitta på ett nytt namn:
+ * extra mellanslag bort, och VERSALER blir normal skrift.
+ */
+function snyggText(s) {
+  const t = String(s || '').replace(/\s+/g, ' ').trim();
+  if (!t || t !== t.toUpperCase() || !/[a-zåäöA-ZÅÄÖ]/.test(t)) return t;
+  return t.toLowerCase().replace(/(^|[\s\-])([a-zåäö])/g, (m, f, b) => f + b.toUpperCase());
+}
+
+/**
+ * Letar upp en dörr oavsett hur adressen råkade skrivas: ny och gammal
+ * nyckelform, och med eller utan postort.
+ */
+async function hittaAdress(env, gata, nummer, postort) {
+  const kandidater = [adressnyckel(gata, nummer, postort), gammalNyckel(gata, nummer, postort)];
+  if (postort) kandidater.push(adressnyckel(gata, nummer, ''), gammalNyckel(gata, nummer, ''));
+
+  const p = kandidater.map((_, i) => '?' + (i + 1)).join(',');
+  const rad = await en(env,
+    `SELECT a.*, u.namn AS senast_namn FROM adresser a
+     LEFT JOIN anvandare u ON u.id = a.senast_av
+     WHERE a.nyckel IN (${p}) ORDER BY a.skapad LIMIT 1`, ...kandidater);
+  if (rad) return rad;
+
+  // Skrevs adressen utan ort är dörren med ort ändå samma dörr.
+  if (postort) return null;
+  return en(env,
+    `SELECT a.*, u.namn AS senast_namn FROM adresser a
+     LEFT JOIN anvandare u ON u.id = a.senast_av
+     WHERE a.nyckel LIKE ?1 ORDER BY a.skapad LIMIT 1`,
+    adressnyckel(gata, nummer, '') + '%');
 }
 
 /* ══ Inställningar ══ */
@@ -324,13 +369,13 @@ api['adresser-importera'] = async (env, request, body, anv) => {
   let nya = 0, fanns = 0;
 
   for (const a of inkomna) {
-    const gata = txt(a.gata, 120);
-    const nummer = txt(a.nummer, 20);
+    const gata = snyggText(txt(a.gata, 120));
+    const nummer = txt(a.nummer, 20).replace(/\s+/g, ' ').trim();
     if (!gata || !nummer) continue;
-    const postort = txt(a.postort, 80);
+    const postort = snyggText(txt(a.postort, 80));
     const nyckel = adressnyckel(gata, nummer, postort);
 
-    const befintlig = await en(env, 'SELECT id FROM adresser WHERE nyckel = ?1', nyckel);
+    const befintlig = await hittaAdress(env, gata, nummer, postort);
     if (befintlig) {
       fanns++;
       // Fyll på med koordinater om den gamla raden saknar dem.
@@ -487,23 +532,29 @@ api['handelse'] = async (env, request, body, anv) => {
  * så att historiken hänger ihop och inga dubbletter uppstår.
  */
 api['adress-ny'] = async (env, request, body, anv) => {
-  const gata = txt(body.gata, 120);
-  const nummer = txt(body.nummer, 20);
+  const gata = snyggText(txt(body.gata, 120));
+  const nummer = txt(body.nummer, 20).replace(/\s+/g, ' ').trim();
   if (!gata || !nummer) throw new Fel('Gata och husnummer krävs');
-  const postort = txt(body.postort, 80);
+  const postort = snyggText(txt(body.postort, 80));
   const nyckel = adressnyckel(gata, nummer, postort);
 
-  const befintlig = await en(env,
-    `SELECT a.*, u.namn AS senast_namn FROM adresser a
-     LEFT JOIN anvandare u ON u.id = a.senast_av WHERE a.nyckel = ?1`, nyckel);
+  const befintlig = await hittaAdress(env, gata, nummer, postort);
   if (befintlig) {
-    // Dörren fanns men saknade läge — inklistrade adresser gör det. Trycker
-    // säljaren på huset på kartan vet vi var den ligger och sparar det.
+    // Dörren fanns men saknade läge eller ort — inklistrade adresser gör det.
+    // Trycker säljaren på huset på kartan vet vi var den ligger och sparar det.
+    const satt = [];
+    const varden = [];
     if (!befintlig.lat && body.lat !== undefined && body.lon !== undefined) {
-      await kor(env, 'UPDATE adresser SET lat=?1, lon=?2 WHERE id=?3',
-        nr(body.lat, null), nr(body.lon, null), befintlig.id);
+      satt.push('lat=?' + (varden.push(nr(body.lat, null))), 'lon=?' + (varden.push(nr(body.lon, null))));
       befintlig.lat = nr(body.lat, null);
       befintlig.lon = nr(body.lon, null);
+    }
+    if (!befintlig.postort && postort) {
+      satt.push('postort=?' + (varden.push(postort)), 'nyckel=?' + (varden.push(nyckel)));
+      befintlig.postort = postort;
+    }
+    if (satt.length) {
+      await kor(env, 'UPDATE adresser SET ' + satt.join(', ') + ' WHERE id=?' + (varden.push(befintlig.id)), ...varden);
     }
     return { adress: putsaAdress(befintlig), fanns: true };
   }
@@ -575,9 +626,9 @@ api['adress-andra'] = async (env, request, body, anv) => {
   const adress = await en(env, 'SELECT * FROM adresser WHERE id = ?1', id);
   if (!adress) throw new Fel('Adressen finns inte', 404);
 
-  const gata = txt(body.gata, 120) || adress.gata;
-  const nummer = txt(body.nummer, 20) || adress.nummer;
-  const postort = body.postort === undefined ? adress.postort : txt(body.postort, 80);
+  const gata = snyggText(txt(body.gata, 120)) || adress.gata;
+  const nummer = txt(body.nummer, 20).replace(/\s+/g, ' ').trim() || adress.nummer;
+  const postort = body.postort === undefined ? adress.postort : snyggText(txt(body.postort, 80));
   const nyckel = adressnyckel(gata, nummer, postort);
 
   const krock = await en(env, 'SELECT id FROM adresser WHERE nyckel = ?1 AND id <> ?2', nyckel, id);
@@ -594,6 +645,101 @@ api['adress-andra'] = async (env, request, body, anv) => {
      LEFT JOIN anvandare u ON u.id = a.senast_av WHERE a.id = ?1`, id);
   return { adress: putsaAdress(uppdaterad) };
 };
+
+/**
+ * Städar adressregistret: slår ihop dörrar som är samma adress skriven på
+ * olika sätt ("Vinkel gatan 7" och "Vinkelgatan 7") och rättar VERSALER.
+ * Besöken flyttas med, så ingen historik går förlorad.
+ *
+ * Utan `kor: true` ändras ingenting — då returneras bara vad som skulle hända.
+ */
+api['adresser-stada'] = async (env, request, body, anv) => {
+  kraver(anv, 'admin');
+  const rader = await alla(env,
+    'SELECT id, gata, nummer, postort, nyckel, skapad, antal_besok FROM adresser ORDER BY skapad LIMIT 5000');
+
+  const grupper = new Map();
+  const namnbyten = [];
+  for (const a of rader) {
+    const gata = snyggText(a.gata);
+    const postort = snyggText(a.postort);
+    const nyckel = adressnyckel(gata, a.nummer, postort);
+    if (gata !== a.gata || postort !== (a.postort || '') || nyckel !== a.nyckel) {
+      namnbyten.push({ id: a.id, gata, postort, nyckel, fore: a.gata + ' ' + a.nummer });
+    }
+    if (!grupper.has(nyckel)) grupper.set(nyckel, []);
+    grupper.get(nyckel).push({ ...a, gata, postort });
+  }
+
+  const dubbletter = [];
+  grupper.forEach((rad) => {
+    if (rad.length < 2) return;
+    // Den med flest besök behålls, annars den äldsta.
+    const sorterad = rad.slice().sort((x, y) => (y.antal_besok || 0) - (x.antal_besok || 0) || x.skapad - y.skapad);
+    dubbletter.push({
+      behalls: sorterad[0].gata + ' ' + sorterad[0].nummer + (sorterad[0].postort ? ', ' + sorterad[0].postort : ''),
+      tas_bort: sorterad.slice(1).map((r) => r.gata + ' ' + r.nummer + (r.postort ? ', ' + r.postort : '')),
+      ids: sorterad.map((r) => r.id),
+    });
+  });
+
+  const sammanfattning = {
+    adresser: rader.length,
+    stavning: namnbyten.length,
+    dubbletter: dubbletter.length,
+    exempel: dubbletter.slice(0, 20).map((d) => ({ behalls: d.behalls, tas_bort: d.tas_bort })),
+  };
+  if (!body.kor) return { forhandsgranskning: true, ...sammanfattning };
+
+  let borttagna = 0;
+  for (const d of dubbletter) {
+    const [behall, ...bort] = d.ids;
+    for (const id of bort) {
+      await kor(env, 'UPDATE handelser SET adress_id = ?1 WHERE adress_id = ?2', behall, id);
+      await kor(env, 'UPDATE bokningar SET adress_id = ?1 WHERE adress_id = ?2', behall, id);
+      // Läge och ort från den som hade uppgiften, om den som behålls saknar den.
+      const gammal = await en(env, 'SELECT lat, lon, postort FROM adresser WHERE id = ?1', id);
+      if (gammal) {
+        await kor(env,
+          `UPDATE adresser SET lat = COALESCE(lat, ?1), lon = COALESCE(lon, ?2),
+             postort = CASE WHEN postort IS NULL OR postort = '' THEN ?3 ELSE postort END
+           WHERE id = ?4`,
+          gammal.lat, gammal.lon, gammal.postort, behall);
+      }
+      await kor(env, 'DELETE FROM adresser WHERE id = ?1', id);
+      borttagna++;
+    }
+    await raknaOmDorr(env, behall);
+  }
+
+  // Raderna som slogs ihop är borta; övriga får sin putsade stavning.
+  for (const n of namnbyten) {
+    await kor(env, 'UPDATE adresser SET gata=?1, postort=?2, nyckel=?3 WHERE id=?4',
+      n.gata, n.postort, n.nyckel, n.id);
+  }
+
+  return { ...sammanfattning, borttagna, kort: true };
+};
+
+/** Räknar om en dörrs status utifrån dess besök, efter en sammanslagning. */
+async function raknaOmDorr(env, adressId) {
+  const senaste = await en(env,
+    'SELECT * FROM handelser WHERE adress_id = ?1 ORDER BY skapad DESC LIMIT 1', adressId);
+  const antal = await en(env, 'SELECT COUNT(*) AS n FROM handelser WHERE adress_id = ?1', adressId);
+  if (!senaste) {
+    await kor(env,
+      `UPDATE adresser SET status='ejbesokt', senast_tid=NULL, senast_av=NULL, senast_resultat=NULL,
+         sparrad_till=NULL, aterkom_datum=NULL, aterkom_tid=NULL, antal_besok=0 WHERE id=?1`, adressId);
+    return;
+  }
+  const inst = await installningar(env);
+  await kor(env,
+    `UPDATE adresser SET status=?1, senast_tid=?2, senast_av=?3, senast_resultat=?4,
+       sparrad_till=?5, aterkom_datum=?6, aterkom_tid=?7, antal_besok=?8 WHERE id=?9`,
+    senaste.resultat, senaste.skapad, senaste.anvandare_id, senaste.resultat,
+    sparrTill(senaste.resultat, senaste.aterkom_datum, inst, senaste.skapad),
+    senaste.aterkom_datum, senaste.aterkom_tid, (antal && antal.n) || 0, adressId);
+}
 
 /** Tar bort en felaktig dörr. Dörrar med historik lämnas kvar. */
 api['adress-ta-bort'] = async (env, request, body, anv) => {
