@@ -71,7 +71,62 @@ function ritaOmraden() {
     (saknarKoordinat(o.id) ? '<button class="chip" data-koord="' + esc(o.id) + '">Hämta koordinater (' +
       saknarKoordinat(o.id) + ')</button>' : '') +
     '</div></div>').join('') +
-    '</div><div class="sektion"><button class="btn btn-primary" id="nyttOmrade">Nytt område</button></div>';
+    '</div><div class="sektion">' +
+    '<button class="btn btn-primary" id="nyttOmrade">Nytt område</button>' +
+    (arRoll('admin') ? '<button class="btn btn-ghost" id="stadaAdresser" style="margin-top:10px">Städa adresser</button>' : '') +
+    '</div>';
+}
+
+/**
+ * Slår ihop dörrar som är samma adress skriven på olika sätt. Visas alltid
+ * som förhandsgranskning först — sammanslagning går inte att ångra.
+ */
+async function stadaAdresser() {
+  oppnaPanel('modal', '<h2>Städa adresser</h2><p class="sub">Letar igenom registret…</p>');
+  let svar;
+  try {
+    svar = await anrop('adresser-stada', {});
+  } catch (e) {
+    oppnaPanel('modal', '<h2>Städa adresser</h2><p class="sub">' + esc(e.message) + '</p>');
+    return;
+  }
+
+  const lista = (svar.exempel || []).map((d) =>
+    '<div class="an-rad"><span class="an-komm" style="white-space:normal">' +
+    esc(d.tas_bort.join(', ')) + ' → <b>' + esc(d.behalls) + '</b></span></div>').join('');
+
+  oppnaPanel('modal',
+    '<h2>Städa adresser</h2>' +
+    '<p class="sub">' + svar.adresser + ' dörrar genomgångna.</p>' +
+    '<div class="panelkort" style="margin-top:14px">' +
+    '<div class="rad2"><div><b>' + svar.dubbletter + '</b> dubbletter</div>' +
+    '<div><b>' + svar.stavning + '</b> med skev stavning</div></div></div>' +
+    (svar.dubbletter
+      ? '<h3>Slås ihop</h3><p class="sub">Besöken flyttas till dörren som behålls.</p>' + lista +
+        (svar.dubbletter > (svar.exempel || []).length
+          ? '<p class="sub">…och ' + (svar.dubbletter - svar.exempel.length) + ' till.</p>' : '')
+      : '<p class="sub" style="margin-top:14px">Inga dubbletter hittades.</p>') +
+    '<div class="btn-rad"><button class="btn btn-ghost" id="stadaStang">Stäng</button>' +
+    (svar.dubbletter || svar.stavning
+      ? '<button class="btn btn-primary" id="stadaKor">Kör städningen</button>' : '') +
+    '</div>');
+
+  $('stadaStang').onclick = () => stangPanel('modal');
+  if ($('stadaKor')) {
+    $('stadaKor').onclick = async () => {
+      $('stadaKor').textContent = 'Städar…';
+      try {
+        const klart = await anrop('adresser-stada', { kor: true });
+        toast(klart.borttagna + ' dubbletter sammanslagna');
+        stangPanel('modal');
+        dataAndrad();
+        await rita();
+      } catch (e) {
+        $('stadaKor').textContent = 'Kör städningen';
+        toast('Städningen misslyckades: ' + e.message);
+      }
+    };
+  }
 }
 
 /** Antal adresser i området som inte kan ritas på kartan. */
@@ -367,6 +422,8 @@ export async function rita() {
 
   const nytt = $('nyttOmrade');
   if (nytt) nytt.onclick = () => omradesFormular(null);
+  const stada = $('stadaAdresser');
+  if (stada) stada.onclick = stadaAdresser;
   behallare.querySelectorAll('[data-import]').forEach((b) => {
     b.onclick = () => importFormular(omradesData.find((o) => o.id === b.dataset.import));
   });

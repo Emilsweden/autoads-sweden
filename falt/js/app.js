@@ -79,7 +79,7 @@ async function laddaDorrar() {
 function fyllOmradesval() {
   const val = ['<option value="">Alla områden</option>']
     .concat(S.omraden.map((o) => '<option value="' + esc(o.id) + '">' + esc(o.namn) + '</option>'));
-  ['omradeVal', 'dOmrade'].forEach((id) => {
+  ['omradeVal', 'lOmrade', 'dOmrade'].forEach((id) => {
     const el = $(id);
     const tidigare = el.value;
     el.innerHTML = val.join('');
@@ -288,10 +288,14 @@ $('nastaDorr').addEventListener('click', karta.nastaDorr);
   $(id).addEventListener('click', () => manuellBokning(S.omraden, S.valtOmrade));
 });
 $('anteckningarKnapp').addEventListener('click', () => visaAnteckningar(S.omraden, S.valtOmrade));
-$('omradeVal').addEventListener('change', async (ev) => {
-  S.valtOmrade = ev.target.value;
-  await laddaDorrar();
-  if (S.vy === 'karta') karta.rita(); else listor.ritaLista();
+// Områdesvalet finns i både kartan och listan och ska följas åt.
+['omradeVal', 'lOmrade'].forEach((id) => {
+  $(id).addEventListener('change', async (ev) => {
+    S.valtOmrade = ev.target.value;
+    ['omradeVal', 'lOmrade'].forEach((annat) => { $(annat).value = S.valtOmrade; });
+    await laddaDorrar();
+    if (S.vy === 'karta') karta.rita(); else listor.ritaLista();
+  });
 });
 
 listor.kopplaLista();

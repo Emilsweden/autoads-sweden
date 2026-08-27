@@ -40,7 +40,19 @@ export function period() {
   }
 }
 
-function kpiKort(kpi, mal, aktiva) {
+/**
+ * Hur många dagar målet ska räknas för. Dagsmålet gånger en vecka är
+ * veckans mål — annars såg en hel månad ut som 2 % av "dagens mål".
+ */
+function malDagar(p) {
+  if ($('dPeriod').value === 'allt') return 0;   // meningslöst att jämföra
+  const fran = new Date(p.fran + 'T12:00:00');
+  const till = new Date((p.till < idag() ? p.till : idag()) + 'T12:00:00');
+  const dagar = Math.round((till - fran) / 86400000) + 1;
+  return Math.max(1, Math.min(dagar, 366));
+}
+
+function kpiKort(kpi, mal, aktiva, dagar) {
   const malKort = (varde, malVarde, etikett, suffix = '') => {
     if (!malVarde) return '';
     const p = procent(varde, malVarde);
@@ -49,13 +61,15 @@ function kpiKort(kpi, mal, aktiva) {
       ' ' + p + '% av ' + etikett + ' (' + malVarde + suffix + ')</div>';
   };
 
-  // Lagmålet är säljarnas individuella mål gånger antalet som varit ute.
-  const lag = Math.max(aktiva, 1);
+  // Lagmålet är säljarnas individuella mål gånger antalet som varit ute,
+  // gånger antalet dagar perioden omfattar.
+  const lag = Math.max(aktiva, 1) * dagar;
+  const etikett = dagar > 1 ? 'periodens mål' : 'dagens mål';
   return '<div class="kpi-rutnat">' +
     '<div class="kpi stor"><b>' + kpi.dorrar + '</b><small>Dörrar knackade</small>' +
-      malKort(kpi.dorrar, mal.dorrar * lag, 'dagens mål') + '</div>' +
+      malKort(kpi.dorrar, mal.dorrar * lag, etikett) + '</div>' +
     '<div class="kpi gron"><b>' + kpi.bokade + '</b><small>Bokade möten</small>' +
-      malKort(kpi.bokade, mal.bokningar * lag, 'dagens mål') + '</div>' +
+      malKort(kpi.bokade, mal.bokningar * lag, etikett) + '</div>' +
     '<div class="kpi"><b>' + kpi.hitrate + ' %</b><small>Hit rate</small>' +
       malKort(kpi.hitrate, mal.hitrate, 'målet', ' %') + '</div>' +
     '<div class="kpi"><b>' + kpi.aktiva_saljare + '</b><small>Aktiva säljare</small></div>' +
@@ -66,11 +80,11 @@ function kpiKort(kpi, mal, aktiva) {
     '</div>';
 }
 
-function podium(lb) {
+function podium(lb, rubrik) {
   const topp = lb.slice(0, 3);
   if (!topp.length) return '';
   const medaljer = ['🥇', '🥈', '🥉'];
-  return '<div class="sektion"><h3>Dagens topp</h3><div class="podium">' +
+  return '<div class="sektion"><h3>' + esc(rubrik) + '</h3><div class="podium">' +
     topp.map((s, i) => '<div><div class="medalj">' + medaljer[i] + '</div>' +
       '<div class="pnamn">' + esc(s.namn) + '</div>' +
       '<div class="pvarde">' + s.bokade + ' bokningar</div></div>').join('') +
@@ -273,13 +287,14 @@ export async function rita() {
   }
 
   senasteData = data;
+  const dagar = malDagar(p);
   $('vySub').textContent = visaDatum(data.period.fran) +
     (data.period.fran !== data.period.till ? ' – ' + visaDatum(data.period.till) : '') +
     ' · hit rate på ' + (data.namnare === 'oppnade' ? 'öppnade dörrar' : data.namnare === 'positiva' ? 'positiva samtal' : 'alla dörrar');
 
   behallare.innerHTML =
-    kpiKort(data.kpi, data.mal, data.kpi.aktiva_saljare) +
-    podium(data.leaderboard) +
+    kpiKort(data.kpi, data.mal, data.kpi.aktiva_saljare, dagar) +
+    podium(data.leaderboard, dagar > 1 ? 'Bäst i perioden' : 'Dagens topp') +
     leaderboard(data.leaderboard, data.mal) +
     '<div class="sektion tva" style="padding:0">' + funnel(data.funnel) + omraden(data.omraden) + '</div>' +
     utmarkelser(data.leaderboard, forra);
