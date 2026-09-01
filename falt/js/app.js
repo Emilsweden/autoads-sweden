@@ -8,6 +8,7 @@ import * as karta from './karta.js';
 import { manuell as manuellBokning } from './dorr.js';
 import { visaImport as visaAnteckningar } from './anteckningar.js';
 import * as listor from './listor.js';
+import * as kalender from './kalender.js';
 import * as dashboard from './dashboard.js';
 import * as admin from './admin.js';
 
@@ -51,15 +52,29 @@ export function visaVy(vy) {
   ritaNav();
 
   clearInterval(dashTimer);
+  if (vy !== 'bokningar') kalender.stoppa();
   if (vy === 'karta') karta.visa();
   if (vy === 'lista') listor.ritaLista();
-  if (vy === 'bokningar') listor.ritaBokningar();
+  if (vy === 'bokningar') visaBokningsflik();
   if (vy === 'admin') admin.rita();
   if (vy === 'dashboard') {
     dashboard.rita();
     // Live-läge: dashboarden håller sig aktuell på kontorsskärmen.
     dashTimer = setInterval(() => { if (!document.hidden) dashboard.rita(); }, 30000);
   }
+}
+
+/** Bokningsvyn har två flikar: kalendern och den filtrerbara listan. */
+let bokFlik = 'kalender';
+
+function visaBokningsflik() {
+  $('kalenderInnehall').hidden = bokFlik !== 'kalender';
+  $('bokningsLista').hidden = bokFlik !== 'lista';
+  $('bokFlikar').querySelectorAll('.flik').forEach((f) => {
+    f.classList.toggle('aktiv', f.dataset.bok === bokFlik);
+  });
+  if (bokFlik === 'kalender') kalender.starta();
+  else { kalender.stoppa(); listor.ritaBokningar(); }
 }
 
 /* ══ Data ══ */
@@ -96,9 +111,10 @@ function visaKo() {
 }
 
 async function skickaKo() {
-  const antal = await tommeKo();
-  if (antal) {
-    toast(antal + ' köade dörrbesök skickades');
+  const { skickade, utanTid } = await tommeKo();
+  if (skickade) {
+    toast(skickade + ' köade dörrbesök skickades' +
+      (utanTid ? ' — ' + utanTid + ' bokning fick ingen tid, tiden var tagen' : ''));
     await laddaDorrar();
     dataAndrad();
   }
@@ -296,6 +312,13 @@ $('anteckningarKnapp').addEventListener('click', () => visaAnteckningar(S.omrade
     await laddaDorrar();
     if (S.vy === 'karta') karta.rita(); else listor.ritaLista();
   });
+});
+
+$('bokFlikar').addEventListener('click', (ev) => {
+  const f = ev.target.closest('.flik');
+  if (!f) return;
+  bokFlik = f.dataset.bok;
+  visaBokningsflik();
 });
 
 listor.kopplaLista();

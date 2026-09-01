@@ -84,13 +84,14 @@ export function laggIKo(data) {
 }
 
 /**
- * Skickar upp köade dörrbesök. Returnerar antalet som gick igenom.
+ * Skickar upp köade dörrbesök. Returnerar { skickade, utanTid }.
  * Poster som servern avvisar med ett riktigt fel slängs, annars fastnar kön.
  */
 export async function tommeKo() {
   let k = ko();
-  if (!k.length || !bas() || !token()) return 0;
+  if (!k.length || !bas() || !token()) return { skickade: 0, utanTid: 0 };
   let skickade = 0;
+  let utanTid = 0;
 
   while (k.length) {
     const post = k[0];
@@ -100,9 +101,18 @@ export async function tommeKo() {
     } catch (e) {
       if (e.status === 0) break;       // fortfarande utan täckning — behåll kön
       if (e.status === 401) break;     // utloggad — försök igen efter inloggning
+      // Tiden hann bli bokad av någon annan medan telefonen var utan nät.
+      // Besöket är ändå värt att spara — bokningen får en ny tid i kalendern.
+      if (e.status === 409 && post.tid) {
+        try {
+          await anrop('handelse', { ...post, bekrafta: true, datum: undefined, tid: undefined });
+          skickade++;
+          utanTid++;
+        } catch (e2) { /* går inte att rädda — posten slängs nedan */ }
+      }
     }
     k = ko().slice(1);
     sparaKo(k);
   }
-  return skickade;
+  return { skickade, utanTid };
 }
