@@ -8,4 +8,4 @@
 export const STANDARD_SERVER = 'https://autoads-falt.emilgrigoryan29.workers.dev';
 
 /** Visas på inloggningsskärmen, så att det syns vilken version en telefon kör. */
-export const VERSION = '2026-08-25.2';
+export const VERSION = '2026-09-01.1';

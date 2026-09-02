@@ -10,6 +10,7 @@ import {
 } from './ui.js';
 import { S, arRoll, dataAndrad } from './state.js';
 import { delaAdress, vagbeskrivning, kartappNamn } from './geo.js';
+import { ledigaTider } from './kalender.js';
 
 let aktuell = null;   // { adress, historik, bokningar }
 
@@ -51,7 +52,7 @@ const TIDSVAL = {
 
 /* ── Skicka registrering ── */
 
-async function skicka(resultat, extra = {}, bekrafta = false) {
+async function skicka(resultat, extra = {}, bekrafta = false, vidTidskrock = null) {
   const data = {
     adress_id: aktuell.adress.id,
     resultat,
@@ -67,7 +68,12 @@ async function skicka(resultat, extra = {}, bekrafta = false) {
     dataAndrad();
   } catch (e) {
     if (e instanceof ApiFel && e.status === 409 && e.data) {
-      visaSparrvarning(e.data, resultat, extra);
+      visaSparrvarning(e.data, resultat, extra, vidTidskrock);
+      return;
+    }
+    // Någon annan hann boka tiden — formuläret visar de lediga på nytt.
+    if (e instanceof ApiFel && e.status === 409 && vidTidskrock) {
+      vidTidskrock(e.message);
       return;
     }
     if (e instanceof ApiFel && e.status === 0) {
@@ -82,7 +88,7 @@ async function skicka(resultat, extra = {}, bekrafta = false) {
   }
 }
 
-function visaSparrvarning(info, resultat, extra) {
+function visaSparrvarning(info, resultat, extra, vidTidskrock) {
   const panel = $('dorrPanel');
   const varning = document.createElement('div');
   varning.className = 'varning';
@@ -99,7 +105,7 @@ function visaSparrvarning(info, resultat, extra) {
   panel.insertBefore(varning, panel.firstChild.nextSibling);
   panel.scrollTop = 0;
   $('sparrAvbryt').onclick = () => varning.remove();
-  $('sparrForts').onclick = () => { varning.remove(); skicka(resultat, extra, true); };
+  $('sparrForts').onclick = () => { varning.remove(); skicka(resultat, extra, true, vidTidskrock); };
 }
 
 /* ── Delflöden ── */
@@ -164,14 +170,12 @@ function visaBokning() {
     '<div class="field"><label for="bEfternamn">Efternamn</label><input id="bEfternamn" type="text" autocomplete="family-name"></div>' +
     '</div>' +
     '<div class="field"><label for="bTelefon">Mobilnummer</label><input id="bTelefon" type="tel" inputmode="tel" placeholder="070-123 45 67"></div>' +
-    '<div class="rad2">' +
     '<div class="field"><label for="bDatum">Datum</label><input id="bDatum" type="date" value="' + plusDagar(1) + '"></div>' +
-    '<div class="field"><label for="bTid">Tid</label><input id="bTid" type="time" step="900" value="17:00"></div>' +
-    '</div>' +
     '<div class="chips" id="bokChips">' +
     ['Idag', 'Imorgon', 'Om 2 dgr', 'Om 1 vecka'].map((t, i) =>
       '<button class="chip" data-d="' + [0, 1, 2, 7][i] + '">' + t + '</button>').join('') +
     '</div>' +
+    '<h3>Ledig tid</h3><div id="bTider" class="chips tider">Hämtar tider…</div>' +
     '<div class="field" style="margin-top:14px"><label for="bKomm">Kommentar / takinformation</label>' +
     '<textarea id="bKomm" placeholder="T.ex. tegeltak, ca 15 år, mossa på norrsidan"></textarea></div>' +
     '<div class="err" id="bFel"></div>' +
@@ -179,22 +183,64 @@ function visaBokning() {
     '<button class="btn btn-primary" id="bSpara">Spara bokning</button></div>';
 
   const panel = oppnaPanel('dorr', huvudRubrik() + html);
+  let valdTid = '';
+  let utanNat = false;
+
+  /** Tiderna hämtas från kalendern, så två säljare inte säljer in samma tid. */
+  async function laddaTider() {
+    valdTid = '';
+    utanNat = false;
+    const ruta = $('bTider');
+    ruta.textContent = 'Hämtar tider…';
+    try {
+      const svar = await ledigaTider($('bDatum').value);
+      if (svar.helg) { ruta.innerHTML = '<span class="sub">Helg — besiktningar bokas måndag till fredag.</span>'; return; }
+      if (!svar.tider.length) { ruta.innerHTML = '<span class="sub">Alla tider är bokade den dagen.</span>'; return; }
+      ruta.innerHTML = svar.tider.map((t) =>
+        '<button class="chip" data-tid="' + esc(t) + '">' + esc(t) + '</button>').join('');
+      ruta.querySelectorAll('[data-tid]').forEach((b) => {
+        b.onclick = () => {
+          valdTid = b.dataset.tid;
+          ruta.querySelectorAll('.chip').forEach((x) => x.classList.toggle('vald', x === b));
+        };
+      });
+    } catch (e) {
+      // Utan täckning går tiderna inte att kontrollera. Bokningen är ändå värd
+      // mer än klockslaget, så den får sparas utan tid och tilldelas en ruta i
+      // kalendern när telefonen är uppkopplad igen.
+      if (e instanceof ApiFel && e.status === 0) {
+        utanNat = true;
+        ruta.innerHTML = '<span class="sub">Ingen täckning — tiderna går inte att kontrollera nu. ' +
+          'Spara bokningen ändå, så får den en tid i kalendern när nätet är tillbaka.</span>';
+        return;
+      }
+      ruta.innerHTML = '<span class="sub">Kunde inte hämta tider: ' + esc(e.message) + '</span>';
+    }
+  }
+
   panel.querySelectorAll('#bokChips .chip').forEach((b) => {
-    b.onclick = () => { $('bDatum').value = plusDagar(+b.dataset.d); };
+    b.onclick = () => { $('bDatum').value = plusDagar(+b.dataset.d); laddaTider(); };
   });
+  $('bDatum').onchange = laddaTider;
+  laddaTider();
+
   $('bAvbryt').onclick = () => oppna(a.id);
   $('bSpara').onclick = () => {
     const fornamn = $('bFornamn').value.trim();
     const telefon = $('bTelefon').value.trim();
     if (!fornamn || !telefon) { $('bFel').textContent = 'Förnamn och mobilnummer krävs.'; return; }
     if (!$('bDatum').value) { $('bFel').textContent = 'Välj datum för besiktningen.'; return; }
+    if (!valdTid && !utanNat) { $('bFel').textContent = 'Välj en ledig tid.'; return; }
     skicka('bokat', {
       fornamn,
       efternamn: $('bEfternamn').value.trim(),
       telefon,
       datum: $('bDatum').value,
-      tid: $('bTid').value,
+      ...(valdTid ? { tid: valdTid } : {}),
       kommentar: $('bKomm').value.trim(),
+    }, false, (meddelande) => {
+      $('bFel').textContent = meddelande;
+      laddaTider();
     });
   };
 }

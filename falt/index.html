@@ -88,14 +88,21 @@
     <div id="listInnehall"></div>
   </section>
 
-  <!-- ── BOKNINGAR ── -->
+  <!-- ── BOKNINGAR: kalender och lista ── -->
   <section class="vy" id="vy-bokningar" hidden>
-    <div class="filterrad">
-      <input type="date" id="bokFran" class="valj" />
-      <input type="date" id="bokTill" class="valj" />
-      <select id="bokSaljare" class="valj"></select>
+    <div class="flikar" id="bokFlikar">
+      <button class="flik aktiv" data-bok="kalender">Kalender</button>
+      <button class="flik" data-bok="lista">Lista</button>
     </div>
-    <div id="bokInnehall"></div>
+    <div id="kalenderInnehall"></div>
+    <div id="bokningsLista" hidden>
+      <div class="filterrad">
+        <input type="date" id="bokFran" class="valj" />
+        <input type="date" id="bokTill" class="valj" />
+        <select id="bokSaljare" class="valj"></select>
+      </div>
+      <div id="bokInnehall"></div>
+    </div>
   </section>
 
   <!-- ── DASHBOARD ── -->
