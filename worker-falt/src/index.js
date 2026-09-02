@@ -83,6 +83,64 @@ const nr = (v, fallback = 0) => (Number.isFinite(Number(v)) ? Number(v) : fallba
 const datum = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : null);
 const klockslag = (v) => (/^\d{2}:\d{2}$/.test(v || '') ? v : null);
 
+/* ══ Kalender ══
+   Besiktningarna bokas i rutor. Ändras SLOT här ändras hela kalendern,
+   både serverns kontroll och rutnätet i appen som hämtar värdena härifrån. */
+const KALENDER = {
+  OPPNAR: '08:00',
+  STANGER: '20:00',
+  SLOT: 30,          // minuter
+  DAGAR: [1, 2, 3, 4, 5],   // måndag–fredag
+};
+
+const iMinuter = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+const iKlockslag = (m) =>
+  String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+
+/** Alla bokningsbara tider på en dag. */
+function slottar() {
+  const ut = [];
+  for (let m = iMinuter(KALENDER.OPPNAR); m + KALENDER.SLOT <= iMinuter(KALENDER.STANGER); m += KALENDER.SLOT) {
+    ut.push(iKlockslag(m));
+  }
+  return ut;
+}
+
+/** Veckodag 0–6 för ett datum, uträknat utan tidszon. */
+function veckodag(d) {
+  return new Date(d + 'T12:00:00Z').getUTCDay();
+}
+
+/**
+ * Kontrollerar tiden på servern, inte bara i appen: helg, utanför öppettid
+ * och tider mitt i en ruta avvisas oavsett vad klienten skickar.
+ */
+function kontrolleraSlot(dat, tid) {
+  if (!datum(dat) || !klockslag(tid)) throw new Fel('Datum och tid krävs');
+  if (!KALENDER.DAGAR.includes(veckodag(dat))) throw new Fel('Helger går inte att boka');
+  const m = iMinuter(tid);
+  if (m < iMinuter(KALENDER.OPPNAR) || m + KALENDER.SLOT > iMinuter(KALENDER.STANGER)) {
+    throw new Fel('Tiden ligger utanför ' + KALENDER.OPPNAR + '–' + KALENDER.STANGER);
+  }
+  if ((m - iMinuter(KALENDER.OPPNAR)) % KALENDER.SLOT !== 0) {
+    throw new Fel('Tiden måste börja på en hel ' + KALENDER.SLOT + '-minutersruta');
+  }
+}
+
+const TIDEN_TAGEN = 'Tiden är redan bokad – välj en annan tid';
+
+/** Är rutan ledig? Databasens unika index är den slutliga garantin. */
+async function slotLedig(env, dat, tid, utom) {
+  const rad = await en(env,
+    `SELECT id FROM bokningar
+     WHERE datum = ?1 AND tid = ?2 AND status <> 'avbokad' AND id <> ?3`,
+    dat, tid, utom || '');
+  return !rad;
+}
+
+/** Känner igen krocken med det unika indexet, oavsett hur D1 formulerar den. */
+const arKrock = (e) => /UNIQUE|constraint/i.test(String((e && e.message) || e));
+
 /* Databashjälpare */
 const alla = async (env, sql, ...a) => ((await env.DB.prepare(sql).bind(...a).all()).results || []);
 const en = (env, sql, ...a) => env.DB.prepare(sql).bind(...a).first();
@@ -485,6 +543,15 @@ api['handelse'] = async (env, request, body, anv) => {
     }), 409);
   }
 
+  // Bokas en tid ska rutan kontrolleras innan något skrivs — annars kunde
+  // ett besök hamna i historiken utan den bokning säljaren trodde sig göra.
+  const bokTid = resultat === 'bokat' ? klockslag(body.tid) : null;
+  const bokDatum = resultat === 'bokat' ? datum(body.datum) : null;
+  if (bokTid && bokDatum) {
+    kontrolleraSlot(bokDatum, bokTid);
+    if (!(await slotLedig(env, bokDatum, bokTid))) throw new Fel(TIDEN_TAGEN, 409);
+  }
+
   const aterkomDatum = datum(body.aterkom_datum);
   const oppnade = resultat === 'ejsvar' ? 0 : 1;
   const positiv = resultat === 'bokat' || resultat === 'aterkom' ? 1 : 0;
@@ -513,13 +580,22 @@ api['handelse'] = async (env, request, body, anv) => {
   let bokning = null;
   if (resultat === 'bokat') {
     const bokningId = uid();
-    await kor(env,
-      `INSERT INTO bokningar
-         (id,adress_id,handelse_id,anvandare_id,fornamn,efternamn,telefon,datum,tid,kommentar,status,skapad)
-       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'bokad',?11)`,
-      bokningId, adressId, handelseId, anv.id,
-      txt(body.fornamn, 80), txt(body.efternamn, 80), txt(body.telefon, 40),
-      datum(body.datum), klockslag(body.tid), txt(body.kommentar, 1000), nu);
+    try {
+      await kor(env,
+        `INSERT INTO bokningar
+           (id,adress_id,handelse_id,anvandare_id,fornamn,efternamn,telefon,datum,tid,kommentar,status,skapad)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'bokad',?11)`,
+        bokningId, adressId, handelseId, anv.id,
+        txt(body.fornamn, 80), txt(body.efternamn, 80), txt(body.telefon, 40),
+        bokDatum, bokTid, txt(body.kommentar, 1000), nu);
+    } catch (e) {
+      // Någon annan hann boka rutan mellan kontrollen och skrivningen.
+      // Besöket rullas tillbaka så att säljaren kan välja en ny tid.
+      if (!arKrock(e)) throw e;
+      await kor(env, 'DELETE FROM handelser WHERE id = ?1', handelseId);
+      await raknaOmDorr(env, adressId);
+      throw new Fel(TIDEN_TAGEN, 409);
+    }
     bokning = { id: bokningId };
   }
 
@@ -833,6 +909,107 @@ api['bokningar'] = async (env, request, body, anv) => {
     })),
   };
 };
+
+/**
+ * Kalendern: bokningarna i ett datumintervall plus rutornas inställningar,
+ * så att appen ritar samma rutnät som servern godkänner.
+ */
+api['kalender'] = async (env, request, body, anv) => {
+  const fran = datum(body.fran) || datum(body.datum);
+  const till = datum(body.till) || fran;
+  if (!fran) throw new Fel('Datum krävs');
+
+  const rader = await alla(env,
+    `SELECT b.id, b.datum, b.tid, b.fornamn, b.efternamn, b.telefon, b.kommentar, b.status,
+            b.anvandare_id, u.namn AS saljare, ad.gata, ad.nummer, ad.postort
+     FROM bokningar b
+     LEFT JOIN anvandare u ON u.id = b.anvandare_id
+     LEFT JOIN adresser ad ON ad.id = b.adress_id
+     WHERE b.datum >= ?1 AND b.datum <= ?2 AND b.status <> 'avbokad'
+     ORDER BY b.datum, b.tid LIMIT 2000`, fran, till);
+
+  const perDag = {};
+  rader.forEach((b) => { perDag[b.datum] = (perDag[b.datum] || 0) + 1; });
+
+  return {
+    installningar: {
+      oppnar: KALENDER.OPPNAR, stanger: KALENDER.STANGER,
+      slot: KALENDER.SLOT, dagar: KALENDER.DAGAR,
+    },
+    slottar: slottar(),
+    per_dag: perDag,
+    bokningar: rader.map((b) => ({
+      ...b,
+      adress: b.gata ? b.gata + ' ' + b.nummer : '',
+      kund: [b.fornamn, b.efternamn].filter(Boolean).join(' '),
+    })),
+  };
+};
+
+/**
+ * Bokar en ruta i kalendern. Adressen skapas eller återanvänds som vanligt,
+ * så att bokningen också syns som en dörr på kartan.
+ */
+api['kalender-boka'] = async (env, request, body, anv) => {
+  const dat = datum(body.datum);
+  const tid = klockslag(body.tid);
+  kontrolleraSlot(dat, tid);
+
+  const fornamn = txt(body.fornamn, 80);
+  const telefon = txt(body.telefon, 40);
+  if (!fornamn || !telefon) throw new Fel('Kundens namn och telefonnummer krävs');
+  if (!(await slotLedig(env, dat, tid))) throw new Fel(TIDEN_TAGEN, 409);
+
+  // Säljaren bokningen tillhör: den som bokar, eller den en teamleader väljer.
+  let saljareId = anv.id;
+  const vald = txt(body.saljare_id, 40);
+  if (vald && vald !== anv.id) {
+    kraver(anv, 'teamleader');
+    if (await en(env, 'SELECT id FROM anvandare WHERE id = ?1', vald)) saljareId = vald;
+  }
+
+  let adressId = txt(body.adress_id, 40);
+  if (!adressId) {
+    const delad = body.gata ? { gata: txt(body.gata, 120), nummer: txt(body.nummer, 20) }
+      : delaAdressrad(txt(body.adress, 200));
+    if (!delad.gata || !delad.nummer) throw new Fel('Adress med husnummer krävs');
+    const svar = await api['adress-ny'](env, request, {
+      gata: delad.gata, nummer: delad.nummer,
+      postort: txt(body.postort, 80) || delad.postort,
+      omrade_id: txt(body.omrade_id, 40),
+    }, anv);
+    adressId = svar.adress.id;
+  }
+
+  const id = uid();
+  try {
+    await kor(env,
+      `INSERT INTO bokningar (id,adress_id,anvandare_id,fornamn,efternamn,telefon,datum,tid,kommentar,status,skapad)
+       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'bokad',?10)`,
+      id, adressId, saljareId, fornamn, txt(body.efternamn, 80), telefon,
+      dat, tid, txt(body.kommentar, 1000), Date.now());
+  } catch (e) {
+    if (arKrock(e)) throw new Fel(TIDEN_TAGEN, 409);
+    throw e;
+  }
+
+  const bokning = await en(env,
+    `SELECT b.*, u.namn AS saljare, ad.gata, ad.nummer FROM bokningar b
+     LEFT JOIN anvandare u ON u.id = b.anvandare_id
+     LEFT JOIN adresser ad ON ad.id = b.adress_id WHERE b.id = ?1`, id);
+  return { bokning: { ...bokning, adress: bokning.gata ? bokning.gata + ' ' + bokning.nummer : '' } };
+};
+
+/** "Törngatan 16, Örebro" → gata, nummer och ort var för sig. */
+function delaAdressrad(rad) {
+  const delar = String(rad || '').split(',').map((d) => d.trim()).filter(Boolean);
+  const m = (delar[0] || '').match(/^(.*[^\d\s])\s+(\d+\s*[a-zA-ZåäöÅÄÖ]?)$/);
+  return {
+    gata: m ? m[1].trim() : '',
+    nummer: m ? m[2].replace(/\s+/g, '') : '',
+    postort: delar.slice(1).join(' ').replace(/\b\d{3}\s?\d{2}\b/g, '').trim(),
+  };
+}
 
 api['bokning-status'] = async (env, request, body, anv) => {
   const id = txt(body.id, 40);
