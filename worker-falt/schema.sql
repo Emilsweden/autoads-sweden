@@ -110,6 +110,33 @@ CREATE INDEX IF NOT EXISTS idx_bok_anv ON bokningar(anvandare_id);
    steg i uppsättningen, eftersom det inte går att lägga på en databas som
    redan innehåller två bokningar på samma tid. */
 
+/* ── Kommentarer och bilder på en bokning ── */
+
+/* Alla inloggade ser och skriver kommentarer på alla bokningar: säljaren som
+   bokade, teamledaren och besiktaren som ska ut till kunden. */
+CREATE TABLE IF NOT EXISTS kommentarer (
+  id           TEXT PRIMARY KEY,
+  bokning_id   TEXT NOT NULL,
+  anvandare_id TEXT NOT NULL,
+  text         TEXT NOT NULL,
+  skapad       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_komm_bok ON kommentarer(bokning_id, skapad);
+
+/* Bilder från telefonens bildbibliotek. De skalas ner i appen innan de
+   skickas, så en rad rymmer en bild. */
+CREATE TABLE IF NOT EXISTS bilagor (
+  id           TEXT PRIMARY KEY,
+  bokning_id   TEXT NOT NULL,
+  anvandare_id TEXT NOT NULL,
+  namn         TEXT,
+  typ          TEXT,
+  storlek      INTEGER,
+  data         TEXT NOT NULL,      -- data-URL, nedskalad i appen
+  skapad       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bilaga_bok ON bilagor(bokning_id, skapad);
+
 /* ── Säljarnas position ── */
 
 CREATE TABLE IF NOT EXISTS positioner (

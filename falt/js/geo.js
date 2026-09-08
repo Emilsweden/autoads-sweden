@@ -23,6 +23,39 @@ export async function adressVid(lat, lon) {
   };
 }
 
+/**
+ * Alla hus med husnummer inom en kartruta. Det är så kartan kan visa varje
+ * hus i kvarteret utan att någon skrivit in dem — adressen finns redan i
+ * OpenStreetMap, vi hämtar den bara.
+ */
+export async function husIRuta(syd, vast, norr, ost) {
+  const ruta = [syd, vast, norr, ost].map((n) => n.toFixed(5)).join(',');
+  const fraga =
+    '[out:json][timeout:25];' +
+    '(node["addr:housenumber"](' + ruta + ');' +
+    ' way["addr:housenumber"](' + ruta + ');' +
+    ' relation["addr:housenumber"](' + ruta + '););' +
+    'out center;';
+
+  const svar = await fetch('https://overpass-api.de/api/interpreter', {
+    method: 'POST',
+    body: 'data=' + encodeURIComponent(fraga),
+  });
+  if (!svar.ok) throw new Error('Kartsökningen svarade ' + svar.status);
+  const data = await svar.json();
+
+  return (data.elements || []).map((e) => {
+    const t = e.tags || {};
+    return {
+      gata: t['addr:street'] || '',
+      nummer: t['addr:housenumber'] || '',
+      postort: t['addr:city'] || t['addr:place'] || '',
+      lat: e.lat || (e.center && e.center.lat),
+      lon: e.lon || (e.center && e.center.lon),
+    };
+  }).filter((h) => h.nummer && h.lat && h.lon);
+}
+
 /** Alla husnummer på en gata, för att fylla i koordinater i efterhand. */
 export async function husnummerPaGata(gata, ort) {
   const fraga =

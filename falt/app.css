@@ -171,6 +171,7 @@ button { cursor: pointer; border: none; background: none; }
 .gps-rad.soker::before { background: #f0a500; }
 .gps-rad.av::before { background: var(--st-nej); }
 .gps-rad.av { color: var(--accent); }
+.hus-rad { flex: 0 0 auto; padding: 0 16px 8px; font-size: 12px; color: var(--dim); }
 
 .kartbanner {
   flex: 0 0 auto; margin: 0 16px 10px; padding: 11px 13px; border-radius: 10px;
@@ -210,6 +211,7 @@ button { cursor: pointer; border: none; background: none; }
   background: #fff; color: #0d0d0d; border: 1.5px solid #0d0d0d;
   box-shadow: 0 1px 3px rgba(0,0,0,0.25);
 }
+.hus-nummer.okand { background: #fff; color: #0d0d0d; border: 2px solid #1a73e8; }
 .hus-nummer.s-bokat { background: #0d0d0d; color: #fff; border-color: #0d0d0d; }
 .hus-nummer.s-aterkom { background: var(--accent); color: #fff; border-color: var(--accent-mork); }
 .hus-nummer.s-ejsvar { background: #6b6b72; color: #fff; border-color: #55555b; }
@@ -410,6 +412,40 @@ body.panel-oppen { overflow: hidden; }
 .panel h2 { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
 .panel h3 { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); margin: 20px 0 9px; }
 .panel .sub { font-size: 13px; color: var(--dim); margin-top: 3px; }
+
+/* ══ BOKADE ADRESSER ══ */
+.bokade { display: flex; flex-direction: column; gap: 10px; padding: 4px 16px 0; }
+.bokad-kort { border: 1px solid var(--linje); border-radius: 14px; overflow: hidden; background: var(--bg-card); }
+.bokad-kort.oppen { border-color: var(--text); box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
+.bokad-topp { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px; text-align: left; }
+.bokad-tid { flex: 0 0 62px; display: flex; flex-direction: column; font-size: 13px; }
+.bokad-tid span { font-size: 12px; color: var(--dim); }
+.bokad-mitt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.bokad-mitt b { font-size: 15px; }
+.bokad-mitt span { font-size: 12.5px; color: var(--dim); }
+.bokad-hoger { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.bokad-antal { font-size: 11px; color: var(--dim); }
+
+.bokad-detalj { padding: 0 14px 14px; border-top: 1px solid var(--linje); }
+.bokad-fakta { padding-top: 12px; }
+.fakta-rad { display: flex; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--linje); font-size: 14px; }
+.fakta-rad span { flex: 0 0 92px; color: var(--dim); font-size: 12.5px; padding-top: 2px; }
+.fakta-rad b { flex: 1 1 auto; font-weight: 500; overflow-wrap: anywhere; }
+
+.komm-lista { display: flex; flex-direction: column; gap: 8px; }
+.komm {
+  padding: 11px 13px; border-radius: 12px; background: var(--bg-input);
+  font-size: 13.5px; line-height: 1.5; overflow-wrap: anywhere;
+}
+.komm-topp { font-size: 11.5px; color: var(--dim); margin-bottom: 4px; }
+
+.bild-rutnat { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.bild-ruta {
+  aspect-ratio: 1; border-radius: 10px; background: var(--bg-input);
+  border: 1px solid var(--linje); display: grid; place-items: center; padding: 6px;
+}
+.bild-ruta span { font-size: 10.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; }
+.bild-stor { width: 100%; border-radius: 12px; margin-top: 12px; display: block; }
 
 /* Dagens bokningar på översikten */
 .dagbok { display: flex; flex-direction: column; gap: 8px; }

@@ -10,7 +10,7 @@ import { anrop } from './api.js';
 import { $, esc, toast, STATUS_FARG, STATUS_TEXTFARG, visaTidpunkt } from './ui.js';
 import { S, arRoll, dataAndrad } from './state.js';
 import { oppna as oppnaDorr, manuell as manuellDorr } from './dorr.js';
-import { adressVid } from './geo.js';
+import { adressVid, husIRuta } from './geo.js';
 
 let karta = null;
 let jagMarkor = null;
@@ -120,7 +120,7 @@ function skapa() {
     karta.on('zoomend', ritaNummer);
     // 'idle' är det enda som säkert kommer efter allt kartan gör — även
     // efter en storleksändring, som inte ger moveend.
-    karta.on('idle', ritaNummer);
+    karta.on('idle', () => { ritaNummer(); hamtaHus(); });
     karta.on('mouseenter', DORRAR, () => { karta.getCanvas().style.cursor = 'pointer'; });
     karta.on('mouseleave', DORRAR, () => { karta.getCanvas().style.cursor = ''; });
     rita();
@@ -139,11 +139,12 @@ function skapa() {
     uppdateraBanner();
   });
 
-  $('teckenforklaring').innerHTML = [
-    ['ejbesokt', 'Ej besökt'], ['bokat', 'Bokad'], ['ejsvar', 'Inget svar'],
-    ['aterkom', 'Återkom'], ['nej', 'Nej'], ['sparrad', 'Nyligen besökt'],
-  ].map(([k, t]) => '<span><i style="background:' + STATUS_FARG[k] +
-    ';border:1px solid ' + (k === 'ejbesokt' ? '#0d0d0d' : 'rgba(0,0,0,0.15)') + '"></i>' + t + '</span>').join('');
+  $('teckenforklaring').innerHTML =
+    '<span><i style="background:#fff;border:2px solid #1a73e8"></i>Ej registrerat (husnummer)</span>' +
+    [['ejbesokt', 'Ej besökt'], ['bokat', 'Bokad'], ['ejsvar', 'Inget svar'],
+      ['aterkom', 'Återkom'], ['nej', 'Nej'], ['sparrad', 'Nyligen besökt'],
+    ].map(([k, t]) => '<span><i style="background:' + STATUS_FARG[k] +
+      ';border:1px solid ' + (k === 'ejbesokt' ? '#0d0d0d' : 'rgba(0,0,0,0.15)') + '"></i>' + t + '</span>').join('');
 }
 
 /* ── Husnummer som brickor ── */
@@ -159,59 +160,145 @@ const brickor = new Map();  // adress-id → markör
  * på ute på gatan, så det är markören — inte en generisk kartnål.
  * Längre ut visas i stället färgade punkter, annars blir kartan full.
  */
+/**
+ * Ritar husnumren för de hus vi ännu inte registrerat. Registrerade dörrar
+ * har sin färgade punkt — deras nummer skulle bara skymma statusen.
+ */
 function ritaNummer() {
   if (!karta || !laddad) return;
 
-  // Lite marginal runt vyn, så att brickorna finns på plats innan huset
-  // kommer in i bild i stället för att poppa upp vid kanten.
-  const g = karta.getBounds();
-  const dLat = (g.getNorth() - g.getSouth()) * 0.3;
-  const dLon = (g.getEast() - g.getWest()) * 0.3;
-  const inom = (a) => a.lat > g.getSouth() - dLat && a.lat < g.getNorth() + dLat
-    && a.lon > g.getWest() - dLon && a.lon < g.getEast() + dLon;
-
-  const ivy = synligaAdresser().filter(inom);
-
-  // Varje hus har alltid sin punkt. Numret läggs ovanpå där det får plats —
-  // två brickor som täcker varandra gör att man trycker på fel hus.
-  const visaNummer = karta.getZoom() >= NUMMER_ZOOM && ivy.length <= MAX_NUMMER;
-  if (!visaNummer) {
+  const okanda = karta.getZoom() >= NUMMER_ZOOM ? okandaHusIVy() : [];
+  if (!okanda.length) {
     brickor.forEach((m) => m.remove());
     brickor.clear();
     return;
   }
 
-  const nu = Date.now();
   const kvar = new Set();
   const placerade = [];
 
-  ivy.forEach((a) => {
-    const p = karta.project([a.lon, a.lat]);
+  okanda.slice(0, MAX_NUMMER).forEach((h) => {
+    const p = karta.project([h.lon, h.lat]);
     if (placerade.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < BRICKA)) return;
     placerade.push(p);
-      kvar.add(a.id);
-      const sparrad = a.sparrad_till > nu && a.status !== 'ejbesokt';
-      const klasser = 'hus-nummer s-' + (a.status || 'ejbesokt') + (sparrad ? ' sparrad' : '');
-      const fanns = brickor.get(a.id);
-      if (fanns) {
-        sattKlasser(fanns.getElement(), klasser, a.nummer);
-        fanns.setLngLat([a.lon, a.lat]);
-        return;
-      }
-      const el = document.createElement('button');
-      el.type = 'button';
-      el.className = klasser;
-      el.textContent = a.nummer || '?';
-      el.title = a.adress;
-      el.onclick = (ev) => { ev.stopPropagation(); oppnaDorr(a.id); };
-      brickor.set(a.id, new maplibregl.Marker({ element: el }).setLngLat([a.lon, a.lat]).addTo(karta));
-    });
+    kvar.add(h.id);
+
+    const fanns = brickor.get(h.id);
+    if (fanns) {
+      sattKlasser(fanns.getElement(), 'hus-nummer okand', h.nummer);
+      fanns.setLngLat([h.lon, h.lat]);
+      return;
+    }
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'hus-nummer okand';
+    el.textContent = h.nummer;
+    el.title = [h.gata, h.nummer].filter(Boolean).join(' ') + (h.postort ? ', ' + h.postort : '');
+    el.onclick = (ev) => { ev.stopPropagation(); oppnaOkantHus(h); };
+    brickor.set(h.id, new maplibregl.Marker({ element: el }).setLngLat([h.lon, h.lat]).addTo(karta));
+  });
 
   brickor.forEach((m, id) => {
     if (kvar.has(id)) return;
     m.remove();
     brickor.delete(id);
   });
+}
+
+/* ── Hus från kartan som ingen registrerat än ── */
+
+const husCache = new Map();   // rutnyckel → hus[]
+let hamtarHus = false;
+let senasteHamtning = 0;
+const HAMTA_PAUS = 3000;      // OpenStreetMaps sökserver är gratis — var snäll mot den
+
+/** Kartrutan avrundad till ett rutnät, så samma område hämtas bara en gång. */
+function rutnyckel(g) {
+  const r = (n) => Math.floor(n * 200) / 200;   // ~500 m
+  return [r(g.getSouth()), r(g.getWest()), r(g.getNorth()), r(g.getEast())].join(',');
+}
+
+/** Husen i vyn som inte redan finns som dörr hos oss. */
+function okandaHusIVy() {
+  const g = karta.getBounds();
+  const hus = husCache.get(rutnyckel(g)) || [];
+  if (!hus.length) return [];
+
+  // Lite marginal runt vyn, så brickorna finns innan huset kommer i bild.
+  const dLat = (g.getNorth() - g.getSouth()) * 0.3;
+  const dLon = (g.getEast() - g.getWest()) * 0.3;
+
+  // En registrerad dörr inom 15 meter är samma hus — då är den redan vår.
+  const vara = synligaAdresser();
+  return hus.filter((h) =>
+    h.lat > g.getSouth() - dLat && h.lat < g.getNorth() + dLat &&
+    h.lon > g.getWest() - dLon && h.lon < g.getEast() + dLon &&
+    !vara.some((a) => Math.abs(a.lat - h.lat) < 0.00014 && Math.abs(a.lon - h.lon) < 0.00027));
+}
+
+/**
+ * Hämtar husnumren för det man tittar på. Adresserna finns redan i
+ * OpenStreetMap — ingen ska behöva skriva in en gata för hand.
+ */
+async function hamtaHus() {
+  if (!karta || hamtarHus || karta.getZoom() < NUMMER_ZOOM) return;
+  const g = karta.getBounds();
+  const nyckel = rutnyckel(g);
+  if (husCache.has(nyckel)) return;
+  if (Date.now() - senasteHamtning < HAMTA_PAUS) {
+    setTimeout(hamtaHus, HAMTA_PAUS);
+    return;
+  }
+  senasteHamtning = Date.now();
+
+  hamtarHus = true;
+  husStatus('Hämtar husnummer…');
+  try {
+    const hus = await husIRuta(g.getSouth(), g.getWest(), g.getNorth(), g.getEast());
+    husCache.set(nyckel, hus.map((h, i) => ({ ...h, id: 'osm-' + nyckel + '-' + i })));
+    husStatus(hus.length ? '' : 'Inga husnummer i kartan här');
+    ritaNummer();
+  } catch (e) {
+    husCache.set(nyckel, []);      // försök inte om och om igen på samma ruta
+    husStatus('Kunde inte hämta husnummer');
+  } finally {
+    hamtarHus = false;
+  }
+}
+
+let husStatusTimer = null;
+function husStatus(text) {
+  const el = $('husRad');
+  if (!el) return;
+  el.textContent = text;
+  el.hidden = !text;
+  clearTimeout(husStatusTimer);
+  if (text && !/Hämtar/.test(text)) husStatusTimer = setTimeout(() => { el.hidden = true; }, 6000);
+}
+
+/**
+ * Ett hus från kartan trycks på: adressen är redan känd, så dörren skapas
+ * och öppnas direkt — säljaren fyller bara i utfallet.
+ */
+async function oppnaOkantHus(h) {
+  if (!h.gata) {
+    manuellDorr(S.omraden, S.valtOmrade, { nummer: h.nummer, lat: h.lat, lon: h.lon });
+    return;
+  }
+  try {
+    const svar = await anrop('adress-ny', {
+      gata: h.gata,
+      nummer: h.nummer,
+      postort: h.postort || (S.omraden.find((o) => o.id === S.valtOmrade) || {}).ort || '',
+      omrade_id: S.valtOmrade || undefined,
+      lat: h.lat,
+      lon: h.lon,
+    });
+    dataAndrad();
+    oppnaDorr(svar.adress.id);
+  } catch (e) {
+    toast('Kunde inte öppna huset: ' + e.message);
+  }
 }
 
 /**

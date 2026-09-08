@@ -67,9 +67,10 @@
       <button class="knapp-guld" id="nastaDorr">Nästa dörr</button>
     </div>
     <p class="gps-rad" id="gpsRad">GPS söker signal…</p>
+    <p class="hus-rad" id="husRad" hidden></p>
     <div class="kartbanner" id="kartBanner" hidden></div>
     <div id="karta"></div>
-    <p class="karttips">Tryck på ett hus för att öppna dörren. Två fingrar vrider och lutar kartan, kompassen ställer tillbaka norrut.</p>
+    <p class="karttips">Numren är hus vi inte registrerat än — tryck på ett för att öppna dörren. Färgade punkter är redan bearbetade.</p>
     <div class="teckenforklaring" id="teckenforklaring"></div>
   </section>
 
@@ -93,9 +94,11 @@
   <section class="vy" id="vy-bokningar" hidden>
     <div class="flikar" id="bokFlikar">
       <button class="flik aktiv" data-bok="kalender">Kalender</button>
+      <button class="flik" data-bok="bokade">Bokade adresser</button>
       <button class="flik" data-bok="lista">Lista</button>
     </div>
     <div id="kalenderInnehall"></div>
+    <div id="bokadeInnehall" hidden></div>
     <div id="bokningsLista" hidden>
       <div class="filterrad">
         <input type="date" id="bokFran" class="valj" />
