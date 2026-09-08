@@ -312,6 +312,9 @@ export async function rita() {
 
   senasteData = data;
   const dagar = malDagar(p);
+  // Hämtningen kan bli klar efter att man bytt vy — skriv då inte över
+  // den vyns underrubrik.
+  if (S.vy !== 'dashboard') return;
   $('vySub').textContent = visaDatum(data.period.fran) +
     (data.period.fran !== data.period.till ? ' – ' + visaDatum(data.period.till) : '') +
     ' · hit rate på ' + (data.namnare === 'oppnade' ? 'öppnade dörrar' : data.namnare === 'positiva' ? 'positiva samtal' : 'alla dörrar');

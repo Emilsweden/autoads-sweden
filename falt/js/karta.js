@@ -108,16 +108,19 @@ function skapa() {
       type: 'circle',
       source: DORRAR,
       paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 9, 16, 15, 19, 21],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 3, 15, 5, 18, 7, 20, 9],
         'circle-color': fargUttryck(STATUS_FARG, STATUS_FARG.ejbesokt),
         'circle-opacity': 1,
-        'circle-stroke-width': ['case', ['get', 'sparrad'], 3, 1.6],
+        'circle-stroke-width': ['case', ['get', 'sparrad'], 2, 1],
         'circle-stroke-color': ['case', ['get', 'sparrad'], STATUS_FARG.sparrad, '#0d0d0d'],
       },
     });
     karta.on('click', vidKartklick);
     karta.on('moveend', ritaNummer);
     karta.on('zoomend', ritaNummer);
+    // 'idle' är det enda som säkert kommer efter allt kartan gör — även
+    // efter en storleksändring, som inte ger moveend.
+    karta.on('idle', ritaNummer);
     karta.on('mouseenter', DORRAR, () => { karta.getCanvas().style.cursor = 'pointer'; });
     karta.on('mouseleave', DORRAR, () => { karta.getCanvas().style.cursor = ''; });
     rita();
@@ -139,13 +142,15 @@ function skapa() {
   $('teckenforklaring').innerHTML = [
     ['ejbesokt', 'Ej besökt'], ['bokat', 'Bokad'], ['ejsvar', 'Inget svar'],
     ['aterkom', 'Återkom'], ['nej', 'Nej'], ['sparrad', 'Nyligen besökt'],
-  ].map(([k, t]) => '<span><i style="background:' + STATUS_FARG[k] + '"></i>' + t + '</span>').join('');
+  ].map(([k, t]) => '<span><i style="background:' + STATUS_FARG[k] +
+    ';border:1px solid ' + (k === 'ejbesokt' ? '#0d0d0d' : 'rgba(0,0,0,0.15)') + '"></i>' + t + '</span>').join('');
 }
 
 /* ── Husnummer som brickor ── */
 
-const NUMMER_ZOOM = 15.5;   // längre ut blir numren oläsliga och kartan full
-const MAX_NUMMER = 400;     // så många brickor räcker för ett kvarter
+const NUMMER_ZOOM = 14;     // längre ut blir numren oläsliga
+const MAX_NUMMER = 150;     // fler brickor än så blir en vägg av siffror
+const BRICKA = 28;          // brickans storlek i bildpunkter
 
 const brickor = new Map();  // adress-id → markör
 
@@ -156,16 +161,6 @@ const brickor = new Map();  // adress-id → markör
  */
 function ritaNummer() {
   if (!karta || !laddad) return;
-  const visaNummer = karta.getZoom() >= NUMMER_ZOOM;
-
-  if (karta.getLayer(DORRAR)) {
-    karta.setLayoutProperty(DORRAR, 'visibility', visaNummer ? 'none' : 'visible');
-  }
-  if (!visaNummer) {
-    brickor.forEach((m) => m.remove());
-    brickor.clear();
-    return;
-  }
 
   // Lite marginal runt vyn, så att brickorna finns på plats innan huset
   // kommer in i bild i stället för att poppa upp vid kanten.
@@ -175,21 +170,31 @@ function ritaNummer() {
   const inom = (a) => a.lat > g.getSouth() - dLat && a.lat < g.getNorth() + dLat
     && a.lon > g.getWest() - dLon && a.lon < g.getEast() + dLon;
 
+  const ivy = synligaAdresser().filter(inom);
+
+  // Varje hus har alltid sin punkt. Numret läggs ovanpå där det får plats —
+  // två brickor som täcker varandra gör att man trycker på fel hus.
+  const visaNummer = karta.getZoom() >= NUMMER_ZOOM && ivy.length <= MAX_NUMMER;
+  if (!visaNummer) {
+    brickor.forEach((m) => m.remove());
+    brickor.clear();
+    return;
+  }
+
   const nu = Date.now();
   const kvar = new Set();
+  const placerade = [];
 
-  synligaAdresser()
-    .filter(inom)
-    .slice(0, MAX_NUMMER)
-    .forEach((a) => {
+  ivy.forEach((a) => {
+    const p = karta.project([a.lon, a.lat]);
+    if (placerade.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < BRICKA)) return;
+    placerade.push(p);
       kvar.add(a.id);
       const sparrad = a.sparrad_till > nu && a.status !== 'ejbesokt';
       const klasser = 'hus-nummer s-' + (a.status || 'ejbesokt') + (sparrad ? ' sparrad' : '');
       const fanns = brickor.get(a.id);
       if (fanns) {
-        const el = fanns.getElement();
-        if (el.className !== klasser) el.className = klasser;
-        if (el.textContent !== (a.nummer || '?')) el.textContent = a.nummer || '?';
+        sattKlasser(fanns.getElement(), klasser, a.nummer);
         fanns.setLngLat([a.lon, a.lat]);
         return;
       }
@@ -209,6 +214,18 @@ function ritaNummer() {
   });
 }
 
+/**
+ * Byter statusklass på en bricka utan att röra MapLibres egna klasser.
+ * De sköter positioneringen — skrivs de över faller brickan ur sitt läge
+ * och hamnar i en hög med de andra.
+ */
+function sattKlasser(el, klasser, nummer) {
+  const egna = [...el.classList].filter((k) => k.startsWith('maplibregl'));
+  const nya = egna.concat(klasser.split(' ')).join(' ');
+  if (el.className !== nya) el.className = nya;
+  if (el.textContent !== (nummer || '?')) el.textContent = nummer || '?';
+}
+
 /** Adresserna i valt område som har ett läge att rita ut. */
 function synligaAdresser() {
   return S.adresser.filter((a) =>
@@ -217,19 +234,17 @@ function synligaAdresser() {
 
 /* ── Tryck på kartan ── */
 
-/** Meter mellan två punkter, tillräckligt exakt på kvartersavstånd. */
-function avstand(a, lat, lon) {
-  const dx = (a.lon - lon) * 111320 * Math.cos((lat * Math.PI) / 180);
-  const dy = (a.lat - lat) * 110540;
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
-function narmasteDorr(lat, lon, max) {
+/**
+ * Närmaste dörr räknat i bildpunkter, inte meter: träffytan ska vara lika
+ * stor som punkten ser ut, oavsett zoom. Med meter fångade en dörr tryck
+ * som gällde grannen så fort man var inzoomad.
+ */
+function narmasteDorr(punkt, maxPixlar) {
   let bast = null;
-  let bastAvstand = max;
-  S.adresser.forEach((a) => {
-    if (!a.lat || !a.lon) return;
-    const d = avstand(a, lat, lon);
+  let bastAvstand = maxPixlar;
+  synligaAdresser().forEach((a) => {
+    const p = karta.project([a.lon, a.lat]);
+    const d = Math.hypot(p.x - punkt.x, p.y - punkt.y);
     if (d <= bastAvstand) { bast = a; bastAvstand = d; }
   });
   return bast;
@@ -267,7 +282,9 @@ async function vidKartklick(ev) {
   const traffade = karta.queryRenderedFeatures(ev.point, { layers: [DORRAR] });
   if (traffade.length) { oppnaDorr(traffade[0].properties.id); return; }
 
-  const nara = narmasteDorr(latlng.lat, latlng.lng, 25);
+  // 16 bildpunkter ≈ punktens egen storlek. Utanför den räknas trycket
+  // som en ny plats, inte som grannens dörr.
+  const nara = narmasteDorr(ev.point, 16);
   if (nara) { oppnaDorr(nara.id); return; }
 
   const ruta = document.createElement('div');
