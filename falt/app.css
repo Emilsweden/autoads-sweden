@@ -291,10 +291,20 @@ button { cursor: pointer; border: none; background: none; }
 .slot.bokad .slot-innehall b { color: #fff; font-size: 14px; }
 .slot.bokad .slot-innehall span,
 .slot.bokad .slot-saljare { color: rgba(255,255,255,0.72) !important; }
-.slot.bokad .slot-avboka { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.3); color: #fff; }
+.slot.bokad .slot-bokning { display: flex; flex-direction: column; padding: 6px 0; }
+.slot.dubbel .slot-bokning + .slot-bokning { border-top: 1px solid rgba(255,255,255,0.22); margin-top: 4px; }
+.slot.dubbel { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+.slot.dubbel .slot-etikett { color: #ff9b93 !important; }
+.slot-bokning .slot-avboka { align-self: flex-start; margin-top: 6px; }
+.slot-avboka { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.3); color: #fff; }
 .slot.krock {
   background: var(--accent-dim); border-color: var(--border); color: var(--accent); font-weight: 600;
 }
+.slot-bokning { display: flex; flex-direction: column; padding: 6px 0; }
+.slot.dubbel .slot-bokning + .slot-bokning { border-top: 1px solid rgba(255,255,255,0.22); margin-top: 4px; }
+.slot.dubbel { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+.slot.dubbel .slot-etikett { color: #ff9b93 !important; }
+.slot-bokning .slot-avboka { align-self: flex-start; margin-top: 6px; }
 .slot-avboka {
   flex: 0 0 auto; padding: 8px 11px; border-radius: 9px; font-size: 12px; font-weight: 600;
   background: var(--bg-input); border: 1px solid var(--linje); color: var(--muted);

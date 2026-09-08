@@ -113,7 +113,13 @@ function manadsHtml() {
 
 function dagsHtml() {
   const dat = valdDag;
-  const tagna = new Map(bokningar.filter((b) => b.datum === dat).map((b) => [b.tid, b]));
+  // Flera bokningar kan dela tid i data från tiden före dubbelbokningsskyddet.
+  // De ska synas — annars går de inte att rätta.
+  const tagna = new Map();
+  bokningar.filter((b) => b.datum === dat).forEach((b) => {
+    if (!tagna.has(b.tid)) tagna.set(b.tid, []);
+    tagna.get(b.tid).push(b);
+  });
   const rubrik = visaDatum(dat);
 
   if (arHelg(dat)) {
@@ -124,21 +130,24 @@ function dagsHtml() {
 
   const extra = [...tagna.keys()].filter((t) => t && !slottar.includes(t));
   const rader = slottar.concat(extra).sort().map((tid) => {
-    const b = tagna.get(tid);
-    if (b) {
+    const pa = tagna.get(tid);
+    if (pa && pa.length) {
       // Rutan man just försökte boka markeras röd även när den nu är tagen,
       // så att man ser vilken tid som gick förlorad.
-      return '<div class="slot bokad' + (krockad === tid ? ' krock' : '') + '" data-tid="' + esc(tid) + '">' +
+      return '<div class="slot bokad' + (krockad === tid ? ' krock' : '') +
+        (pa.length > 1 ? ' dubbel' : '') + '" data-tid="' + esc(tid) + '">' +
         '<span class="slot-tid">' + esc(tid) + '</span>' +
-        '<span class="slot-innehall"><span class="slot-etikett">UPPTAGEN</span><b>' +
-        esc(b.kund || 'Bokad') + (krockad === tid ? ' — upptogs precis' : '') + '</b>' +
-        (b.adress ? '<span>' + esc(b.adress) + '</span>' : '') +
-        (b.telefon ? '<span>' + esc(b.telefon) + '</span>' : '') +
-        '<span class="slot-saljare">' + esc(b.saljare || '') + '</span></span>' +
-        // Egna bokningar avbokar man själv; andras kräver teamleader.
-        (b.anvandare_id === S.anvandare.id || arRoll('teamleader')
-          ? '<button class="slot-avboka" data-avboka="' + esc(b.id) + '">Avboka</button>' : '') +
-        '</div>';
+        '<span class="slot-innehall"><span class="slot-etikett">UPPTAGEN' +
+        (pa.length > 1 ? ' · ' + pa.length + ' BOKNINGAR PÅ SAMMA TID' : '') + '</span>' +
+        pa.map((b) => '<span class="slot-bokning"><b>' +
+          esc(b.kund || 'Bokad') + (krockad === tid && pa.length === 1 ? ' — upptogs precis' : '') + '</b>' +
+          (b.adress ? '<span>' + esc(b.adress) + '</span>' : '') +
+          (b.telefon ? '<span>' + esc(b.telefon) + '</span>' : '') +
+          '<span class="slot-saljare">' + esc(b.saljare || '') + '</span>' +
+          (b.anvandare_id === S.anvandare.id || arRoll('teamleader')
+            ? '<button class="slot-avboka" data-avboka="' + esc(b.id) + '">Avboka</button>' : '') +
+          '</span>').join('') +
+        '</span></div>';
     }
     return '<button class="slot ledig' + (krockad === tid ? ' krock' : '') + '" data-boka="' + esc(tid) + '">' +
       '<span class="slot-tid">' + esc(tid) + '</span>' +
