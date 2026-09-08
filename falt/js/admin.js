@@ -320,7 +320,7 @@ function importFormular(o) {
 /* ══ Användare ══ */
 
 function ritaAnvandare() {
-  const roller = { admin: 'Admin', teamleader: 'Teamleader', saljare: 'Säljare' };
+  const roller = { admin: 'Admin', teamleader: 'Teamleader', saljare: 'Säljare', besiktare: 'Besiktare' };
   return '<div class="lista">' + anvandarData.map((a) =>
     '<div class="kort ' + (a.aktiv ? 's-bokat' : 's-nej') + '">' +
     '<div class="kort-topp"><div>' +
@@ -339,9 +339,10 @@ function anvandarFormular(a) {
     '<div class="field"><label for="aEpost">E-post</label><input id="aEpost" type="email" autocapitalize="off" value="' + esc(a ? a.epost : '') + '"></div>' +
     '<div class="rad2">' +
     '<div class="field"><label for="aRoll">Roll</label><select id="aRoll">' +
-    ['saljare', 'teamleader', 'admin'].map((r) =>
+    ['saljare', 'besiktare', 'teamleader', 'admin'].map((r) =>
       '<option value="' + r + '"' + (a && a.roll === r ? ' selected' : '') + '>' +
-      ({ saljare: 'Säljare', teamleader: 'Teamleader', admin: 'Admin' })[r] + '</option>').join('') +
+      ({ saljare: 'Säljare', besiktare: 'Besiktare', teamleader: 'Teamleader', admin: 'Admin' })[r] +
+      '</option>').join('') +
     '</select></div>' +
     '<div class="field"><label for="aTeam">Team</label><input id="aTeam" type="text" value="' + esc(a ? a.team || '' : '') + '"></div>' +
     '</div>' +

@@ -8,7 +8,10 @@
  */
 
 const RESULTAT = ['bokat', 'ejsvar', 'nej', 'aterkom'];
-const ROLLER = { saljare: 1, teamleader: 2, admin: 3 };
+const ROLLER = { besiktare: 1, saljare: 1, teamleader: 2, admin: 3 };
+
+/** Besiktaren jobbar bara i bokningarna — hela laget delar dem. */
+const arBesiktare = (anv) => anv && anv.roll === 'besiktare';
 const SESSION_DAGAR = 30;
 const DAG = 86400000;
 
@@ -1053,13 +1056,120 @@ api['bokning-andra'] = async (env, request, body, anv) => {
   return { bokning: { ...uppdaterad, adress: uppdaterad.gata ? uppdaterad.gata + ' ' + uppdaterad.nummer : '' } };
 };
 
+/**
+ * Alla bokade adresser med allt som hör till dem: kund, hus, säljare,
+ * kommentarer och bilder. Sidan är gemensam — vem som helst som är inloggad
+ * ser alla bokningar, inklusive besiktaren som ska ut till kunden.
+ */
+api['bokade-adresser'] = async (env, request, body, anv) => {
+  const villkor = ["b.status <> 'avbokad'"];
+  const args = [];
+  const lagg = (sql, v) => { args.push(v); villkor.push(sql.replace('?', '?' + args.length)); };
+  if (datum(body.fran)) lagg('b.datum >= ?', body.fran);
+  if (datum(body.till)) lagg('b.datum <= ?', body.till);
+  if (txt(body.status, 20)) lagg('b.status = ?', txt(body.status, 20));
+
+  const rader = await alla(env,
+    `SELECT b.*, u.namn AS saljare, ad.gata, ad.nummer, ad.postort, ad.lat, ad.lon,
+            ad.status AS husstatus, o.namn AS omrade
+     FROM bokningar b
+     LEFT JOIN anvandare u ON u.id = b.anvandare_id
+     LEFT JOIN adresser ad ON ad.id = b.adress_id
+     LEFT JOIN omraden o ON o.id = ad.omrade_id
+     WHERE ${villkor.join(' AND ')}
+     ORDER BY b.datum DESC, b.tid DESC LIMIT 500`, ...args);
+  if (!rader.length) return { bokningar: [] };
+
+  const idn = rader.map((b) => b.id);
+  const p = idn.map((_, i) => '?' + (i + 1)).join(',');
+  const kommentarer = await alla(env,
+    `SELECT k.*, u.namn AS forfattare, u.roll FROM kommentarer k
+     LEFT JOIN anvandare u ON u.id = k.anvandare_id
+     WHERE k.bokning_id IN (${p}) ORDER BY k.skapad`, ...idn);
+  // Bilddatan hämtas för sig — annars blir svaret enormt.
+  const bilagor = await alla(env,
+    `SELECT id, bokning_id, namn, typ, storlek, skapad FROM bilagor
+     WHERE bokning_id IN (${p}) ORDER BY skapad`, ...idn);
+
+  return {
+    bokningar: rader.map((b) => ({
+      ...b,
+      adress: b.gata ? b.gata + ' ' + b.nummer : '',
+      kund: [b.fornamn, b.efternamn].filter(Boolean).join(' '),
+      kommentarer: kommentarer.filter((k) => k.bokning_id === b.id),
+      bilagor: bilagor.filter((f) => f.bokning_id === b.id),
+    })),
+  };
+};
+
+/** Skriver en kommentar på en bokning. Alla inloggade får kommentera. */
+api['bokning-kommentar'] = async (env, request, body, anv) => {
+  const bokningId = txt(body.bokning_id, 40);
+  const text = txt(body.text, 2000);
+  if (!bokningId || !text) throw new Fel('Bokning och text krävs');
+  if (!(await en(env, 'SELECT id FROM bokningar WHERE id = ?1', bokningId))) {
+    throw new Fel('Bokningen finns inte', 404);
+  }
+  const id = uid();
+  await kor(env, 'INSERT INTO kommentarer (id,bokning_id,anvandare_id,text,skapad) VALUES (?1,?2,?3,?4,?5)',
+    id, bokningId, anv.id, text, Date.now());
+  return { kommentar: { id, bokning_id: bokningId, text, forfattare: anv.namn, skapad: Date.now() } };
+};
+
+api['bokning-kommentar-ta-bort'] = async (env, request, body, anv) => {
+  const id = txt(body.id, 40);
+  const k = await en(env, 'SELECT * FROM kommentarer WHERE id = ?1', id);
+  if (!k) throw new Fel('Kommentaren finns inte', 404);
+  if (k.anvandare_id !== anv.id) kraver(anv, 'teamleader');
+  await kor(env, 'DELETE FROM kommentarer WHERE id = ?1', id);
+  return {};
+};
+
+/* Bilderna skalas ner i appen; det här är taket för en enskild bild. */
+const MAX_BILD = 900000;
+
+/** Lägger en bild från telefonen på en bokning. */
+api['bokning-bilaga'] = async (env, request, body, anv) => {
+  const bokningId = txt(body.bokning_id, 40);
+  const data = typeof body.data === 'string' ? body.data : '';
+  if (!bokningId || !data.startsWith('data:image/')) throw new Fel('Bokning och bild krävs');
+  if (data.length > MAX_BILD) throw new Fel('Bilden är för stor även nedskalad — försök med en annan');
+  if (!(await en(env, 'SELECT id FROM bokningar WHERE id = ?1', bokningId))) {
+    throw new Fel('Bokningen finns inte', 404);
+  }
+  const antal = await en(env, 'SELECT COUNT(*) AS n FROM bilagor WHERE bokning_id = ?1', bokningId);
+  if (antal && antal.n >= 20) throw new Fel('Max 20 bilder per bokning');
+
+  const id = uid();
+  await kor(env,
+    'INSERT INTO bilagor (id,bokning_id,anvandare_id,namn,typ,storlek,data,skapad) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)',
+    id, bokningId, anv.id, txt(body.namn, 120), txt(body.typ, 40), data.length, data, Date.now());
+  return { bilaga: { id, bokning_id: bokningId, namn: txt(body.namn, 120), storlek: data.length } };
+};
+
+/** Hämtar en bilds data. Ligger för sig så att listan kan vara lätt. */
+api['bilaga'] = async (env, request, body, anv) => {
+  const bilaga = await en(env, 'SELECT * FROM bilagor WHERE id = ?1', txt(body.id, 40));
+  if (!bilaga) throw new Fel('Bilden finns inte', 404);
+  return { bilaga };
+};
+
+api['bilaga-ta-bort'] = async (env, request, body, anv) => {
+  const bilaga = await en(env, 'SELECT id, anvandare_id FROM bilagor WHERE id = ?1', txt(body.id, 40));
+  if (!bilaga) throw new Fel('Bilden finns inte', 404);
+  if (bilaga.anvandare_id !== anv.id) kraver(anv, 'teamleader');
+  await kor(env, 'DELETE FROM bilagor WHERE id = ?1', bilaga.id);
+  return {};
+};
+
 api['bokning-status'] = async (env, request, body, anv) => {
   const id = txt(body.id, 40);
   const status = ['bokad', 'genomford', 'avbokad'].includes(body.status) ? body.status : null;
   if (!id || !status) throw new Fel('Bokning och status krävs');
   const bokning = await en(env, 'SELECT * FROM bokningar WHERE id = ?1', id);
   if (!bokning) throw new Fel('Bokningen finns inte', 404);
-  if (bokning.anvandare_id !== anv.id) kraver(anv, 'teamleader');
+  // Besiktaren är den som varit på plats och vet om mötet blev av.
+  if (bokning.anvandare_id !== anv.id && !arBesiktare(anv)) kraver(anv, 'teamleader');
   await kor(env, 'UPDATE bokningar SET status = ?1 WHERE id = ?2', status, id);
   return {};
 };

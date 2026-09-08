@@ -9,6 +9,7 @@ import { manuell as manuellBokning } from './dorr.js';
 import { visaImport as visaAnteckningar } from './anteckningar.js';
 import * as listor from './listor.js';
 import * as kalender from './kalender.js';
+import * as bokade from './bokade.js';
 import * as dashboard from './dashboard.js';
 import * as admin from './admin.js';
 
@@ -37,7 +38,8 @@ let dashTimer = null;
 /* ══ Navigering ══ */
 
 function ritaNav() {
-  const vyer = NAVVYER;
+  // Besiktaren knackar inga dörrar — den ska rakt in i bokningarna.
+  const vyer = S.anvandare && S.anvandare.roll === 'besiktare' ? ['bokningar'] : NAVVYER;
   $('botten').innerHTML = vyer.map((v) =>
     '<button data-vy="' + v + '" class="' + (v === S.vy ? 'aktiv' : '') + '">' +
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
@@ -73,12 +75,15 @@ let bokFlik = 'kalender';
 
 function visaBokningsflik() {
   $('kalenderInnehall').hidden = bokFlik !== 'kalender';
+  $('bokadeInnehall').hidden = bokFlik !== 'bokade';
   $('bokningsLista').hidden = bokFlik !== 'lista';
   $('bokFlikar').querySelectorAll('.flik').forEach((f) => {
     f.classList.toggle('aktiv', f.dataset.bok === bokFlik);
   });
-  if (bokFlik === 'kalender') kalender.starta();
-  else { kalender.stoppa(); listor.ritaBokningar(); }
+  if (bokFlik === 'kalender') { kalender.starta(); return; }
+  kalender.stoppa();
+  if (bokFlik === 'bokade') bokade.rita();
+  else listor.ritaBokningar();
 }
 
 /* ══ Data ══ */
@@ -197,7 +202,7 @@ function startaGps() {
 
 function visaProfil() {
   const a = S.anvandare;
-  const roller = { admin: 'Administratör', teamleader: 'Teamleader', saljare: 'Säljare' };
+  const roller = { admin: 'Administratör', teamleader: 'Teamleader', saljare: 'Säljare', besiktare: 'Besiktare' };
   oppnaPanel('modal',
     '<h2>' + esc(a.namn) + '</h2><p class="sub">' + esc(a.epost) + ' · ' + esc(roller[a.roll] || a.roll) + '</p>' +
     '<h3>Server</h3><div class="field"><input id="pServer" type="url" value="' + esc(bas()) + '"></div>' +
@@ -343,7 +348,8 @@ async function start() {
   dashboard.koppla();
   listor.kopplaBokningar(arRoll('teamleader') ? (await hamtaSaljare()) : [S.anvandare]);
   await laddaDorrar();
-  visaVy('karta');
+  if (S.anvandare.roll === 'besiktare') bokFlik = 'bokade';
+  visaVy(S.anvandare.roll === 'besiktare' ? 'bokningar' : 'karta');
   startaGps();
   skickaKo();
 }
