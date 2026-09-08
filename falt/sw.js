@@ -1,5 +1,5 @@
 /* Service worker för fältsystemet — appen ska gå att öppna även med dålig täckning. */
-const CACHE = 'falt-v15';
+const CACHE = 'falt-v16';
 const SKAL = [
   './', './index.html', './app.css', './manifest.webmanifest', './icon.svg', './icon-maskable.svg',
   './config.js', './logotyp.svg', './js/app.js', './js/api.js', './js/ui.js', './js/state.js',

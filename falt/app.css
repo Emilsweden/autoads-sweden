@@ -204,17 +204,17 @@ button { cursor: pointer; border: none; background: none; }
 /* Husnumret är markören. Brickan är minst 34 px så den går att träffa
    med tummen, och färgen visar husets status direkt. */
 .hus-nummer {
-  min-width: 34px; height: 34px; padding: 0 6px; border-radius: 17px;
-  font-size: 14px; font-weight: 700; line-height: 1;
+  min-width: 26px; height: 26px; padding: 0 5px; border-radius: 13px;
+  font-size: 12px; font-weight: 700; line-height: 1;
   display: grid; place-items: center;
-  background: #fff; color: #0d0d0d; border: 2px solid #0d0d0d;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.28);
+  background: #fff; color: #0d0d0d; border: 1.5px solid #0d0d0d;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
 }
 .hus-nummer.s-bokat { background: #0d0d0d; color: #fff; border-color: #0d0d0d; }
 .hus-nummer.s-aterkom { background: var(--accent); color: #fff; border-color: var(--accent-mork); }
 .hus-nummer.s-ejsvar { background: #6b6b72; color: #fff; border-color: #55555b; }
 .hus-nummer.s-nej { background: #e6e6e9; color: #6f6f75; border-color: #c2c2c6; }
-.hus-nummer.sparrad { box-shadow: 0 0 0 3px rgba(212,43,31,0.35), 0 1px 4px rgba(0,0,0,0.28); }
+.hus-nummer.sparrad { box-shadow: 0 0 0 2px rgba(212,43,31,0.4), 0 1px 3px rgba(0,0,0,0.25); }
 .hus-nummer:active { transform: scale(0.94); }
 
 /* Egen position och säljarnas namn ritas som egna element ovanpå kartan. */

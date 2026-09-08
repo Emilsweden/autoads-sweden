@@ -238,8 +238,10 @@ function visaBokning() {
 
 function huvudRubrik() {
   const a = aktuell.adress;
-  return '<h2>' + esc(a.adress) + '</h2>' +
-    '<p class="sub">' + esc([a.postort, STATUS_TEXT[a.status]].filter(Boolean).join(' · ')) + '</p>';
+  // Hela adressen, inte bara husnumret — man ska se vilken gata man står på.
+  const hela = [a.gata, a.nummer].filter(Boolean).join(' ') + (a.postort ? ', ' + a.postort : '');
+  return '<h2>' + esc(hela || a.adress) + '</h2>' +
+    '<p class="sub">' + esc(STATUS_TEXT[a.status] || '') + '</p>';
 }
 
 function historikHtml() {

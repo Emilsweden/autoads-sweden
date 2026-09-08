@@ -176,9 +176,13 @@ export function rita() {
   if (!ruta) return;
   ruta.innerHTML = valdDag ? dagsHtml() : manadsHtml();
 
-  $('vySub').textContent = valdDag
-    ? (perDag[valdDag] || 0) + ' bokade tider'
-    : Object.values(perDag).reduce((a, b) => a + b, 0) + ' bokningar i månaden';
+  // En hämtning kan bli klar efter att man bytt vy — skriv då inte över
+  // den vyns underrubrik.
+  if (S.vy === 'bokningar') {
+    $('vySub').textContent = valdDag
+      ? (perDag[valdDag] || 0) + ' bokade tider'
+      : Object.values(perDag).reduce((a, b) => a + b, 0) + ' bokningar i månaden';
+  }
 
   const steg = valdDag ? 1 : 0;
   $('kalBak').onclick = () => { if (steg) { valdDag = plusDagar(-1, valdDag); hamta(); } else bytManad(-1); };
