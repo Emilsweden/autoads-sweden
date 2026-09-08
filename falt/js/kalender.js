@@ -12,14 +12,14 @@ import { $, esc, toast, oppnaPanel, stangPanel, idag, plusDagar, visaDatum } fro
 import { S, arRoll, dataAndrad } from './state.js';
 
 /** Används tills servern svarat; det är serverns värde som gäller. */
-export const SLOT_MINUTER = 30;
+export const SLOT_MINUTER = 60;
 
 const POLL_MS = 20000;
 const DAGNAMN = ['mån', 'tis', 'ons', 'tors', 'fre', 'lör', 'sön'];
 const MANADER = ['januari', 'februari', 'mars', 'april', 'maj', 'juni',
   'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
 
-let inst = { oppnar: '08:00', stanger: '20:00', slot: SLOT_MINUTER, dagar: [1, 2, 3, 4, 5] };
+let inst = { oppnar: '08:00', sista: '20:00', slot: SLOT_MINUTER, dagar: [1, 2, 3, 4, 5] };
 let slottar = [];
 let bokningar = [];
 let perDag = {};
@@ -118,19 +118,20 @@ function dagsHtml() {
 
   if (arHelg(dat)) {
     return dagsTopp(rubrik) +
-      '<div class="tom">Helg — inga bokningsbara tider.<br>Öppettiderna är ' +
-      esc(inst.oppnar) + '–' + esc(inst.stanger) + ', måndag till fredag.</div>';
+      '<div class="tom">Helg — inga bokningsbara tider.<br>Tider bokas ' +
+      esc(inst.oppnar) + '–' + esc(inst.sista) + ', måndag till fredag.</div>';
   }
 
-  const rader = slottar.map((tid) => {
+  const extra = [...tagna.keys()].filter((t) => t && !slottar.includes(t));
+  const rader = slottar.concat(extra).sort().map((tid) => {
     const b = tagna.get(tid);
     if (b) {
       // Rutan man just försökte boka markeras röd även när den nu är tagen,
       // så att man ser vilken tid som gick förlorad.
       return '<div class="slot bokad' + (krockad === tid ? ' krock' : '') + '" data-tid="' + esc(tid) + '">' +
         '<span class="slot-tid">' + esc(tid) + '</span>' +
-        '<span class="slot-innehall"><b>' + esc(b.kund || 'Bokad') +
-        (krockad === tid ? ' — upptogs precis' : '') + '</b>' +
+        '<span class="slot-innehall"><span class="slot-etikett">UPPTAGEN</span><b>' +
+        esc(b.kund || 'Bokad') + (krockad === tid ? ' — upptogs precis' : '') + '</b>' +
         (b.adress ? '<span>' + esc(b.adress) + '</span>' : '') +
         (b.telefon ? '<span>' + esc(b.telefon) + '</span>' : '') +
         '<span class="slot-saljare">' + esc(b.saljare || '') + '</span></span>' +
@@ -141,7 +142,8 @@ function dagsHtml() {
     }
     return '<button class="slot ledig' + (krockad === tid ? ' krock' : '') + '" data-boka="' + esc(tid) + '">' +
       '<span class="slot-tid">' + esc(tid) + '</span>' +
-      '<span class="slot-innehall">' + (krockad === tid ? 'Upptagen — välj en annan' : 'Ledig') + '</span>' +
+      '<span class="slot-innehall"><span class="slot-etikett">' +
+      (krockad === tid ? 'UPPTAGEN — VÄLJ EN ANNAN' : 'LEDIG') + '</span></span>' +
       '<span class="slot-plus">+</span></button>';
   }).join('');
 
@@ -277,6 +279,6 @@ export async function ledigaTider(dat) {
     helg: !(data.installningar || inst).dagar.includes(veckodag(dat)),
     tider: (data.slottar || []).filter((t) => !tagna.has(t)),
     oppnar: (data.installningar || inst).oppnar,
-    stanger: (data.installningar || inst).stanger,
+    sista: (data.installningar || inst).sista,
   };
 }

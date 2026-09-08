@@ -80,6 +80,22 @@ function kpiKort(kpi, mal, aktiva, dagar) {
     '</div>';
 }
 
+/** Dagens bokningar, det man vill se först på morgonen. */
+function dagensBokningar(bokningar) {
+  if (!bokningar.length) {
+    return '<div class="sektion"><h3>Dagens bokningar</h3>' +
+      '<div class="tom">Inga bokade möten idag.</div></div>';
+  }
+  return '<div class="sektion"><h3>Dagens bokningar</h3><div class="dagbok">' +
+    bokningar.map((b) => '<div class="dagbok-rad">' +
+      '<span class="dagbok-tid">' + esc(b.tid || '—') + '</span>' +
+      '<span class="dagbok-kund">' + esc(b.kund || 'Kund') +
+      '<span>' + esc(b.adress || '') + '</span></span>' +
+      (b.telefon ? '<a class="dagbok-ring" href="tel:' + esc(String(b.telefon).replace(/[^\d+]/g, '')) +
+        '">Ring</a>' : '') +
+      '</div>').join('') + '</div></div>';
+}
+
 function podium(lb, rubrik) {
   const topp = lb.slice(0, 3);
   if (!topp.length) return '';
@@ -248,7 +264,7 @@ function visaJamforelse() {
         rader.map(([text, nyckel]) => {
           const max = Math.max(...valda.map((s) => s[nyckel] || 0));
           return '<tr><td class="namn">' + esc(text) + '</td>' +
-            valda.map((s) => '<td' + ((s[nyckel] || 0) === max && max > 0 ? ' style="color:var(--gold);font-weight:700"' : '') +
+            valda.map((s) => '<td' + ((s[nyckel] || 0) === max && max > 0 ? ' style="color:var(--accent);font-weight:700"' : '') +
               '>' + (s[nyckel] || 0) + (nyckel === 'hitrate' ? ' %' : '') + '</td>').join('') + '</tr>';
         }).join('') + '</tbody></table></div>'
       : '<div class="tom">Välj minst två säljare.</div>') +
@@ -286,6 +302,14 @@ export async function rita() {
     return;
   }
 
+  // Dagens bokningar hämtas separat: översikten ska svara på "vad har jag
+  // idag?" oavsett vilken period siffrorna ovanför visar.
+  let dagens = [];
+  try {
+    dagens = ((await anrop('kalender', { fran: idag(), till: idag() })).bokningar || [])
+      .filter((b) => b.status !== 'avbokad');
+  } catch (e) { /* översikten fungerar ändå */ }
+
   senasteData = data;
   const dagar = malDagar(p);
   $('vySub').textContent = visaDatum(data.period.fran) +
@@ -294,6 +318,7 @@ export async function rita() {
 
   behallare.innerHTML =
     kpiKort(data.kpi, data.mal, data.kpi.aktiva_saljare, dagar) +
+    dagensBokningar(dagens) +
     podium(data.leaderboard, dagar > 1 ? 'Bäst i perioden' : 'Dagens topp') +
     leaderboard(data.leaderboard, data.mal) +
     '<div class="sektion tva" style="padding:0">' + funnel(data.funnel) + omraden(data.omraden) + '</div>' +

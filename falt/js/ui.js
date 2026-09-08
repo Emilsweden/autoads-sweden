@@ -152,13 +152,25 @@ export const RESULTAT_TEXT = {
   aterkom: 'Återkom',
 };
 
+/* Samma palett som app.css: svart för det vunna, rött för det som kräver
+   en åtgärd, grått för resten. Används av kartans husmarkörer. */
 export const STATUS_FARG = {
-  ejbesokt: '#2a63a8',
-  bokat: '#217a4b',
-  ejsvar: '#8a6a12',
-  aterkom: '#b3591a',
-  nej: '#b3271c',
-  sparrad: '#6d6864',
+  ejbesokt: '#ffffff',
+  bokat: '#0d0d0d',
+  ejsvar: '#6b6b72',
+  aterkom: '#d42b1f',
+  nej: '#c2c2c6',
+  sparrad: '#6f6f75',
+};
+
+/** Textfärg som syns mot respektive markörfärg. */
+export const STATUS_TEXTFARG = {
+  ejbesokt: '#0d0d0d',
+  bokat: '#ffffff',
+  ejsvar: '#ffffff',
+  aterkom: '#ffffff',
+  nej: '#5c5c60',
+  sparrad: '#ffffff',
 };
 
 export const NEJ_ORSAKER = [

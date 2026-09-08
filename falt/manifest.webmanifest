@@ -1,12 +1,12 @@
 {
-  "name": "Autoads Fältsystem",
-  "short_name": "Fältsystem",
+  "name": "Villa Takrenovering — Fältsystem",
+  "short_name": "Villa Tak",
   "description": "Dörrknackning, områdeskontroll och bokning av takbesiktningar.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f5f3f0",
-  "theme_color": "#f5f3f0",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "lang": "sv-SE",
   "icons": [
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },

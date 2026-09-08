@@ -3,15 +3,15 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<meta name="theme-color" content="#f5f3f0" />
+<meta name="theme-color" content="#ffffff" />
 <meta name="robots" content="noindex, nofollow" />
-<title>Autoads Fältsystem</title>
+<title>Villa Takrenovering — Fältsystem</title>
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="icon" href="icon.svg" type="image/svg+xml" />
 <link rel="apple-touch-icon" href="icon.svg" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<meta name="apple-mobile-web-app-title" content="Fältsystem" />
+<meta name="apple-mobile-web-app-title" content="Villa Tak" />
 <link rel="stylesheet" href="maplibre/maplibre-gl.css" />
 <link rel="stylesheet" href="app.css" />
 </head>
@@ -20,10 +20,7 @@
 <!-- ══ INLOGGNING ══ -->
 <div id="login" class="login">
   <div class="login-box">
-    <div class="login-brand">
-      <h1>Fältsystem</h1>
-      <span>Autoads Sweden</span>
-    </div>
+    <img class="logga logga-stor" src="logotyp.svg" alt="Villa Takrenovering" />
     <p class="login-sub">Dörrknackning, områdeskontroll och bokning av takbesiktningar.</p>
     <form id="loginForm">
       <div class="field">
@@ -48,9 +45,12 @@
 
   <header id="topp">
     <div class="topp-rad">
-      <div>
-        <h1 id="vyTitel">Karta</h1>
-        <p class="topp-sub" id="vySub">—</p>
+      <div class="topp-vanster">
+        <img class="logga" src="logotyp.svg" alt="Villa Takrenovering" />
+        <div>
+          <h1 id="vyTitel">Karta</h1>
+          <p class="topp-sub" id="vySub">—</p>
+        </div>
       </div>
       <div class="topp-hoger">
         <button class="pill" id="koPill" hidden><span class="dot"></span><span id="koTxt">0 väntar</span></button>
@@ -66,6 +66,7 @@
       <button class="knapp-mork" id="manuellDorr">Manuell</button>
       <button class="knapp-guld" id="nastaDorr">Nästa dörr</button>
     </div>
+    <p class="gps-rad" id="gpsRad">GPS söker signal…</p>
     <div class="kartbanner" id="kartBanner" hidden></div>
     <div id="karta"></div>
     <p class="karttips">Tryck på ett hus för att öppna dörren. Två fingrar vrider och lutar kartan, kompassen ställer tillbaka norrut.</p>

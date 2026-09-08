@@ -88,8 +88,8 @@ const klockslag = (v) => (/^\d{2}:\d{2}$/.test(v || '') ? v : null);
    både serverns kontroll och rutnätet i appen som hämtar värdena härifrån. */
 const KALENDER = {
   OPPNAR: '08:00',
-  STANGER: '20:00',
-  SLOT: 30,          // minuter
+  SISTA: '20:00',    // sista tiden som går att boka
+  SLOT: 60,          // minuter
   DAGAR: [1, 2, 3, 4, 5],   // måndag–fredag
 };
 
@@ -97,10 +97,10 @@ const iMinuter = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 const iKlockslag = (m) =>
   String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
 
-/** Alla bokningsbara tider på en dag. */
+/** Alla bokningsbara tider på en dag, från öppning till sista tiden. */
 function slottar() {
   const ut = [];
-  for (let m = iMinuter(KALENDER.OPPNAR); m + KALENDER.SLOT <= iMinuter(KALENDER.STANGER); m += KALENDER.SLOT) {
+  for (let m = iMinuter(KALENDER.OPPNAR); m <= iMinuter(KALENDER.SISTA); m += KALENDER.SLOT) {
     ut.push(iKlockslag(m));
   }
   return ut;
@@ -119,8 +119,8 @@ function kontrolleraSlot(dat, tid) {
   if (!datum(dat) || !klockslag(tid)) throw new Fel('Datum och tid krävs');
   if (!KALENDER.DAGAR.includes(veckodag(dat))) throw new Fel('Helger går inte att boka');
   const m = iMinuter(tid);
-  if (m < iMinuter(KALENDER.OPPNAR) || m + KALENDER.SLOT > iMinuter(KALENDER.STANGER)) {
-    throw new Fel('Tiden ligger utanför ' + KALENDER.OPPNAR + '–' + KALENDER.STANGER);
+  if (m < iMinuter(KALENDER.OPPNAR) || m > iMinuter(KALENDER.SISTA)) {
+    throw new Fel('Tiden ligger utanför ' + KALENDER.OPPNAR + '–' + KALENDER.SISTA);
   }
   if ((m - iMinuter(KALENDER.OPPNAR)) % KALENDER.SLOT !== 0) {
     throw new Fel('Tiden måste börja på en hel ' + KALENDER.SLOT + '-minutersruta');
@@ -933,7 +933,7 @@ api['kalender'] = async (env, request, body, anv) => {
 
   return {
     installningar: {
-      oppnar: KALENDER.OPPNAR, stanger: KALENDER.STANGER,
+      oppnar: KALENDER.OPPNAR, sista: KALENDER.SISTA,
       slot: KALENDER.SLOT, dagar: KALENDER.DAGAR,
     },
     slottar: slottar(),
@@ -981,22 +981,25 @@ api['kalender-boka'] = async (env, request, body, anv) => {
     adressId = svar.adress.id;
   }
 
-  const id = uid();
-  try {
-    await kor(env,
-      `INSERT INTO bokningar (id,adress_id,anvandare_id,fornamn,efternamn,telefon,datum,tid,kommentar,status,skapad)
-       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'bokad',?10)`,
-      id, adressId, saljareId, fornamn, txt(body.efternamn, 80), telefon,
-      dat, tid, txt(body.kommentar, 1000), Date.now());
-  } catch (e) {
-    if (arKrock(e)) throw new Fel(TIDEN_TAGEN, 409);
-    throw e;
-  }
+  // Bokningen registreras som ett dörrbesök: då får huset status BOKAD på
+  // kartan, besöket hamnar i historiken och siffrorna stämmer — oavsett om
+  // bokningen gjordes vid dörren eller i kalendern.
+  const svar = await api['handelse'](env, request, {
+    adress_id: adressId,
+    resultat: 'bokat',
+    fornamn,
+    efternamn: txt(body.efternamn, 80),
+    telefon,
+    datum: dat,
+    tid,
+    kommentar: txt(body.kommentar, 1000),
+    bekrafta: true,
+  }, { ...anv, id: saljareId });
 
   const bokning = await en(env,
     `SELECT b.*, u.namn AS saljare, ad.gata, ad.nummer FROM bokningar b
      LEFT JOIN anvandare u ON u.id = b.anvandare_id
-     LEFT JOIN adresser ad ON ad.id = b.adress_id WHERE b.id = ?1`, id);
+     LEFT JOIN adresser ad ON ad.id = b.adress_id WHERE b.id = ?1`, svar.bokning.id);
   return { bokning: { ...bokning, adress: bokning.gata ? bokning.gata + ' ' + bokning.nummer : '' } };
 };
 
@@ -1009,6 +1012,45 @@ function delaAdressrad(rad) {
     nummer: m ? m[2].replace(/\s+/g, '') : '',
     postort: delar.slice(1).join(' ').replace(/\b\d{3}\s?\d{2}\b/g, '').trim(),
   };
+};
+
+/**
+ * Ändrar en bokning: kunduppgifter, kommentar och vid behov tid.
+ * Flyttas den till en ny ruta gäller samma regler som vid nybokning.
+ */
+api['bokning-andra'] = async (env, request, body, anv) => {
+  const id = txt(body.id, 40);
+  const bokning = await en(env, 'SELECT * FROM bokningar WHERE id = ?1', id);
+  if (!bokning) throw new Fel('Bokningen finns inte', 404);
+  if (bokning.anvandare_id !== anv.id) kraver(anv, 'teamleader');
+
+  const dat = body.datum === undefined ? bokning.datum : datum(body.datum);
+  const tid = body.tid === undefined ? bokning.tid : klockslag(body.tid);
+  const flyttad = dat !== bokning.datum || tid !== bokning.tid;
+  if (flyttad) {
+    kontrolleraSlot(dat, tid);
+    if (!(await slotLedig(env, dat, tid, id))) throw new Fel(TIDEN_TAGEN, 409);
+  }
+
+  try {
+    await kor(env,
+      `UPDATE bokningar SET fornamn=?1, efternamn=?2, telefon=?3, datum=?4, tid=?5, kommentar=?6
+       WHERE id=?7`,
+      body.fornamn === undefined ? bokning.fornamn : txt(body.fornamn, 80),
+      body.efternamn === undefined ? bokning.efternamn : txt(body.efternamn, 80),
+      body.telefon === undefined ? bokning.telefon : txt(body.telefon, 40),
+      dat, tid,
+      body.kommentar === undefined ? bokning.kommentar : txt(body.kommentar, 1000), id);
+  } catch (e) {
+    if (arKrock(e)) throw new Fel(TIDEN_TAGEN, 409);
+    throw e;
+  }
+
+  const uppdaterad = await en(env,
+    `SELECT b.*, u.namn AS saljare, ad.gata, ad.nummer FROM bokningar b
+     LEFT JOIN anvandare u ON u.id = b.anvandare_id
+     LEFT JOIN adresser ad ON ad.id = b.adress_id WHERE b.id = ?1`, id);
+  return { bokning: { ...uppdaterad, adress: uppdaterad.gata ? uppdaterad.gata + ' ' + uppdaterad.nummer : '' } };
 };
 
 api['bokning-status'] = async (env, request, body, anv) => {

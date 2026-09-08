@@ -25,7 +25,7 @@ function kortHtml(a) {
     '</div><span class="märke m-' + esc(a.status) + '">' + esc(STATUS_TEXT[a.status]) + '</span></div>' +
     '<div class="rad">' +
     (a.aterkom_datum
-      ? '<span' + (forsenad ? ' style="color:var(--orange);font-weight:600"' : '') + '>Återkom ' +
+      ? '<span' + (forsenad ? ' style="color:var(--st-aterkom);font-weight:600"' : '') + '>Återkom ' +
         esc(visaDatum(a.aterkom_datum)) + (a.aterkom_tid ? ' kl. ' + esc(a.aterkom_tid) : '') + '</span>'
       : '') +
     (a.antal_besok > 1 ? '<span>' + a.antal_besok + ' besök</span>' : '') +
