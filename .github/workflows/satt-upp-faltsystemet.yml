@@ -95,24 +95,30 @@ jobs:
           sed -i "s/FYLL_I_DATABASE_ID_HAR/$id/" wrangler.toml
           echo "Databas-id: $id"
 
-      # Kalendern lägger ett unikt index på (datum, tid). Finns redan två
-      # bokningar på samma tid vägrar databasen skapa det — säg vilka de är
-      # i stället för att låta schemasteget falla med ett kryptiskt fel.
-      - name: Leta dubbelbokade tider
-        run: |
-          set -euo pipefail
-          fraga="SELECT datum || ' ' || tid || ' (' || COUNT(*) || ' bokningar)' AS krock
-                 FROM bokningar WHERE tid IS NOT NULL AND tid <> '' AND status <> 'avbokad'
-                 GROUP BY datum, tid HAVING COUNT(*) > 1;"
-          utdata=$(npx wrangler d1 execute autoads-falt --remote --command "$fraga" --json --yes 2>/dev/null || true)
-          echo "$utdata"
-          if printf '%s' "$utdata" | grep -q '"krock"'; then
-            echo "::error::Två bokningar delar samma tid. Avboka den ena i appen och kör om." >&2
-            exit 1
-          fi
-
       - name: Skapa tabellerna
         run: npx wrangler d1 execute autoads-falt --remote --file=./schema.sql --yes
+
+      # Databasen ska själv vägra två bokningar på samma tid. Det unika
+      # indexet går bara att lägga på om inga sådana redan finns — därför
+      # stoppar det här steget inte utrullningen, det säger till.
+      - name: Skydda mot dubbelbokning
+        id: dubbelskydd
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          index="CREATE UNIQUE INDEX IF NOT EXISTS idx_bok_slot ON bokningar(datum, tid)
+                 WHERE tid IS NOT NULL AND tid <> '' AND status <> 'avbokad';"
+          if npx wrangler d1 execute autoads-falt --remote --command "$index" --yes; then
+            echo "skydd=på" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skydd=av" >> "$GITHUB_OUTPUT"
+          fraga="SELECT datum || ' ' || tid || ' — ' || COUNT(*) || ' bokningar' AS krock
+                 FROM bokningar WHERE tid IS NOT NULL AND tid <> '' AND status <> 'avbokad'
+                 GROUP BY datum, tid HAVING COUNT(*) > 1;"
+          echo "::warning::Skyddet mot dubbelbokning kunde inte läggas på — de här tiderna har fler än en bokning:"
+          npx wrangler d1 execute autoads-falt --remote --command "$fraga" --yes || true
+          echo "::warning::Avboka eller flytta den ena i appen (Bokningar → dagen) och kör jobbet igen."
 
       - name: Publicera workern
         id: publicera
@@ -198,6 +204,12 @@ jobs:
             echo
             echo "Appen serveras av samma adress — öppna den i mobilen och logga in."
             echo
+            if [ "${{ steps.dubbelskydd.outputs.skydd }}" = "av" ]; then
+              echo "> **Obs:** skyddet mot dubbelbokning är inte påslaget än — några tider har"
+              echo "> mer än en bokning. Appen visar dem i kalendern; flytta eller avboka den"
+              echo "> ena och kör det här jobbet igen."
+              echo
+            fi
             echo "1. Öppna <$URL> i mobilen"
             echo "2. Logga in med \`${{ inputs.admin_epost }}\` och lösenordet från ADMIN_LOSENORD"
             echo "3. Lägg till appen på hemskärmen"

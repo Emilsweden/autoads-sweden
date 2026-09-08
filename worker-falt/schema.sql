@@ -106,11 +106,9 @@ CREATE TABLE IF NOT EXISTS bokningar (
 CREATE INDEX IF NOT EXISTS idx_bok_datum ON bokningar(datum);
 CREATE INDEX IF NOT EXISTS idx_bok_anv ON bokningar(anvandare_id);
 
-/* En tid kan bara vara bokad en gång. Databasen är garantin — två säljare som
-   trycker samtidigt kan aldrig få samma ruta, oavsett vad koden hinner med.
-   Avbokade tider och gamla bokningar utan klockslag räknas inte. */
-CREATE UNIQUE INDEX IF NOT EXISTS idx_bok_slot ON bokningar(datum, tid)
-  WHERE tid IS NOT NULL AND tid <> '' AND status <> 'avbokad';
+/* Skyddet mot dubbelbokning (unikt index på datum + tid) skapas i ett eget
+   steg i uppsättningen, eftersom det inte går att lägga på en databas som
+   redan innehåller två bokningar på samma tid. */
 
 /* ── Säljarnas position ── */
 
