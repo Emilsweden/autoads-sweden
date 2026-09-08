@@ -1,37 +1,41 @@
-/* Autoads Fältsystem — ljust, mobilanpassat gränssnitt i husets färger.
-   Ljus bakgrund är lättare att läsa i solljus, vilket är där appen används. */
+/* Villa Takrenovering — fältsystem för dörrknackning.
+   Vitt, svart och rött. Ljus bakgrund läses lättare i solljus, vilket är
+   där appen används, och färg används bara där den betyder något. */
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  /* Guldet är mörkare än på webbplatsen för att hålla kontrasten mot vitt. */
-  --gold: #8a6d23;
-  --gold-light: #6f5719;
-  --gold-dim: rgba(138, 109, 35, 0.13);
-  --bg: #f5f3f0;
+  /* Rött är accentfärgen: knappar, aktivt läge och det som ska dra ögat. */
+  --accent: #d42b1f;
+  --accent-mork: #a81f16;
+  --accent-dim: rgba(212, 43, 31, 0.09);
+
+  --bg: #ffffff;
   --bg-2: #ffffff;
   --bg-card: #ffffff;
-  --bg-input: #f0eeea;
-  --text: #1c1a17;
-  --muted: #605a54;
-  --dim: #7a736c;
-  --border: rgba(138, 109, 35, 0.38);
-  --linje: rgba(0, 0, 0, 0.10);
+  --bg-input: #f4f4f5;
+  --text: #0d0d0d;
+  --muted: #5c5c60;
+  --dim: #6b6b72;
+  --border: rgba(212, 43, 31, 0.4);
+  --linje: rgba(0, 0, 0, 0.09);
 
-  /* Statusfärgerna är nedtonade så att de syns mot ljus bakgrund. */
-  --gron: #217a4b;    /* bokat */
-  --gul: #8a6a12;     /* inget svar */
-  --orange: #b3591a;  /* återkom */
-  --rod: #b3271c;     /* nej */
-  --bla: #2a63a8;     /* ej besökt */
-  --gra: #6d6864;     /* nyligen besökt / spärrad */
+  /* Status: svart för det vunna, rött för det som kräver en åtgärd,
+     grått för resten. Ingen färg utan innebörd. */
+  --st-bokat: #0d0d0d;       /* bokat möte — den starkaste markören */
+  --st-aterkom: #d42b1f;     /* återkom — kräver en åtgärd */
+  --st-ejsvar: #6b6b72;      /* inget svar */
+  --st-nej: #c2c2c6;         /* nej — nedtonat */
+  --st-ejbesokt: #6f6f75;    /* ej kontaktad */
+  --st-sparrad: #6f6f75;     /* nyligen bearbetad */
+  --fel: #c62222;            /* felmeddelanden */
 
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   /* Höjden på det som faktiskt syns; sätts från JS eftersom telefonens
      verktygsfält ligger ovanpå sidan och gör 100dvh för högt. */
   --app-h: 100dvh;
-  --botten-h: calc(62px + var(--safe-bottom));
+  --botten-h: calc(64px + var(--safe-bottom));
 }
 
 html, body { height: 100%; }
@@ -51,9 +55,10 @@ button { cursor: pointer; border: none; background: none; }
 /* ══ INLOGGNING ══ */
 .login { min-height: 100dvh; display: grid; place-items: center; padding: 24px; }
 .login-box { width: 100%; max-width: 380px; }
-.login-brand { display: flex; align-items: baseline; gap: 9px; }
-.login-brand h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
-.login-brand span { font-size: 11px; color: var(--gold); letter-spacing: 0.14em; text-transform: uppercase; }
+
+/* Logotypen behåller sina proportioner — bara höjden sätts. */
+.logga { height: 26px; width: auto; display: block; }
+.logga-stor { height: 46px; margin-bottom: 4px; }
 .login-sub { color: var(--dim); font-size: 13.5px; margin: 6px 0 26px; }
 
 .version {
@@ -84,20 +89,22 @@ button { cursor: pointer; border: none; background: none; }
   padding: calc(12px + var(--safe-top)) 16px 12px;
 }
 .topp-rad { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.topp-vanster { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.topp-vanster .logga { flex: 0 0 auto; padding-right: 12px; border-right: 1px solid var(--linje); }
 #topp h1 { font-size: 19px; font-weight: 600; letter-spacing: -0.02em; }
 .topp-sub { font-size: 12px; color: var(--dim); margin-top: 1px; }
 .topp-hoger { display: flex; align-items: center; gap: 8px; }
 .ikonknapp {
   width: 38px; height: 38px; border-radius: 50%;
-  background: var(--gold-dim); border: 1px solid var(--border); color: var(--gold-light);
+  background: var(--accent-dim); border: 1px solid var(--border); color: var(--accent-mork);
   font-size: 13px; font-weight: 600; display: grid; place-items: center;
 }
 .pill {
   display: inline-flex; align-items: center; gap: 6px; font-size: 11px;
-  padding: 5px 10px; border-radius: 999px; color: var(--gul);
-  background: rgba(138,106,18,0.12); border: 1px solid rgba(138,106,18,0.3);
+  padding: 5px 10px; border-radius: 999px; color: var(--accent);
+  background: var(--accent-dim); border: 1px solid var(--border);
 }
-.pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gul); }
+.pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 
 /* ══ VYER ══ */
 .vy { padding-bottom: calc(var(--botten-h) + 12px); }
@@ -111,14 +118,14 @@ button { cursor: pointer; border: none; background: none; }
 .valj:focus { outline: none; border-color: var(--border); }
 .knapp-guld {
   flex: 0 0 auto; padding: 10px 16px; border-radius: 10px;
-  background: var(--gold); color: #fff; font-weight: 600; font-size: 14px;
+  background: var(--accent); color: #fff; font-weight: 600; font-size: 14px;
 }
-.knapp-guld:active { background: var(--gold-light); }
+.knapp-guld:active { background: var(--accent-mork); }
 .knapp-mork {
   flex: 0 0 auto; padding: 10px 14px; border-radius: 10px; font-size: 14px; font-weight: 600;
-  background: var(--bg-input); border: 1px solid var(--border); color: var(--gold-light);
+  background: #fff; border: 1px solid rgba(0,0,0,0.16); color: var(--text);
 }
-.knapp-mork:active { background: var(--gold-dim); }
+.knapp-mork:active { background: var(--bg-input); }
 .listverktyg { padding: 10px 16px 0; display: flex; gap: 8px; }
 .listverktyg .knapp-guld, .listverktyg .knapp-mork { flex: 1; padding: 12px 8px; text-align: center; }
 
@@ -153,15 +160,27 @@ button { cursor: pointer; border: none; background: none; }
 /* Egen staplingskontext: kartans kontroller ligger på höga z-index och
    ritades annars ovanpå headern, menyn och panelerna. */
 #karta { flex: 1 1 auto; min-height: 200px; background: var(--bg-2); position: relative; z-index: 0; }
+.gps-rad {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 7px;
+  padding: 0 16px 8px; font-size: 12px; color: var(--dim);
+}
+.gps-rad::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%;
+  background: #1a73e8; flex: 0 0 auto;
+}
+.gps-rad.soker::before { background: #f0a500; }
+.gps-rad.av::before { background: var(--st-nej); }
+.gps-rad.av { color: var(--accent); }
+
 .kartbanner {
   flex: 0 0 auto; margin: 0 16px 10px; padding: 11px 13px; border-radius: 10px;
-  background: rgba(179,89,26,0.10); border: 1px solid rgba(179,89,26,0.35);
-  color: #7a3d10; font-size: 12.5px; line-height: 1.5;
+  background: var(--accent-dim); border: 1px solid var(--border);
+  color: var(--accent-mork); font-size: 12.5px; line-height: 1.5;
 }
 .maplibregl-canvas { outline: none; }
 .maplibregl-ctrl-group { border-radius: 9px; overflow: hidden; box-shadow: 0 1px 6px rgba(0,0,0,0.18); }
 .maplibregl-ctrl-group button { width: 34px; height: 34px; background: var(--bg-card); }
-.kartknapp-jag { font-size: 17px; color: var(--gold-light); line-height: 1; }
+.kartknapp-jag { font-size: 17px; color: var(--accent-mork); line-height: 1; }
 
 /* Rutan som kommer upp när man trycker på ett hus utan registrerad dörr. */
 .kartpopp { min-width: 150px; font-size: 13.5px; line-height: 1.4; }
@@ -169,7 +188,7 @@ button { cursor: pointer; border: none; background: none; }
 .kartpopp-ort { color: var(--dim); font-size: 12.5px; margin-bottom: 8px; }
 .kartpopp-knapp {
   display: block; width: 100%; margin-top: 6px; padding: 9px 12px; border-radius: 9px;
-  background: var(--gold); color: #fff; font-weight: 600; font-size: 13.5px;
+  background: var(--accent); color: #fff; font-weight: 600; font-size: 13.5px;
 }
 .kartpopp-knapp.ghost { background: var(--bg-input); border: 1px solid var(--linje); color: var(--text); font-weight: 500; }
 .karttips {
@@ -182,13 +201,32 @@ button { cursor: pointer; border: none; background: none; }
 .maplibregl-popup-tip { border-top-color: var(--bg-card); border-bottom-color: var(--bg-card); }
 .maplibregl-popup-close-button { font-size: 17px; color: var(--dim); padding: 2px 7px; }
 
-/* Egen position och säljarnas namn ritas som egna element ovanpå kartan. */
-.jag-punkt {
-  width: 16px; height: 16px; border-radius: 50%;
-  background: #1c1a17; border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.25);
+/* Husnumret är markören. Brickan är minst 34 px så den går att träffa
+   med tummen, och färgen visar husets status direkt. */
+.hus-nummer {
+  min-width: 34px; height: 34px; padding: 0 6px; border-radius: 17px;
+  font-size: 14px; font-weight: 700; line-height: 1;
+  display: grid; place-items: center;
+  background: #fff; color: #0d0d0d; border: 2px solid #0d0d0d;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.28);
 }
+.hus-nummer.s-bokat { background: #0d0d0d; color: #fff; border-color: #0d0d0d; }
+.hus-nummer.s-aterkom { background: var(--accent); color: #fff; border-color: var(--accent-mork); }
+.hus-nummer.s-ejsvar { background: #6b6b72; color: #fff; border-color: #55555b; }
+.hus-nummer.s-nej { background: #e6e6e9; color: #6f6f75; border-color: #c2c2c6; }
+.hus-nummer.sparrad { box-shadow: 0 0 0 3px rgba(212,43,31,0.35), 0 1px 4px rgba(0,0,0,0.28); }
+.hus-nummer:active { transform: scale(0.94); }
+
+/* Egen position och säljarnas namn ritas som egna element ovanpå kartan. */
+/* Egen position: den blå punkten man känner igen från kartappar. */
+.jag-punkt {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #1a73e8; border: 3px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.2), 0 0 0 8px rgba(26,115,232,0.18);
+}
+.jag-punkt.gammal { background: #9aa0a6; box-shadow: 0 0 0 1px rgba(0,0,0,0.2); }
 .saljar-etikett {
-  background: var(--gold); color: #fff; font-size: 10px; font-weight: 700;
+  background: var(--accent); color: #fff; font-size: 10px; font-weight: 700;
   padding: 3px 7px; border-radius: 999px; white-space: nowrap;
   box-shadow: 0 2px 8px rgba(0,0,0,0.35);
 }
@@ -226,10 +264,10 @@ button { cursor: pointer; border: none; background: none; }
 .kal-siffra { font-size: 15px; font-weight: 600; }
 .kal-dag.helg { background: var(--bg-input); color: var(--dim); border-style: dashed; }
 .kal-dag.passerad { opacity: 0.55; }
-.kal-dag.idag { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
+.kal-dag.idag { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .kal-antal {
   min-width: 18px; padding: 1px 5px; border-radius: 999px;
-  background: var(--gold); color: #fff; font-size: 10.5px; font-weight: 700;
+  background: var(--accent); color: #fff; font-size: 10.5px; font-weight: 700;
 }
 
 /* Tidsrutorna: höga nog att träffas med tummen. */
@@ -242,20 +280,26 @@ button { cursor: pointer; border: none; background: none; }
 .slot-tid { flex: 0 0 52px; font-size: 15px; font-weight: 700; }
 .slot-innehall { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; font-size: 13px; }
 .slot-innehall span { font-size: 12px; color: var(--dim); }
-.slot-saljare { color: var(--gold-light) !important; font-weight: 600; }
-.slot-plus { flex: 0 0 auto; font-size: 22px; color: var(--gold); line-height: 1; }
+.slot-etikett { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; }
+.slot.ledig .slot-etikett { color: var(--muted); }
+.slot.bokad .slot-etikett { color: rgba(255,255,255,0.7) !important; }
+.slot-saljare { color: var(--accent-mork) !important; font-weight: 600; }
+.slot-plus { flex: 0 0 auto; font-size: 22px; color: var(--accent); line-height: 1; }
 .slot.ledig { color: var(--muted); }
-.slot.ledig:active { background: var(--gold-dim); }
-.slot.bokad { background: rgba(33,122,75,0.10); border-color: rgba(33,122,75,0.35); cursor: default; }
-.slot.bokad .slot-innehall b { color: var(--text); font-size: 14px; }
+.slot.ledig:active { background: var(--accent-dim); }
+.slot.bokad { background: #0d0d0d; border-color: #0d0d0d; color: #fff; cursor: default; }
+.slot.bokad .slot-innehall b { color: #fff; font-size: 14px; }
+.slot.bokad .slot-innehall span,
+.slot.bokad .slot-saljare { color: rgba(255,255,255,0.72) !important; }
+.slot.bokad .slot-avboka { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.3); color: #fff; }
 .slot.krock {
-  background: rgba(179,39,28,0.12); border-color: rgba(179,39,28,0.45); color: var(--rod); font-weight: 600;
+  background: var(--accent-dim); border-color: var(--border); color: var(--accent); font-weight: 600;
 }
 .slot-avboka {
   flex: 0 0 auto; padding: 8px 11px; border-radius: 9px; font-size: 12px; font-weight: 600;
   background: var(--bg-input); border: 1px solid var(--linje); color: var(--muted);
 }
-.chips.tider .chip.vald { background: var(--gold); border-color: var(--gold); color: #fff; font-weight: 600; }
+.chips.tider .chip.vald { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 
 /* ══ FLIKAR / FILTER ══ */
 .flikar { display: flex; gap: 6px; padding: 12px 16px 8px; overflow-x: auto; scrollbar-width: none; }
@@ -264,7 +308,7 @@ button { cursor: pointer; border: none; background: none; }
   flex: 0 0 auto; padding: 8px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 500;
   background: var(--bg-card); border: 1px solid var(--linje); color: var(--muted); white-space: nowrap;
 }
-.flik.aktiv { background: var(--gold); border-color: var(--gold); color: #fff; font-weight: 600; }
+.flik.aktiv { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 .filterrad { display: flex; gap: 8px; padding: 12px 16px 4px; }
 .sok {
   width: calc(100% - 32px); margin: 4px 16px 0; padding: 11px 14px; border-radius: 10px;
@@ -285,11 +329,11 @@ button { cursor: pointer; border: none; background: none; }
   padding: 13px 14px; margin-bottom: 9px; border-left: 3px solid var(--linje);
   width: 100%; text-align: left; display: block;
 }
-.kort.s-ejbesokt { border-left-color: var(--bla); }
-.kort.s-bokat { border-left-color: var(--gron); }
-.kort.s-ejsvar { border-left-color: var(--gul); }
-.kort.s-aterkom { border-left-color: var(--orange); }
-.kort.s-nej { border-left-color: var(--rod); }
+.kort.s-ejbesokt { border-left-color: var(--st-ejbesokt); }
+.kort.s-bokat { border-left-color: var(--st-bokat); }
+.kort.s-ejsvar { border-left-color: var(--st-ejsvar); }
+.kort.s-aterkom { border-left-color: var(--st-aterkom); }
+.kort.s-nej { border-left-color: var(--st-nej); }
 .kort-topp { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
 .kort .adress { font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; }
 .kort .under { font-size: 13px; color: var(--muted); margin-top: 3px; }
@@ -299,11 +343,11 @@ button { cursor: pointer; border: none; background: none; }
   flex: 0 0 auto; font-size: 10px; font-weight: 700; padding: 4px 9px;
   border-radius: 999px; text-transform: uppercase; letter-spacing: 0.05em;
 }
-.m-ejbesokt { background: rgba(42,99,168,0.14); color: var(--bla); }
-.m-bokat { background: rgba(33,122,75,0.14); color: var(--gron); }
-.m-ejsvar { background: rgba(138,106,18,0.14); color: var(--gul); }
-.m-aterkom { background: rgba(179,89,26,0.14); color: var(--orange); }
-.m-nej { background: rgba(179,39,28,0.14); color: var(--rod); }
+.m-ejbesokt { background: #f1f1f3; color: var(--st-ejbesokt); }
+.m-bokat { background: #0d0d0d; color: #fff; }
+.m-ejsvar { background: #f1f1f3; color: var(--muted); }
+.m-aterkom { background: var(--accent-dim); color: var(--accent); }
+.m-nej { background: #f4f4f5; color: var(--dim); }
 .m-sparrad { background: rgba(109,104,100,0.18); color: var(--muted); }
 
 .tom { text-align: center; padding: 54px 24px; color: var(--dim); font-size: 14px; line-height: 1.6; }
@@ -315,11 +359,11 @@ button { cursor: pointer; border: none; background: none; }
   border-top: 1px solid var(--linje); padding-bottom: var(--safe-bottom);
 }
 #botten button {
-  flex: 1; padding: 9px 4px 8px; display: flex; flex-direction: column; align-items: center; gap: 3px;
-  font-size: 10px; color: var(--dim); font-weight: 500;
+  flex: 1; padding: 10px 4px 9px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  font-size: 11px; color: var(--dim); font-weight: 600; letter-spacing: 0.01em;
 }
-#botten button.aktiv { color: var(--gold); }
-#botten svg { width: 21px; height: 21px; }
+#botten button.aktiv { color: var(--accent); }
+#botten svg { width: 23px; height: 23px; }
 
 /* ══ PANELER ══ */
 .overlay {
@@ -335,11 +379,11 @@ body.panel-oppen { overflow: hidden; }
   width: 100%; max-width: 560px; max-height: calc(var(--app-h) - 20px); overflow-y: auto;
   background: var(--bg-2); border: 1px solid var(--linje); border-bottom: none;
   border-radius: 20px 20px 0 0; padding: 0 16px calc(20px + var(--safe-bottom));
-  animation: upp 0.2s cubic-bezier(0.16,1,0.3,1);
+  animation: upp 0.13s cubic-bezier(0.16,1,0.3,1);
 }
 /* Formulär fyller skärmen så att fälten inte trängs ihop mot tangentbordet. */
 .panel-fyll { height: calc(var(--app-h) - 10px); border-radius: 16px 16px 0 0; }
-@keyframes upp { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes upp { from { transform: translateY(22px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 /* Panelens huvud ligger kvar överst när innehållet rullar, så att
    krysset alltid går att nå. */
 /* Huvudet äger panelens övre kant, annars kikade innehållet fram i springan
@@ -357,16 +401,45 @@ body.panel-oppen { overflow: hidden; }
 .panel h3 { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); margin: 20px 0 9px; }
 .panel .sub { font-size: 13px; color: var(--dim); margin-top: 3px; }
 
+/* Dagens bokningar på översikten */
+.dagbok { display: flex; flex-direction: column; gap: 8px; }
+.dagbok-rad {
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+  border-radius: 12px; background: var(--bg-card); border: 1px solid var(--linje);
+}
+.dagbok-tid { flex: 0 0 52px; font-size: 15px; font-weight: 700; }
+.dagbok-kund { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; font-size: 14px; font-weight: 500; }
+.dagbok-kund span { font-size: 12px; color: var(--dim); font-weight: 400; }
+.dagbok-ring {
+  flex: 0 0 auto; padding: 9px 14px; border-radius: 9px; text-decoration: none;
+  background: var(--accent); color: #fff; font-size: 13px; font-weight: 600;
+}
+
+/* Kundkortet: allt om den bokade kunden på ett ställe. */
+.kundkort {
+  margin-top: 14px; padding: 14px; border-radius: 14px;
+  background: var(--bg-input); border: 1px solid var(--linje);
+}
+.kundkort-topp { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.kundnamn { font-size: 17px; font-weight: 600; margin-top: 8px; }
+.kundrad { font-size: 14px; color: var(--muted); margin-top: 2px; }
+.kundkomm {
+  margin-top: 9px; padding: 9px 11px; border-radius: 10px; background: #fff;
+  border: 1px solid var(--linje); font-size: 13px; color: var(--muted); line-height: 1.5;
+}
+.kundkort .btn-rad { margin-top: 12px; }
+a.btn { display: grid; place-items: center; text-decoration: none; }
+
 /* Resultatknappar — huvudflödet ute på gatan */
 .resultat { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 16px; }
 .resultat button {
-  padding: 20px 10px; border-radius: 14px; font-size: 15px; font-weight: 700;
-  letter-spacing: 0.02em; border: 1px solid var(--linje); background: var(--bg-input); color: var(--text);
+  padding: 26px 10px; border-radius: 14px; font-size: 16px; font-weight: 700;
+  letter-spacing: 0.03em; border: 1px solid var(--linje); background: var(--bg-input); color: var(--text);
 }
-.resultat .r-bokat { background: rgba(33,122,75,0.14); border-color: rgba(33,122,75,0.4); color: var(--gron); }
-.resultat .r-ejsvar { background: rgba(138,106,18,0.12); border-color: rgba(138,106,18,0.35); color: var(--gul); }
-.resultat .r-nej { background: rgba(179,39,28,0.12); border-color: rgba(179,39,28,0.35); color: var(--rod); }
-.resultat .r-aterkom { background: rgba(179,89,26,0.12); border-color: rgba(179,89,26,0.35); color: var(--orange); }
+.resultat .r-bokat { background: #0d0d0d; border-color: #0d0d0d; color: #fff; }
+.resultat .r-ejsvar { background: #fff; border-color: rgba(0,0,0,0.18); color: var(--text); }
+.resultat .r-nej { background: #f4f4f5; border-color: rgba(0,0,0,0.12); color: var(--muted); }
+.resultat .r-aterkom { background: var(--accent-dim); border-color: var(--border); color: var(--accent); }
 .resultat button:active { filter: brightness(1.35); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
@@ -374,7 +447,7 @@ body.panel-oppen { overflow: hidden; }
   padding: 10px 13px; border-radius: 999px; font-size: 13.5px;
   background: var(--bg-input); border: 1px solid var(--linje); color: var(--text);
 }
-.chip:active, .chip.vald { border-color: var(--gold); color: var(--gold-light); background: var(--gold-dim); }
+.chip:active, .chip.vald { border-color: var(--accent); color: var(--accent-mork); background: var(--accent-dim); }
 
 .field { margin-bottom: 13px; }
 .field label {
@@ -385,7 +458,7 @@ body.panel-oppen { overflow: hidden; }
   width: 100%; padding: 12px 13px; border-radius: 10px;
   background: var(--bg-input); border: 1px solid var(--linje); color: var(--text);
 }
-.field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--gold); }
+.field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--accent); }
 .field textarea { min-height: 70px; resize: vertical; }
 .rad2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
@@ -393,19 +466,19 @@ body.panel-oppen { overflow: hidden; }
   width: 100%; height: 50px; border-radius: 12px; font-size: 15.5px; font-weight: 600;
   display: flex; align-items: center; justify-content: center; gap: 7px;
 }
-.btn-primary { background: var(--gold); color: #fff; }
+.btn-primary { background: var(--accent); color: #fff; }
 .btn-ghost { background: var(--bg-input); border: 1px solid var(--linje); color: var(--muted); }
 .btn-rad { display: flex; gap: 10px; margin-top: 18px; }
 .btn-rad .btn-ghost { flex: 0 0 110px; }
-.err { color: var(--rod); font-size: 13px; margin: 8px 0; min-height: 18px; }
+.err { color: var(--fel); font-size: 13px; margin: 8px 0; min-height: 18px; }
 
 /* Varning för nyligen bearbetad dörr */
 .varning {
   margin-top: 14px; padding: 13px 14px; border-radius: 12px;
-  background: rgba(179,89,26,0.12); border: 1px solid rgba(179,89,26,0.4); color: #7a3d10;
+  background: var(--accent-dim); border: 1px solid var(--border); color: var(--accent-mork);
   font-size: 13.5px; line-height: 1.55;
 }
-.varning b { color: var(--orange); }
+.varning b { color: var(--st-aterkom); }
 
 /* Historik */
 .historik { border-left: 2px solid var(--linje); margin: 10px 0 0 6px; padding-left: 14px; }
@@ -415,10 +488,10 @@ body.panel-oppen { overflow: hidden; }
   content: ''; position: absolute; left: -21px; top: 15px;
   width: 9px; height: 9px; border-radius: 50%; background: var(--dim);
 }
-.hpost.r-bokat::before { background: var(--gron); }
-.hpost.r-ejsvar::before { background: var(--gul); }
-.hpost.r-aterkom::before { background: var(--orange); }
-.hpost.r-nej::before { background: var(--rod); }
+.hpost.r-bokat::before { background: var(--st-bokat); }
+.hpost.r-ejsvar::before { background: var(--st-ejsvar); }
+.hpost.r-aterkom::before { background: var(--st-aterkom); }
+.hpost.r-nej::before { background: var(--st-nej); }
 .hpost .htid { font-size: 12px; color: var(--dim); }
 .hpost .hrad { font-size: 14px; margin-top: 2px; }
 .hpost .hkomm { font-size: 13px; color: var(--muted); margin-top: 3px; }
@@ -430,10 +503,10 @@ body.panel-oppen { overflow: hidden; }
 }
 .kpi b { display: block; font-size: 25px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; }
 .kpi small { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; }
-.kpi.stor b { color: var(--gold); }
-.kpi.gron b { color: var(--gron); }
+.kpi.stor b { color: var(--accent); }
+.kpi.gron b { color: var(--st-bokat); }
 .kpi .mal { font-size: 11px; margin-top: 5px; display: flex; align-items: center; gap: 5px; }
-.mal-gron { color: var(--gron); } .mal-gul { color: var(--gul); } .mal-rod { color: var(--rod); }
+.mal-gron { color: var(--st-bokat); } .mal-gul { color: var(--st-ejsvar); } .mal-rod { color: var(--st-nej); }
 
 .tabell { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .tabell th {
@@ -444,7 +517,7 @@ body.panel-oppen { overflow: hidden; }
 .tabell td:first-child, .tabell th:first-child { padding-left: 2px; }
 .tabell .namn { font-weight: 600; white-space: normal; }
 .tabell .plats { font-size: 15px; width: 30px; }
-.tabell tr.jag { background: var(--gold-dim); }
+.tabell tr.jag { background: var(--accent-dim); }
 .rullbar { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
 .sektion { padding: 6px 16px 0; }
@@ -459,9 +532,9 @@ body.panel-oppen { overflow: hidden; }
 .trappa { display: flex; flex-direction: column; gap: 7px; }
 .trappsteg { display: flex; align-items: center; gap: 10px; font-size: 13.5px; }
 .trappsteg .stapel {
-  height: 30px; border-radius: 7px; background: var(--gold-dim);
+  height: 30px; border-radius: 7px; background: var(--accent-dim);
   border: 1px solid var(--border); min-width: 34px;
-  display: flex; align-items: center; padding: 0 9px; font-weight: 600; font-size: 13px; color: var(--gold-light);
+  display: flex; align-items: center; padding: 0 9px; font-weight: 600; font-size: 13px; color: var(--accent-mork);
 }
 .trappsteg .etikett { color: var(--muted); font-size: 12.5px; }
 
@@ -472,7 +545,7 @@ body.panel-oppen { overflow: hidden; }
 }
 .podium .medalj { font-size: 21px; }
 .podium .pnamn { font-size: 13.5px; font-weight: 600; margin-top: 3px; }
-.podium .pvarde { font-size: 12px; color: var(--gold); margin-top: 2px; }
+.podium .pvarde { font-size: 12px; color: var(--accent); margin-top: 2px; }
 
 .toast {
   position: fixed; z-index: 70; left: 50%; transform: translateX(-50%);

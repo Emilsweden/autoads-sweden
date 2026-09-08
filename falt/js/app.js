@@ -14,26 +14,30 @@ import * as admin from './admin.js';
 
 const IKONER = {
   karta: '<path d="M9 3 3 6v15l6-3 6 3 6-3V3l-6 3z"/><path d="M9 3v15M15 6v15"/>',
-  lista: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
+  lista: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>' +
+    '<path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
   bokningar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
   dashboard: '<path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/>',
   admin: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H1a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 2.6 7a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H7a1.7 1.7 0 0 0 1-1.5V1a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V7a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
 };
 
+/* Ordningen är den i bottenmenyn. Admin ligger inte där — den nås via
+   profilen, så att fältvyerna får hela bredden. */
 const VYER = {
   karta: 'Karta',
-  lista: 'Dörrar',
   bokningar: 'Bokningar',
-  dashboard: 'Dashboard',
+  lista: 'Kunder',
+  dashboard: 'Översikt',
   admin: 'Admin',
 };
+const NAVVYER = ['karta', 'bokningar', 'lista', 'dashboard'];
 
 let dashTimer = null;
 
 /* ══ Navigering ══ */
 
 function ritaNav() {
-  const vyer = Object.keys(VYER).filter((v) => v !== 'admin' || arRoll('teamleader'));
+  const vyer = NAVVYER;
   $('botten').innerHTML = vyer.map((v) =>
     '<button data-vy="' + v + '" class="' + (v === S.vy ? 'aktiv' : '') + '">' +
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
@@ -122,16 +126,66 @@ async function skickaKo() {
 }
 
 let positionTimer = null;
+let farskTimer = null;
+const SENASTE_POSITION = 'falt_position';
+
+function gpsRad(text, klass) {
+  const el = $('gpsRad');
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'gps-rad' + (klass ? ' ' + klass : '');
+}
+
+const klockan = (ms) => new Date(ms).toTimeString().slice(0, 5);
+
+/**
+ * Positionen ska vara stabil ute på fältet: senast kända läge visas direkt
+ * vid start, uppdateringar sker löpande, och tappas signalen står punkten
+ * kvar — gråad — i stället för att försvinna.
+ */
 function startaGps() {
-  if (!navigator.geolocation) return;
+  // Senast kända position visas medan den första fixen hämtas.
+  try {
+    const sparad = JSON.parse(localStorage.getItem(SENASTE_POSITION) || 'null');
+    if (sparad && sparad.lat) {
+      S.position = { lat: sparad.lat, lon: sparad.lon };
+      karta.egenPosition(sparad.lat, sparad.lon);
+      karta.gammalPosition();
+      gpsRad('Senast kända position ' + klockan(sparad.tid), 'soker');
+    }
+  } catch (e) { /* inget sparat läge */ }
+
+  if (!navigator.geolocation) { gpsRad('Telefonen delar ingen position', 'av'); return; }
+  gpsRad('GPS söker signal…', 'soker');
+
   navigator.geolocation.watchPosition(
     (p) => {
-      S.position = { lat: p.coords.latitude, lon: p.coords.longitude };
+      S.position = { lat: p.coords.latitude, lon: p.coords.longitude, noggrannhet: p.coords.accuracy };
+      S.positionTid = Date.now();
+      localStorage.setItem(SENASTE_POSITION, JSON.stringify({ ...S.position, tid: S.positionTid }));
       karta.egenPosition(S.position.lat, S.position.lon);
+      gpsRad('Position uppdaterad ' + klockan(S.positionTid) +
+        (p.coords.accuracy ? ' · ±' + Math.round(p.coords.accuracy) + ' m' : ''));
     },
-    () => { /* säljaren kan ha nekat platsdelning — appen fungerar ändå */ },
-    { enableHighAccuracy: true, maximumAge: 30000, timeout: 20000 }
+    (e) => {
+      // 1 = nekad. Övriga är tillfälliga: behåll senaste läget och säg till.
+      if (e && e.code === 1) {
+        gpsRad('Platsdelning är avstängd — slå på den för telefonen och appen', 'av');
+      } else {
+        karta.gammalPosition();
+        gpsRad('GPS söker signal…' + (S.positionTid ? ' Senast ' + klockan(S.positionTid) : ''), 'soker');
+      }
+    },
+    { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 }
   );
+
+  // Kommer inga uppdateringar alls är läget inte längre färskt.
+  clearInterval(farskTimer);
+  farskTimer = setInterval(() => {
+    if (!S.positionTid || Date.now() - S.positionTid < 90000) return;
+    karta.gammalPosition();
+    gpsRad('GPS söker signal… Senast ' + klockan(S.positionTid), 'soker');
+  }, 30000);
 
   clearInterval(positionTimer);
   positionTimer = setInterval(() => {
@@ -152,6 +206,9 @@ function visaProfil() {
     '<div class="field"><label for="pNytt">Nytt (minst 8 tecken)</label><input id="pNytt" type="password"></div>' +
     '<div class="err" id="pFel"></div>' +
     '<button class="btn btn-ghost" id="pByt">Spara nytt lösenord</button>' +
+    (arRoll('teamleader')
+      ? '<h3>Administration</h3><button class="btn btn-ghost" id="pAdmin">Områden, användare och regler</button>'
+      : '') +
     '<div class="btn-rad"><button class="btn btn-ghost" id="pStang">Stäng</button>' +
     '<button class="btn btn-primary" id="pUt">Logga ut</button></div>');
 
@@ -163,6 +220,7 @@ function visaProfil() {
       stangPanel('modal');
     } catch (e) { $('pFel').textContent = e.message; }
   };
+  if ($('pAdmin')) $('pAdmin').onclick = () => { stangPanel('modal'); visaVy('admin'); };
   $('pStang').onclick = () => stangPanel('modal');
   $('pUt').onclick = loggaUt;
 }
@@ -285,7 +343,7 @@ async function start() {
   dashboard.koppla();
   listor.kopplaBokningar(arRoll('teamleader') ? (await hamtaSaljare()) : [S.anvandare]);
   await laddaDorrar();
-  visaVy(arRoll('teamleader') ? 'dashboard' : 'karta');
+  visaVy('karta');
   startaGps();
   skickaKo();
 }

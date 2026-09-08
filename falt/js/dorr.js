@@ -284,6 +284,109 @@ function statusruta() {
     (nyligen ? '<b>Nyligen bearbetad dörr</b><br>' : '') + rader.join('<br>') + '</div>';
 }
 
+/** Dörrens aktiva bokning, om den har någon. */
+function aktivBokning() {
+  return (aktuell.bokningar || []).find((b) => b.status === 'bokad') || null;
+}
+
+/** Kunden bakom bokningen: uppgifter, kommentar och vad man gör härnäst. */
+function kundkort() {
+  const b = aktivBokning();
+  if (!b) return '';
+  const kund = [b.fornamn, b.efternamn].filter(Boolean).join(' ');
+  return '<div class="kundkort">' +
+    '<div class="kundkort-topp"><span class="märke m-bokat">BOKAD</span>' +
+    (b.datum ? '<b>' + esc(visaDatum(b.datum)) + (b.tid ? ' kl. ' + esc(b.tid) : '') + '</b>' : '') +
+    '</div>' +
+    (kund ? '<div class="kundnamn">' + esc(kund) + '</div>' : '') +
+    (b.telefon ? '<div class="kundrad">' + esc(b.telefon) + '</div>' : '') +
+    (b.kommentar ? '<div class="kundkomm">' + esc(b.kommentar) + '</div>' : '') +
+    '<div class="btn-rad">' +
+    (b.telefon ? '<a class="btn btn-primary" id="dRing" href="tel:' + esc(b.telefon.replace(/[^\d+]/g, '')) + '">Ring kund</a>' : '') +
+    '<button class="btn btn-ghost" id="dAndra">Ändra bokning</button>' +
+    '</div></div>';
+}
+
+/** Redigering av en bokning: kund, tid och kommentar på ett ställe. */
+function visaAndraBokning() {
+  const b = aktivBokning();
+  const a = aktuell.adress;
+  if (!b) return;
+
+  oppnaPanel('dorr',
+    '<h2>Ändra bokning</h2><p class="sub">' + esc(a.adress) + '</p>' +
+    '<div class="rad2" style="margin-top:14px">' +
+    '<div class="field"><label for="aFornamn">Förnamn</label>' +
+    '<input id="aFornamn" type="text" value="' + esc(b.fornamn || '') + '"></div>' +
+    '<div class="field"><label for="aEfternamn">Efternamn</label>' +
+    '<input id="aEfternamn" type="text" value="' + esc(b.efternamn || '') + '"></div></div>' +
+    '<div class="field"><label for="aTelefon">Mobilnummer</label>' +
+    '<input id="aTelefon" type="tel" inputmode="tel" value="' + esc(b.telefon || '') + '"></div>' +
+    '<div class="field"><label for="aDatum">Datum</label>' +
+    '<input id="aDatum" type="date" value="' + esc(b.datum || '') + '"></div>' +
+    '<h3>Tid</h3><div id="aTider" class="chips tider">Hämtar tider…</div>' +
+    '<div class="field" style="margin-top:14px"><label for="aKomm">Kommentar</label>' +
+    '<textarea id="aKomm">' + esc(b.kommentar || '') + '</textarea></div>' +
+    '<div class="err" id="aFel"></div>' +
+    '<div class="btn-rad"><button class="btn btn-ghost" id="aTillbaka">Tillbaka</button>' +
+    '<button class="btn btn-primary" id="aSpara">Spara</button></div>' +
+    '<button class="btn btn-ghost" id="aAvboka" style="margin-top:10px">Avboka mötet</button>');
+
+  let valdTid = b.tid || '';
+
+  async function laddaTider() {
+    const ruta = $('aTider');
+    ruta.textContent = 'Hämtar tider…';
+    try {
+      const svar = await ledigaTider($('aDatum').value);
+      if (svar.helg) { ruta.innerHTML = '<span class="sub">Helg — tider bokas måndag till fredag.</span>'; return; }
+      // Den egna tiden är upptagen av bokningen själv men ska gå att behålla.
+      const tider = svar.tider.concat($('aDatum').value === b.datum && b.tid ? [b.tid] : [])
+        .filter((t, i, alla) => alla.indexOf(t) === i).sort();
+      ruta.innerHTML = tider.map((t) => '<button class="chip' + (t === valdTid ? ' vald' : '') +
+        '" data-tid="' + esc(t) + '">' + esc(t) + '</button>').join('') ||
+        '<span class="sub">Alla tider är bokade den dagen.</span>';
+      ruta.querySelectorAll('[data-tid]').forEach((k) => {
+        k.onclick = () => {
+          valdTid = k.dataset.tid;
+          ruta.querySelectorAll('.chip').forEach((x) => x.classList.toggle('vald', x === k));
+        };
+      });
+    } catch (e) {
+      ruta.innerHTML = '<span class="sub">Kunde inte hämta tider: ' + esc(e.message) + '</span>';
+    }
+  }
+  laddaTider();
+  $('aDatum').onchange = () => { valdTid = ''; laddaTider(); };
+
+  $('aTillbaka').onclick = () => oppna(a.id);
+  $('aSpara').onclick = async () => {
+    try {
+      await anrop('bokning-andra', {
+        id: b.id,
+        fornamn: $('aFornamn').value.trim(),
+        efternamn: $('aEfternamn').value.trim(),
+        telefon: $('aTelefon').value.trim(),
+        datum: $('aDatum').value,
+        tid: valdTid,
+        kommentar: $('aKomm').value.trim(),
+      });
+      toast('Bokningen är ändrad ✓');
+      dataAndrad();
+      oppna(a.id);
+    } catch (e) { $('aFel').textContent = e.message; }
+  };
+  $('aAvboka').onclick = async () => {
+    if (!confirm('Avboka mötet? Tiden blir ledig igen.')) return;
+    try {
+      await anrop('bokning-status', { id: b.id, status: 'avbokad' });
+      toast('Mötet är avbokat — tiden är ledig igen');
+      dataAndrad();
+      oppna(a.id);
+    } catch (e) { $('aFel').textContent = e.message; }
+  };
+}
+
 /**
  * Öppnar dörrpanelen för en adress.
  * `direktBokning` hoppar rakt till bokningsformuläret, vilket används av
@@ -306,7 +409,7 @@ export async function oppna(adressId, direktBokning) {
     }
   }
 
-  const html = huvudRubrik() + statusruta() +
+  const html = huvudRubrik() + kundkort() + statusruta() +
     '<div class="resultat">' +
     '<button class="r-bokat" data-r="bokat">BOKAT</button>' +
     '<button class="r-ejsvar" data-r="ejsvar">INGET SVAR</button>' +
@@ -329,6 +432,7 @@ export async function oppna(adressId, direktBokning) {
       else visaTidsval(r);
     };
   });
+  if ($('dAndra')) $('dAndra').onclick = visaAndraBokning;
   if ($('dRatta')) $('dRatta').onclick = visaRatta;
   // Öppnar dörrens adress i telefonens kartapp för att gå eller köra dit.
   $('dVag').onclick = () => {

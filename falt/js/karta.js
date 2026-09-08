@@ -7,7 +7,7 @@
  */
 
 import { anrop } from './api.js';
-import { $, esc, toast, STATUS_FARG, visaTidpunkt } from './ui.js';
+import { $, esc, toast, STATUS_FARG, STATUS_TEXTFARG, visaTidpunkt } from './ui.js';
 import { S, arRoll, dataAndrad } from './state.js';
 import { oppna as oppnaDorr, manuell as manuellDorr } from './dorr.js';
 import { adressVid } from './geo.js';
@@ -22,12 +22,15 @@ let laddad = false;
 
 const VASTERAS = [16.5448, 59.6099];   // MapLibre vill ha [lon, lat]
 const DORRAR = 'dorrar';
+const NUMMER = 'dorrnummer';
+
+const STATUSAR = ['bokat', 'ejsvar', 'nej', 'aterkom', 'ejbesokt'];
 
 /** Färg per status, som ett uttryck MapLibre kan räkna på i renderingen. */
-function fargUttryck() {
+function fargUttryck(tabell, standard) {
   const ut = ['match', ['get', 'status']];
-  ['bokat', 'ejsvar', 'nej', 'aterkom', 'ejbesokt'].forEach((s) => ut.push(s, STATUS_FARG[s]));
-  ut.push(STATUS_FARG.ejbesokt);
+  STATUSAR.forEach((s) => ut.push(s, tabell[s]));
+  ut.push(standard);
   return ut;
 }
 
@@ -97,20 +100,24 @@ function skapa() {
   karta.on('load', () => {
     laddad = true;
     karta.addSource(DORRAR, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+
+    // Husnumret är det man känner igen huset på ute på gatan, så markören
+    // är numret självt — en färgad bricka i husets status.
     karta.addLayer({
       id: DORRAR,
       type: 'circle',
       source: DORRAR,
       paint: {
-        // Punkterna växer med zoomen så att de går att träffa med tummen.
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 5, 16, 8, 19, 13],
-        'circle-color': fargUttryck(),
-        'circle-opacity': 0.95,
-        'circle-stroke-width': ['case', ['get', 'sparrad'], 3, 1.5],
-        'circle-stroke-color': ['case', ['get', 'sparrad'], STATUS_FARG.sparrad, '#ffffff'],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 9, 16, 15, 19, 21],
+        'circle-color': fargUttryck(STATUS_FARG, STATUS_FARG.ejbesokt),
+        'circle-opacity': 1,
+        'circle-stroke-width': ['case', ['get', 'sparrad'], 3, 1.6],
+        'circle-stroke-color': ['case', ['get', 'sparrad'], STATUS_FARG.sparrad, '#0d0d0d'],
       },
     });
     karta.on('click', vidKartklick);
+    karta.on('moveend', ritaNummer);
+    karta.on('zoomend', ritaNummer);
     karta.on('mouseenter', DORRAR, () => { karta.getCanvas().style.cursor = 'pointer'; });
     karta.on('mouseleave', DORRAR, () => { karta.getCanvas().style.cursor = ''; });
     rita();
@@ -133,6 +140,79 @@ function skapa() {
     ['ejbesokt', 'Ej besökt'], ['bokat', 'Bokad'], ['ejsvar', 'Inget svar'],
     ['aterkom', 'Återkom'], ['nej', 'Nej'], ['sparrad', 'Nyligen besökt'],
   ].map(([k, t]) => '<span><i style="background:' + STATUS_FARG[k] + '"></i>' + t + '</span>').join('');
+}
+
+/* ── Husnummer som brickor ── */
+
+const NUMMER_ZOOM = 15.5;   // längre ut blir numren oläsliga och kartan full
+const MAX_NUMMER = 400;     // så många brickor räcker för ett kvarter
+
+const brickor = new Map();  // adress-id → markör
+
+/**
+ * Ritar husnumret på varje hus i vyn. Numret är det man känner igen huset
+ * på ute på gatan, så det är markören — inte en generisk kartnål.
+ * Längre ut visas i stället färgade punkter, annars blir kartan full.
+ */
+function ritaNummer() {
+  if (!karta || !laddad) return;
+  const visaNummer = karta.getZoom() >= NUMMER_ZOOM;
+
+  if (karta.getLayer(DORRAR)) {
+    karta.setLayoutProperty(DORRAR, 'visibility', visaNummer ? 'none' : 'visible');
+  }
+  if (!visaNummer) {
+    brickor.forEach((m) => m.remove());
+    brickor.clear();
+    return;
+  }
+
+  // Lite marginal runt vyn, så att brickorna finns på plats innan huset
+  // kommer in i bild i stället för att poppa upp vid kanten.
+  const g = karta.getBounds();
+  const dLat = (g.getNorth() - g.getSouth()) * 0.3;
+  const dLon = (g.getEast() - g.getWest()) * 0.3;
+  const inom = (a) => a.lat > g.getSouth() - dLat && a.lat < g.getNorth() + dLat
+    && a.lon > g.getWest() - dLon && a.lon < g.getEast() + dLon;
+
+  const nu = Date.now();
+  const kvar = new Set();
+
+  synligaAdresser()
+    .filter(inom)
+    .slice(0, MAX_NUMMER)
+    .forEach((a) => {
+      kvar.add(a.id);
+      const sparrad = a.sparrad_till > nu && a.status !== 'ejbesokt';
+      const klasser = 'hus-nummer s-' + (a.status || 'ejbesokt') + (sparrad ? ' sparrad' : '');
+      const fanns = brickor.get(a.id);
+      if (fanns) {
+        const el = fanns.getElement();
+        if (el.className !== klasser) el.className = klasser;
+        if (el.textContent !== (a.nummer || '?')) el.textContent = a.nummer || '?';
+        fanns.setLngLat([a.lon, a.lat]);
+        return;
+      }
+      const el = document.createElement('button');
+      el.type = 'button';
+      el.className = klasser;
+      el.textContent = a.nummer || '?';
+      el.title = a.adress;
+      el.onclick = (ev) => { ev.stopPropagation(); oppnaDorr(a.id); };
+      brickor.set(a.id, new maplibregl.Marker({ element: el }).setLngLat([a.lon, a.lat]).addTo(karta));
+    });
+
+  brickor.forEach((m, id) => {
+    if (kvar.has(id)) return;
+    m.remove();
+    brickor.delete(id);
+  });
+}
+
+/** Adresserna i valt område som har ett läge att rita ut. */
+function synligaAdresser() {
+  return S.adresser.filter((a) =>
+    (!S.valtOmrade || a.omrade_id === S.valtOmrade) && a.lat && a.lon);
 }
 
 /* ── Tryck på kartan ── */
@@ -269,8 +349,7 @@ export function rita() {
   if (!karta || !laddad) return;
 
   const nu = Date.now();
-  const synliga = S.adresser.filter((a) =>
-    (!S.valtOmrade || a.omrade_id === S.valtOmrade) && a.lat && a.lon);
+  const synliga = synligaAdresser();
 
   karta.getSource(DORRAR).setData({
     type: 'FeatureCollection',
@@ -279,6 +358,7 @@ export function rita() {
       geometry: { type: 'Point', coordinates: [a.lon, a.lat] },
       properties: {
         id: a.id,
+        nummer: a.nummer || '',
         status: a.status || 'ejbesokt',
         sparrad: a.sparrad_till > nu && a.status !== 'ejbesokt',
       },
@@ -305,6 +385,8 @@ export function rita() {
     centreratOmrade = urval;
     harCentrerat = true;
   }
+
+  ritaNummer();
 }
 
 /** Kartan behöver ritas om när dess behållare blir synlig. */
@@ -328,6 +410,14 @@ let omraknare = null;
   });
 });
 
+/**
+ * Tappad GPS-signal: punkten står kvar där vi sist såg dig, men gråas så
+ * att det syns att den inte är färsk.
+ */
+export function gammalPosition() {
+  if (jagMarkor) jagMarkor.getElement().classList.add('gammal');
+}
+
 export function centreraPa(adress) {
   if (!karta || !adress.lat) return;
   karta.easeTo({ center: [adress.lon, adress.lat], zoom: 18 });
@@ -340,6 +430,7 @@ export function egenPosition(lat, lon) {
     prick.className = 'jag-punkt';
     jagMarkor = new maplibregl.Marker({ element: prick }).setLngLat([lon, lat]).addTo(karta);
   } else {
+    jagMarkor.getElement().classList.remove('gammal');
     jagMarkor.setLngLat([lon, lat]);
   }
   // Dörrarna har företräde; hoppa hit bara när det inte finns några att visa.

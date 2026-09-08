@@ -6,7 +6,8 @@ export const S = {
   omraden: [],
   adresser: [],
   valtOmrade: '',
-  position: null,     // { lat, lon } från telefonens GPS
+  position: null,     // { lat, lon, noggrannhet } från telefonens GPS
+  positionTid: 0,     // när positionen senast uppdaterades
   vy: 'karta',
 };
 
