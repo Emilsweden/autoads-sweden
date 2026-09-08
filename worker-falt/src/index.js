@@ -249,13 +249,46 @@ async function anvandareFranToken(env, request, body) {
   return rad;
 }
 
+/** Rangen för en roll. Okänd roll ger 0, så en trasig roll aldrig öppnar något. */
+function rang(roll) {
+  return Object.prototype.hasOwnProperty.call(ROLLER, roll) ? ROLLER[roll] : 0;
+}
+
 function kraver(anv, roll) {
-  if (ROLLER[anv.roll] < ROLLER[roll]) throw new Fel('Du har inte behörighet till detta', 403);
+  if (rang(anv && anv.roll) < ROLLER[roll]) throw new Fel('Du har inte behörighet till detta', 403);
+}
+
+/**
+ * Besiktaren är inte säljare: han ser bokningarna han ska ut på, inget annat.
+ * Kontrollen ligger här och inte bara i menyn — appen är bara en av vägarna
+ * in till API:t.
+ */
+function kraverSaljare(anv) {
+  if (arBesiktare(anv)) throw new Fel('Besiktaren arbetar bara i bokningarna', 403);
+}
+
+/** Områdes-id:n användaren får röra. */
+async function synligaOmradesIdn(env, anv) {
+  return (await synligaOmraden(env, anv)).map((o) => o.id);
+}
+
+/**
+ * Hämtar en adress och kontrollerar att den ligger i ett område användaren
+ * har. Utan den kunde vilket inloggat konto som helst läsa och skriva på
+ * dörrar i andras områden bara genom att gissa eller plocka upp ett id.
+ */
+async function adressJagFar(env, anv, id, extra) {
+  const adress = await en(env, extra || 'SELECT * FROM adresser WHERE id = ?1', id);
+  if (!adress) throw new Fel('Adressen finns inte', 404);
+  if (rang(anv.roll) >= ROLLER.teamleader) return adress;
+  const idn = await synligaOmradesIdn(env, anv);
+  if (!idn.includes(adress.omrade_id)) throw new Fel('Adressen ligger utanför dina områden', 403);
+  return adress;
 }
 
 /** Områden användaren får se: tilldelade områden, plus otilldelade. Admin ser allt. */
 async function synligaOmraden(env, anv) {
-  if (ROLLER[anv.roll] >= ROLLER.teamleader) {
+  if (rang(anv.roll) >= ROLLER.teamleader) {
     return alla(env, 'SELECT * FROM omraden ORDER BY namn');
   }
   return alla(env,
@@ -311,7 +344,14 @@ api['byt-losenord'] = async (env, request, body, anv) => {
   if (!lika(gammalt, anv.hash)) throw new Fel('Fel nuvarande lösenord', 401);
   const salt = hex(crypto.getRandomValues(new Uint8Array(16)));
   await kor(env, 'UPDATE anvandare SET hash = ?1, salt = ?2 WHERE id = ?3', await hasha(nytt, salt), salt, anv.id);
-  return {};
+
+  // Byter du lösenord ska en telefon som någon annan har kvar sluta fungera.
+  // Alla sessioner slängs och den som byter får en ny på plats.
+  await kor(env, 'DELETE FROM sessioner WHERE anvandare_id = ?1', anv.id);
+  const token = uid() + hex(crypto.getRandomValues(new Uint8Array(24)));
+  await kor(env, 'INSERT INTO sessioner (token, anvandare_id, giltig_till) VALUES (?1,?2,?3)',
+    token, anv.id, Date.now() + SESSION_DAGAR * DAG);
+  return { token };
 };
 
 /* ── Användare (admin) ── */
@@ -328,7 +368,7 @@ api['anvandare-spara'] = async (env, request, body, anv) => {
   kraver(anv, 'admin');
   const namn = txt(body.namn, 80);
   const epost = (txt(body.epost, 160) || '').toLowerCase();
-  const roll = ROLLER[body.roll] ? body.roll : 'saljare';
+  const roll = Object.prototype.hasOwnProperty.call(ROLLER, body.roll) ? body.roll : 'saljare';
   if (!namn || !epost) throw new Fel('Namn och e-post krävs');
 
   if (body.id) {
@@ -459,6 +499,7 @@ api['adresser-importera'] = async (env, request, body, anv) => {
 /* ── Adresser och dörrar ── */
 
 api['adresser'] = async (env, request, body, anv) => {
+  kraverSaljare(anv);
   const omradeId = txt(body.omrade_id, 40);
   const synliga = await synligaOmraden(env, anv);
   const idn = synliga.map((o) => o.id);
@@ -500,11 +541,11 @@ function putsaAdress(a) {
 }
 
 api['adress'] = async (env, request, body, anv) => {
+  kraverSaljare(anv);
   const id = txt(body.id, 40);
-  const adress = await en(env,
+  const adress = await adressJagFar(env, anv, id,
     `SELECT a.*, u.namn AS senast_namn FROM adresser a
-     LEFT JOIN anvandare u ON u.id = a.senast_av WHERE a.id = ?1`, id);
-  if (!adress) throw new Fel('Adressen finns inte', 404);
+     LEFT JOIN anvandare u ON u.id = a.senast_av WHERE a.id = ?1`);
 
   const historik = await alla(env,
     `SELECT h.*, u.namn AS saljare FROM handelser h
@@ -524,12 +565,12 @@ api['adress'] = async (env, request, body, anv) => {
  * uppdaterar både historiken, dörrens status och spärren.
  */
 api['handelse'] = async (env, request, body, anv) => {
+  kraverSaljare(anv);
   const adressId = txt(body.adress_id, 40);
   const resultat = RESULTAT.includes(body.resultat) ? body.resultat : null;
   if (!adressId || !resultat) throw new Fel('Adress och resultat krävs');
 
-  const adress = await en(env, 'SELECT * FROM adresser WHERE id = ?1', adressId);
-  if (!adress) throw new Fel('Adressen finns inte', 404);
+  const adress = await adressJagFar(env, anv, adressId);
 
   const nu = Date.now();
   const inst = await installningar(env);
@@ -611,6 +652,7 @@ api['handelse'] = async (env, request, body, anv) => {
  * så att historiken hänger ihop och inga dubbletter uppstår.
  */
 api['adress-ny'] = async (env, request, body, anv) => {
+  kraverSaljare(anv);
   const gata = snyggText(txt(body.gata, 120));
   const nummer = txt(body.nummer, 20).replace(/\s+/g, ' ').trim();
   if (!gata || !nummer) throw new Fel('Gata och husnummer krävs');
@@ -669,6 +711,7 @@ api['adress-ny'] = async (env, request, body, anv) => {
  * Anteckningarna skrivs efter besöket, så spärren behöver inte bekräftas.
  */
 api['anteckningar-importera'] = async (env, request, body, anv) => {
+  kraverSaljare(anv);
   const rader = Array.isArray(body.rader) ? body.rader.slice(0, 100) : [];
   const postort = txt(body.postort, 80);
   const omradeId = txt(body.omrade_id, 40);
@@ -700,6 +743,7 @@ api['anteckningar-importera'] = async (env, request, body, anv) => {
  * gatunamnet. Historiken följer med dörren, bara texten ändras.
  */
 api['adress-andra'] = async (env, request, body, anv) => {
+  kraverSaljare(anv);
   kraver(anv, 'teamleader');
   const id = txt(body.id, 40);
   const adress = await en(env, 'SELECT * FROM adresser WHERE id = ?1', id);
@@ -822,6 +866,7 @@ async function raknaOmDorr(env, adressId) {
 
 /** Tar bort en felaktig dörr. Dörrar med historik lämnas kvar. */
 api['adress-ta-bort'] = async (env, request, body, anv) => {
+  kraverSaljare(anv);
   kraver(anv, 'teamleader');
   const id = txt(body.id, 40);
   const adress = await en(env, 'SELECT * FROM adresser WHERE id = ?1', id);
@@ -837,6 +882,7 @@ api['adress-ta-bort'] = async (env, request, body, anv) => {
 
 /** Dörrar som ska besökas igen — säljarens arbetslista. */
 api['aterbesok'] = async (env, request, body, anv) => {
+  kraverSaljare(anv);
   const synliga = (await synligaOmraden(env, anv)).map((o) => o.id);
   if (!synliga.length) return { adresser: [] };
   const p = synliga.map((_, i) => '?' + (i + 1)).join(',');
@@ -852,6 +898,7 @@ api['aterbesok'] = async (env, request, body, anv) => {
 
 /** Föreslår nästa dörr: obesökt, i området, nära säljaren och inte spärrad. */
 api['nasta-dorr'] = async (env, request, body, anv) => {
+  kraverSaljare(anv);
   const synliga = (await synligaOmraden(env, anv)).map((o) => o.id);
   if (!synliga.length) return { adress: null };
   const omradeId = txt(body.omrade_id, 40);
@@ -885,6 +932,7 @@ api['nasta-dorr'] = async (env, request, body, anv) => {
 /* ── Bokningar ── */
 
 api['bokningar'] = async (env, request, body, anv) => {
+  kraverSaljare(anv);
   const villkor = ['1=1'];
   const args = [];
   const lagg = (sql, v) => { args.push(v); villkor.push(sql.replace('?', '?' + args.length)); };
@@ -918,6 +966,7 @@ api['bokningar'] = async (env, request, body, anv) => {
  * så att appen ritar samma rutnät som servern godkänner.
  */
 api['kalender'] = async (env, request, body, anv) => {
+  kraverSaljare(anv);
   const fran = datum(body.fran) || datum(body.datum);
   const till = datum(body.till) || fran;
   if (!fran) throw new Fel('Datum krävs');
@@ -954,6 +1003,7 @@ api['kalender'] = async (env, request, body, anv) => {
  * så att bokningen också syns som en dörr på kartan.
  */
 api['kalender-boka'] = async (env, request, body, anv) => {
+  kraverSaljare(anv);
   const dat = datum(body.datum);
   const tid = klockslag(body.tid);
   kontrolleraSlot(dat, tid);
@@ -1022,6 +1072,7 @@ function delaAdressrad(rad) {
  * Flyttas den till en ny ruta gäller samma regler som vid nybokning.
  */
 api['bokning-andra'] = async (env, request, body, anv) => {
+  kraverSaljare(anv);
   const id = txt(body.id, 40);
   const bokning = await en(env, 'SELECT * FROM bokningar WHERE id = ?1', id);
   if (!bokning) throw new Fel('Bokningen finns inte', 404);
@@ -1168,8 +1219,13 @@ api['bokning-status'] = async (env, request, body, anv) => {
   if (!id || !status) throw new Fel('Bokning och status krävs');
   const bokning = await en(env, 'SELECT * FROM bokningar WHERE id = ?1', id);
   if (!bokning) throw new Fel('Bokningen finns inte', 404);
-  // Besiktaren är den som varit på plats och vet om mötet blev av.
-  if (bokning.anvandare_id !== anv.id && !arBesiktare(anv)) kraver(anv, 'teamleader');
+  // Besiktaren är den som varit på plats och vet om mötet blev av — men han
+  // får bara bocka av det, inte avboka andras möten.
+  if (arBesiktare(anv)) {
+    if (status !== 'genomford') throw new Fel('Besiktaren kan bara markera mötet som genomfört', 403);
+  } else if (bokning.anvandare_id !== anv.id) {
+    kraver(anv, 'teamleader');
+  }
   await kor(env, 'UPDATE bokningar SET status = ?1 WHERE id = ?2', status, id);
   return {};
 };
@@ -1177,6 +1233,7 @@ api['bokning-status'] = async (env, request, body, anv) => {
 /* ── Position ── */
 
 api['position'] = async (env, request, body, anv) => {
+  kraverSaljare(anv);
   const lat = nr(body.lat, null), lon = nr(body.lon, null);
   if (lat === null || lon === null) throw new Fel('Position saknas');
   await kor(env,
@@ -1187,6 +1244,7 @@ api['position'] = async (env, request, body, anv) => {
 };
 
 api['positioner'] = async (env, request, body, anv) => {
+  kraverSaljare(anv);
   kraver(anv, 'teamleader');
   const sedan = Date.now() - 30 * 60000;
   const rader = await alla(env,
@@ -1216,6 +1274,7 @@ function hitrate(rad, namnare) {
 }
 
 api['dashboard'] = async (env, request, body, anv) => {
+  kraverSaljare(anv);
   const { fran, till, franMs, tillMs } = period(body);
   const inst = await installningar(env);
   const namnare = inst.hitrate_namnare || 'alla';
@@ -1317,6 +1376,7 @@ api['dashboard'] = async (env, request, body, anv) => {
 
 /** Enskild säljares utveckling vecka för vecka. */
 api['saljare-trend'] = async (env, request, body, anv) => {
+  kraverSaljare(anv);
   const id = txt(body.id, 40) || anv.id;
   if (id !== anv.id) kraver(anv, 'teamleader');
   const veckor = Math.min(Math.max(nr(body.veckor, 6), 1), 26);

@@ -1,7 +1,7 @@
 /** Startpunkt: inloggning, navigering, GPS och automatisk uppdatering. */
 
 import { anrop, ApiFel, bas, sattBas, token, sattToken, ko, tommeKo } from './api.js';
-import { VERSION } from '../config.js';
+import { VERSION, STANDARD_SERVER } from '../config.js';
 import { $, esc, toast, oppnaPanel, stangPanel, kopplaStangning, kopplaLayout } from './ui.js';
 import { S, buss, arRoll, dataAndrad } from './state.js';
 import * as karta from './karta.js';
@@ -217,11 +217,22 @@ function visaProfil() {
     '<div class="btn-rad"><button class="btn btn-ghost" id="pStang">Stäng</button>' +
     '<button class="btn btn-primary" id="pUt">Logga ut</button></div>');
 
-  $('pServer').onchange = () => { sattBas($('pServer').value); toast('Serveradress sparad'); };
+  $('pServer').onchange = () => {
+    if (!serverTillaten($('pServer').value)) {
+      $('pServer').value = bas();
+      toast('Okänd serveradress — den ändrades inte');
+      return;
+    }
+    sattBas($('pServer').value);
+    toast('Serveradress sparad');
+  };
   $('pByt').onclick = async () => {
     try {
-      await anrop('byt-losenord', { gammalt: $('pGammalt').value, nytt: $('pNytt').value });
-      toast('Lösenordet är bytt');
+      // Bytet loggar ut alla telefoner, även den här — servern skickar
+      // tillbaka en ny session så att du får fortsätta där du är.
+      const svar = await anrop('byt-losenord', { gammalt: $('pGammalt').value, nytt: $('pNytt').value });
+      if (svar && svar.token) sattToken(svar.token);
+      toast('Lösenordet är bytt — övriga telefoner loggades ut');
       stangPanel('modal');
     } catch (e) { $('pFel').textContent = e.message; }
   };
@@ -241,12 +252,42 @@ async function loggaUt() {
 
 /* ══ Inloggning ══ */
 
+/**
+ * Servrar appen får prata med. Listan är avsiktligt kort: en länk får peka
+ * på den server appen levererades från eller den som står i config.js, inget
+ * annat. Utan den kunde ?server=https://... i en länk styra om inloggningen
+ * till en främmande sajt, som då fick både e-post och lösenord i klartext.
+ */
+function tillatnaServrar() {
+  const lista = [STANDARD_SERVER];
+  if (location.protocol === 'https:' || location.hostname === 'localhost') lista.push(location.origin);
+  return lista
+    .filter(Boolean)
+    .map((a) => a.trim().replace(/\/+$/, '').toLowerCase());
+}
+
+/** Sant bara för exakt samma ursprung som någon av de tillåtna adresserna. */
+export function serverTillaten(url) {
+  let adress;
+  try {
+    adress = new URL(String(url || '').trim());
+  } catch (e) {
+    return false;
+  }
+  if (adress.protocol !== 'https:' && adress.hostname !== 'localhost') return false;
+  const rensad = (adress.origin + adress.pathname).replace(/\/+$/, '').toLowerCase();
+  return tillatnaServrar().includes(rensad);
+}
+
 function visaServerfalt() {
   // Serveradressen kan följa med i länken, så att säljarna slipper knappa in
-  // den på telefonen: /falt/?server=https://...workers.dev
-  const franLank = new URLSearchParams(location.search).get('server');
-  const giltig = franLank && /^https:\/\/[^\s]+$|^http:\/\/localhost(:\d+)?$/.test(franLank)
-    ? franLank.replace(/\/+$/, '') : '';
+  // den på telefonen: /falt/?server=https://...workers.dev — men bara till en
+  // adress appen redan känner till.
+  const franLank = (new URLSearchParams(location.search).get('server') || '').trim();
+  const giltig = franLank && serverTillaten(franLank) ? franLank.replace(/\/+$/, '') : '';
+  if (franLank && !giltig) {
+    $('lFel').textContent = 'Länken pekar på en okänd server och används inte.';
+  }
 
   // Med en standardserver i config.js behöver ingen ange adressen alls;
   // fältet visas bara om den saknas eller om en annan skickats med i länken.
@@ -304,8 +345,16 @@ async function testaAnslutning() {
 
 async function loggaIn(ev) {
   ev.preventDefault();
-  if ($('lServer')) sattBas($('lServer').value);
   $('lFel').textContent = '';
+  // Lösenordet skickas till den adress som står i fältet — därför får den
+  // adressen inte vara vad som helst.
+  if ($('lServer') && $('lServer').value.trim() && $('lServer').value.trim() !== bas()) {
+    if (!serverTillaten($('lServer').value)) {
+      $('lFel').textContent = 'Okänd serveradress. Lämna fältet som det är, eller fråga administratören.';
+      return;
+    }
+    sattBas($('lServer').value);
+  }
   $('lKnapp').textContent = 'Loggar in…';
 
   try {
@@ -344,12 +393,24 @@ async function start() {
     .split(/\s+/).slice(0, 2).map((d) => d[0]).join('').toUpperCase();
 
   matLayout();
-  fyllOmradesval();
+  const besiktare = S.anvandare.roll === 'besiktare';
   dashboard.koppla();
+
+  // Besiktaren har varken dörrar, karta eller kalender — servern säger nej
+  // till dem, så appen frågar inte heller efter dem.
+  if (besiktare) {
+    $('bokFlikar').hidden = true;
+    bokFlik = 'bokade';
+    visaVy('bokningar');
+    skickaKo();
+    return;
+  }
+
+  $('bokFlikar').hidden = false;
+  fyllOmradesval();
   listor.kopplaBokningar(arRoll('teamleader') ? (await hamtaSaljare()) : [S.anvandare]);
   await laddaDorrar();
-  if (S.anvandare.roll === 'besiktare') bokFlik = 'bokade';
-  visaVy(S.anvandare.roll === 'besiktare' ? 'bokningar' : 'karta');
+  visaVy('karta');
   startaGps();
   skickaKo();
 }

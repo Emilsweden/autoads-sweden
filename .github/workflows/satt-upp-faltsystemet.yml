@@ -196,6 +196,10 @@ jobs:
         if: success()
         env:
           URL: ${{ steps.publicera.outputs.url }}
+          # Inmatningarna går in som miljövariabler, aldrig som ${{ }} inne i
+          # skriptet: det som skrivs i formuläret skulle annars köras som kod.
+          ADMIN_EPOST: ${{ inputs.admin_epost }}
+          SKYDD: ${{ steps.dubbelskydd.outputs.skydd }}
         run: |
           {
             echo "## Fältsystemet är uppsatt"
@@ -204,14 +208,14 @@ jobs:
             echo
             echo "Appen serveras av samma adress — öppna den i mobilen och logga in."
             echo
-            if [ "${{ steps.dubbelskydd.outputs.skydd }}" = "av" ]; then
+            if [ "$SKYDD" = "av" ]; then
               echo "> **Obs:** skyddet mot dubbelbokning är inte påslaget än — några tider har"
               echo "> mer än en bokning. Appen visar dem i kalendern; flytta eller avboka den"
               echo "> ena och kör det här jobbet igen."
               echo
             fi
             echo "1. Öppna <$URL> i mobilen"
-            echo "2. Logga in med \`${{ inputs.admin_epost }}\` och lösenordet från ADMIN_LOSENORD"
+            echo "2. Logga in med \`$ADMIN_EPOST\` och lösenordet från ADMIN_LOSENORD"
             echo "3. Lägg till appen på hemskärmen"
             echo
             echo "Övriga säljare läggs upp inifrån appen under **Admin → Användare**."
