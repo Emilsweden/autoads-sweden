@@ -3,13 +3,15 @@
 import { anrop, ApiFel, bas, sattBas, token, sattToken, ko, tommeKo } from './api.js';
 import { VERSION, STANDARD_SERVER } from '../config.js';
 import { $, esc, toast, oppnaPanel, stangPanel, kopplaStangning, kopplaLayout } from './ui.js';
-import { S, buss, arRoll, dataAndrad } from './state.js';
+import { S, buss, arRoll, kan, dataAndrad } from './state.js';
 import * as karta from './karta.js';
 import { manuell as manuellBokning } from './dorr.js';
 import { visaImport as visaAnteckningar } from './anteckningar.js';
 import * as listor from './listor.js';
 import * as kalender from './kalender.js';
 import * as bokade from './bokade.js';
+import * as tider from './tider.js';
+import * as flode from './flode.js';
 import * as dashboard from './dashboard.js';
 import * as admin from './admin.js';
 
@@ -38,8 +40,9 @@ let dashTimer = null;
 /* ══ Navigering ══ */
 
 function ritaNav() {
-  // Besiktaren knackar inga dörrar — den ska rakt in i bokningarna.
-  const vyer = S.anvandare && S.anvandare.roll === 'besiktare' ? ['bokningar'] : NAVVYER;
+  // Den som inte knackar dörrar har ingen karta, inget register och ingen
+  // topplista — bara bokningarna. Servern säger samma sak.
+  const vyer = kan('knacka') ? NAVVYER : ['bokningar'];
   $('botten').innerHTML = vyer.map((v) =>
     '<button data-vy="' + v + '" class="' + (v === S.vy ? 'aktiv' : '') + '">' +
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
@@ -70,20 +73,100 @@ export function visaVy(vy) {
   }
 }
 
-/** Bokningsvyn har två flikar: kalendern och den filtrerbara listan. */
+/**
+ * Bokningsvyns flikar. Vilka som finns beror på rollen: mötesbokaren har
+ * kalender, sina bokningar, listan och flödet; säljaren sina möten och sina
+ * tider; Admin Säljare allas tider.
+ */
 let bokFlik = 'kalender';
 
+function bokFlikar() {
+  const saljare = S.anvandare && S.anvandare.roll === 'besiktare';
+  const flikar = [['kalender', 'Kalender'], ['bokade', saljare ? 'Mina möten' : 'Bokade adresser']];
+  if (kan('knacka')) flikar.push(['lista', 'Lista']);
+  if (kan('styr_tider') || kan('eget_schema')) {
+    flikar.push(['tider', kan('styr_tider') ? 'Säljarnas tider' : 'Mina tider']);
+  }
+  flikar.push(['flode', 'Flöde']);
+  return flikar;
+}
+
 function visaBokningsflik() {
+  const flikar = bokFlikar();
+  if (!flikar.some(([k]) => k === bokFlik)) bokFlik = flikar[0][0];
+
+  $('bokFlikar').innerHTML = flikar.map(([k, t]) =>
+    '<button class="flik' + (k === bokFlik ? ' aktiv' : '') + '" data-bok="' + k + '">' +
+    esc(t) + '</button>').join('');
+  $('bokFlikar').querySelectorAll('[data-bok]').forEach((f) => {
+    f.onclick = () => { bokFlik = f.dataset.bok; visaBokningsflik(); };
+  });
+
   $('kalenderInnehall').hidden = bokFlik !== 'kalender';
   $('bokadeInnehall').hidden = bokFlik !== 'bokade';
   $('bokningsLista').hidden = bokFlik !== 'lista';
-  $('bokFlikar').querySelectorAll('.flik').forEach((f) => {
-    f.classList.toggle('aktiv', f.dataset.bok === bokFlik);
-  });
+  $('tiderInnehall').hidden = bokFlik !== 'tider';
+  $('flodeInnehall').hidden = bokFlik !== 'flode';
+
   if (bokFlik === 'kalender') { kalender.starta(); return; }
   kalender.stoppa();
   if (bokFlik === 'bokade') bokade.rita();
+  else if (bokFlik === 'tider') tider.rita();
+  else if (bokFlik === 'flode') flode.rita();
   else listor.ritaBokningar();
+}
+
+/* ══ Puls: håll alla i laget på samma bild ══ */
+
+/*
+ * Ett litet anrop var tolfte sekund som bara frågar "har något hänt?".
+ * Har det det hämtar den vy som syns om sig själv, så att en bokning eller
+ * en ändrad tid dyker upp hos de andra utan att någon laddar om.
+ */
+const PULS_MS = 12000;
+let pulsTimer = null;
+let senastePuls = 0;
+
+function startaPuls() {
+  clearInterval(pulsTimer);
+  pulsTimer = setInterval(kollaPuls, PULS_MS);
+  kollaPuls();
+}
+
+function stoppaPuls() {
+  clearInterval(pulsTimer);
+  pulsTimer = null;
+  senastePuls = 0;
+}
+
+async function kollaPuls() {
+  if (document.hidden || !S.anvandare) return;
+  let svar;
+  try {
+    svar = await anrop('puls', {});
+  } catch (e) {
+    return;   // utan täckning är tystnad rätt svar
+  }
+  if (!svar || !svar.senast) return;
+  if (!senastePuls) { senastePuls = svar.senast; return; }
+  if (svar.senast <= senastePuls) return;
+  senastePuls = svar.senast;
+  uppdateraSynligt();
+}
+
+/** Hämtar om det som faktiskt syns — inte allt. */
+function uppdateraSynligt() {
+  if (S.vy === 'bokningar') {
+    if (bokFlik === 'bokade') bokade.rita();
+    else if (bokFlik === 'tider') tider.rita();
+    else if (bokFlik === 'flode') flode.rita();
+    else if (bokFlik === 'lista') listor.ritaBokningar();
+    // Kalendern har en egen hämtning som redan går medan den syns.
+  } else if (S.vy === 'karta' || S.vy === 'lista') {
+    laddaDorrar().then(() => dataAndrad());
+  } else if (S.vy === 'dashboard') {
+    dashboard.rita();
+  }
 }
 
 /* ══ Data ══ */
@@ -202,17 +285,18 @@ function startaGps() {
 
 function visaProfil() {
   const a = S.anvandare;
-  const roller = { admin: 'Administratör', teamleader: 'Teamleader', saljare: 'Säljare', besiktare: 'Besiktare' };
   oppnaPanel('modal',
-    '<h2>' + esc(a.namn) + '</h2><p class="sub">' + esc(a.epost) + ' · ' + esc(roller[a.roll] || a.roll) + '</p>' +
+    '<h2>' + esc(a.namn) + '</h2><p class="sub">' + esc(a.epost) + ' · ' +
+    esc(a.rollnamn || a.roll) + '</p>' +
     '<h3>Server</h3><div class="field"><input id="pServer" type="url" value="' + esc(bas()) + '"></div>' +
     '<h3>Byt lösenord</h3>' +
     '<div class="field"><label for="pGammalt">Nuvarande</label><input id="pGammalt" type="password"></div>' +
     '<div class="field"><label for="pNytt">Nytt (minst 8 tecken)</label><input id="pNytt" type="password"></div>' +
     '<div class="err" id="pFel"></div>' +
     '<button class="btn btn-ghost" id="pByt">Spara nytt lösenord</button>' +
-    (arRoll('teamleader')
-      ? '<h3>Administration</h3><button class="btn btn-ghost" id="pAdmin">Områden, användare och regler</button>'
+    (arRoll('teamleader') || kan('se_personal')
+      ? '<h3>Administration</h3><button class="btn btn-ghost" id="pAdmin">' +
+        (arRoll('teamleader') ? 'Områden, användare och regler' : 'Laget och kontona') + '</button>'
       : '') +
     '<div class="btn-rad"><button class="btn btn-ghost" id="pStang">Stäng</button>' +
     '<button class="btn btn-primary" id="pUt">Logga ut</button></div>');
@@ -242,6 +326,8 @@ function visaProfil() {
 }
 
 async function loggaUt() {
+  stoppaPuls();
+  flode.nollstall();
   try { await anrop('logga-ut'); } catch (e) { /* spelar ingen roll */ }
   sattToken('');
   S.anvandare = null;
@@ -393,25 +479,24 @@ async function start() {
     .split(/\s+/).slice(0, 2).map((d) => d[0]).join('').toUpperCase();
 
   matLayout();
-  const besiktare = S.anvandare.roll === 'besiktare';
   dashboard.koppla();
 
-  // Besiktaren har varken dörrar, karta eller kalender — servern säger nej
-  // till dem, så appen frågar inte heller efter dem.
-  if (besiktare) {
-    $('bokFlikar').hidden = true;
-    bokFlik = 'bokade';
+  // Den som inte knackar dörrar har varken karta eller adressregister —
+  // servern säger nej till dem, så appen frågar inte heller efter dem.
+  if (!kan('knacka')) {
+    bokFlik = S.anvandare.roll === 'besiktare' ? 'bokade' : 'kalender';
     visaVy('bokningar');
+    startaPuls();
     skickaKo();
     return;
   }
 
-  $('bokFlikar').hidden = false;
   fyllOmradesval();
-  listor.kopplaBokningar(arRoll('teamleader') ? (await hamtaSaljare()) : [S.anvandare]);
+  listor.kopplaBokningar(kan('allt_bokat') ? (await hamtaSaljare()) : [S.anvandare]);
   await laddaDorrar();
   visaVy('karta');
   startaGps();
+  startaPuls();
   skickaKo();
 }
 

@@ -114,7 +114,7 @@ export async function ritaBokningar() {
     data = await anrop('bokningar', {
       fran: $('bokFran').value || undefined,
       till: $('bokTill').value || undefined,
-      saljare_id: $('bokSaljare').value || undefined,
+      bokare_id: $('bokSaljare').value || undefined,
     });
   } catch (e) {
     behallare.innerHTML = '<div class="tom">Kunde inte hämta bokningar: ' + esc(e.message) + '</div>';
@@ -146,7 +146,7 @@ export async function ritaBokningar() {
         '<div class="under">' + esc(b.adress) + (b.omrade ? ' · ' + esc(b.omrade) : '') + '</div>' +
         '</div><span class="märke m-' + (klar ? 'bokat' : b.status === 'avbokad' ? 'nej' : 'ejbesokt') + '">' +
         esc(klar ? 'Genomförd' : b.status === 'avbokad' ? 'Avbokad' : 'Bokad') + '</span></div>' +
-        '<div class="rad"><span>' + esc(b.saljare || '') + '</span>' +
+        '<div class="rad"><span>' + esc(b.bokare || b.saljare || '') + '</span>' +
         (b.telefon ? '<span>' + esc(b.telefon) + '</span>' : '') + '</div>' +
         (b.kommentar ? '<div class="under" style="margin-top:8px">' + esc(b.kommentar) + '</div>' : '') +
         '<div class="chips">' +

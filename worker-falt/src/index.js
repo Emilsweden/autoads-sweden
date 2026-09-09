@@ -8,9 +8,72 @@
  */
 
 const RESULTAT = ['bokat', 'ejsvar', 'nej', 'aterkom'];
-const ROLLER = { besiktare: 1, saljare: 1, teamleader: 2, admin: 3 };
 
-/** Besiktaren jobbar bara i bokningarna — hela laget delar dem. */
+/**
+ * Rollerna, med nycklarna databasen alltid haft och namnen laget använder:
+ *
+ *   saljare      Mötesbokare — knackar dörr och bokar möten
+ *   bokare_plus  Mötesbokare+ — samma jobb, plus hela överblicken och
+ *                ansvaret för mötesbokarnas konton
+ *   besiktare    Säljare / Takbesiktare — kör mötena och återkopplar
+ *   saljadmin    Admin Säljare — styr säljarnas tider och ser deras utfall
+ *   teamleader   ser och gör allt utom att lägga upp administratörer
+ *   admin        allt
+ *
+ * Rangen avgör de gamla kontrollerna (kraver). Det som skiljer rollerna åt i
+ * sidled — vem som får styra tider, se allt eller skapa konton — ligger i
+ * förmågorna nedan, för en rang på en linje kan inte beskriva det.
+ */
+const ROLLER = {
+  besiktare: 1,
+  saljare: 1,
+  saljadmin: 2,
+  bokare_plus: 2,
+  teamleader: 3,
+  admin: 4,
+};
+
+const ROLLNAMN = {
+  saljare: 'Mötesbokare',
+  bokare_plus: 'Mötesbokare+',
+  besiktare: 'Säljare',
+  saljadmin: 'Admin Säljare',
+  teamleader: 'Teamleader',
+  admin: 'Admin',
+};
+
+/**
+ * knacka            karta, adressregister, dörrbesök, statistik
+ * boka              lägga en bokning
+ * se_tider          se säljarnas lediga tider och vem de tillhör
+ * styr_tider        lägga till och ta bort tider åt alla säljare
+ * eget_schema       styra sina egna tider
+ * allt_bokat        se alla bokningar, inte bara sina egna
+ * aterkoppla        skriva återkoppling på ett möte
+ * all_aterkoppling  se all återkoppling
+ * skapa_bokare      lägga upp och ändra mötesbokare
+ * se_personal       se vilka som finns i laget
+ */
+const FORMAGOR = {
+  saljare: ['knacka', 'boka', 'se_tider'],
+  bokare_plus: ['knacka', 'boka', 'se_tider', 'styr_tider', 'allt_bokat',
+    'all_aterkoppling', 'skapa_bokare', 'se_personal'],
+  besiktare: ['se_tider', 'eget_schema', 'aterkoppla', 'egna_moten'],
+  saljadmin: ['se_tider', 'styr_tider', 'allt_bokat', 'all_aterkoppling', 'se_personal'],
+  teamleader: ['*'],
+  admin: ['*'],
+};
+
+const far = (anv, formaga) => {
+  const lista = FORMAGOR[anv && anv.roll] || [];
+  return lista.includes('*') || lista.includes(formaga);
+};
+
+function kraverFormaga(anv, formaga) {
+  if (!far(anv, formaga)) throw new Fel('Du har inte behörighet till detta', 403);
+}
+
+/** Säljaren/takbesiktaren jobbar bara i sina möten — inte på kartan. */
 const arBesiktare = (anv) => anv && anv.roll === 'besiktare';
 const SESSION_DAGAR = 30;
 const DAG = 86400000;
@@ -131,18 +194,125 @@ function kontrolleraSlot(dat, tid) {
 }
 
 const TIDEN_TAGEN = 'Tiden är redan bokad – välj en annan tid';
+const TIDEN_STANGD = 'Säljaren är inte tillgänglig den tiden';
 
-/** Är rutan ledig? Databasens unika index är den slutliga garantin. */
-async function slotLedig(env, dat, tid, utom) {
+/** Säljarna (takbesiktarna) möten kan bokas på. */
+function saljarlista(env) {
+  return alla(env,
+    "SELECT id, namn FROM anvandare WHERE roll = 'besiktare' AND aktiv = 1 ORDER BY namn");
+}
+
+/**
+ * Säljarens tider en viss dag.
+ *
+ * Har säljaren ingen rad alls för datumet är hela standarddagen ledig — så
+ * beter sig kalendern som den alltid gjort för den som inte lagt in något.
+ * Har säljaren lagt in tider gäller bara de.
+ */
+async function tiderForSaljare(env, saljareId, dat) {
+  const standard = KALENDER.DAGAR.includes(veckodag(dat)) ? slottar() : [];
+  if (!saljareId) return standard;
+  const rader = await alla(env,
+    'SELECT tid, ledig FROM saljartider WHERE saljare_id = ?1 AND datum = ?2', saljareId, dat);
+  if (!rader.length) return standard;
+  return rader.filter((r) => nr(r.ledig)).map((r) => r.tid).sort();
+}
+
+/** Är rutan öppen hos säljaren? */
+async function tidOppen(env, saljareId, dat, tid) {
+  return (await tiderForSaljare(env, saljareId, dat)).includes(tid);
+}
+
+/**
+ * Är rutan ledig hos säljaren? Databasens unika index är den slutliga
+ * garantin; det här är kontrollen som ger ett begripligt fel i stället.
+ * Bokningar utan säljare är från tiden före säljarvalet och håller sin egen
+ * ruta, precis som förr.
+ */
+async function slotLedig(env, dat, tid, saljareId, utom) {
   const rad = await en(env,
     `SELECT id FROM bokningar
-     WHERE datum = ?1 AND tid = ?2 AND status <> 'avbokad' AND id <> ?3`,
-    dat, tid, utom || '');
+     WHERE datum = ?1 AND tid = ?2 AND status <> 'avbokad' AND id <> ?3
+       AND ((?4 IS NOT NULL AND saljare_id = ?4) OR (?4 IS NULL AND saljare_id IS NULL))`,
+    dat, tid, utom || '', saljareId || null);
   return !rad;
+}
+
+/**
+ * Vilken säljare mötet ska bokas på. Skickar appen ingen, och det bara finns
+ * en säljare, blir det han — annars ingen, som förut.
+ */
+async function valjSaljare(env, onskad) {
+  const id = txt(onskad, 40);
+  const lista = await saljarlista(env);
+  if (id) {
+    if (!lista.some((s) => s.id === id)) throw new Fel('Okänd säljare');
+    return id;
+  }
+  return lista.length === 1 ? lista[0].id : null;
 }
 
 /** Känner igen krocken med det unika indexet, oavsett hur D1 formulerar den. */
 const arKrock = (e) => /UNIQUE|constraint/i.test(String((e && e.message) || e));
+
+/**
+ * Skriver en rad i nyhetsflödet. anvandare_id är den som gjorde saken och
+ * saljare_id säljaren det rör — tillsammans avgör de vem som får se raden.
+ */
+function nyhet(env, typ, text, extra = {}) {
+  return kor(env,
+    `INSERT INTO nyheter (id,typ,text,bokning_id,saljare_id,anvandare_id,skapad)
+     VALUES (?1,?2,?3,?4,?5,?6,?7)`,
+    uid(), typ, String(text).slice(0, 400), extra.bokning_id || null,
+    extra.saljare_id || null, extra.anvandare_id || null, Date.now());
+}
+
+/** "Törngatan 16" ur en bokningsrad, för texten i flödet. */
+const kortAdress = (b) => (b && b.gata ? b.gata + ' ' + b.nummer : 'adressen');
+
+/**
+ * Villkoret som avgör vilka bokningar en användare får se:
+ *
+ *   Mötesbokare+, Admin Säljare, teamleader, admin   alla
+ *   Mötesbokare                                      de han själv bokat
+ *   Säljare                                          mötena han ska köra
+ *
+ * Är han lagets enda säljare räknas också de gamla bokningarna utan säljare
+ * som hans — de gjordes innan bokningen hade en säljare alls.
+ */
+function fyllPlatshallare(sql, varden, args) {
+  let i = 0;
+  return sql.replace(/\?/g, () => '?' + args.push(varden[i++]));
+}
+
+async function bokningsvillkor(env, anv) {
+  if (far(anv, 'allt_bokat')) return { sql: '1=1', args: [] };
+  if (arBesiktare(anv)) {
+    const lista = await saljarlista(env);
+    const ensam = lista.length === 1 && lista[0].id === anv.id;
+    return ensam
+      ? { sql: '(b.saljare_id = ? OR b.saljare_id IS NULL)', args: [anv.id] }
+      : { sql: 'b.saljare_id = ?', args: [anv.id] };
+  }
+  return { sql: '(b.anvandare_id = ? OR b.saljare_id = ?)', args: [anv.id, anv.id] };
+}
+
+/** Samma regel, men på en färdig rad. */
+async function farSeBokning(env, anv, bokning) {
+  if (far(anv, 'allt_bokat')) return true;
+  if (bokning.anvandare_id === anv.id || bokning.saljare_id === anv.id) return true;
+  if (arBesiktare(anv) && !bokning.saljare_id) {
+    const lista = await saljarlista(env);
+    return lista.length === 1 && lista[0].id === anv.id;
+  }
+  return false;
+}
+
+async function kraverBokning(env, anv, bokning) {
+  if (!(await farSeBokning(env, anv, bokning))) {
+    throw new Fel('Bokningen tillhör någon annan', 403);
+  }
+}
 
 /* Databashjälpare */
 const alla = async (env, sql, ...a) => ((await env.DB.prepare(sql).bind(...a).all()).results || []);
@@ -259,12 +429,11 @@ function kraver(anv, roll) {
 }
 
 /**
- * Besiktaren är inte säljare: han ser bokningarna han ska ut på, inget annat.
- * Kontrollen ligger här och inte bara i menyn — appen är bara en av vägarna
- * in till API:t.
+ * Kartan, adressregistret och statistiken är mötesbokarnas. Kontrollen ligger
+ * här och inte bara i menyn — appen är bara en av vägarna in till API:t.
  */
-function kraverSaljare(anv) {
-  if (arBesiktare(anv)) throw new Fel('Besiktaren arbetar bara i bokningarna', 403);
+function kraverKnackare(anv) {
+  if (!far(anv, 'knacka')) throw new Fel('Den här delen är mötesbokarnas', 403);
 }
 
 /** Områdes-id:n användaren får röra. */
@@ -322,7 +491,7 @@ api['logga-in'] = async (env, request, body) => {
     token, anv.id, Date.now() + SESSION_DAGAR * DAG);
   await kor(env, 'DELETE FROM sessioner WHERE giltig_till < ?1', Date.now());
 
-  return { token, anvandare: { id: anv.id, namn: anv.namn, epost: anv.epost, roll: anv.roll, team: anv.team } };
+  return { token, anvandare: omAnvandaren(anv) };
 };
 
 api['logga-ut'] = async (env, request, body) => {
@@ -332,9 +501,24 @@ api['logga-ut'] = async (env, request, body) => {
 };
 
 api['jag'] = async (env, request, body, anv) => ({
-  anvandare: { id: anv.id, namn: anv.namn, epost: anv.epost, roll: anv.roll, team: anv.team },
+  anvandare: omAnvandaren(anv),
   installningar: await installningar(env),
-  omraden: await synligaOmraden(env, anv),
+  omraden: far(anv, 'knacka') ? await synligaOmraden(env, anv) : [],
+});
+
+/**
+ * Det appen behöver veta om den inloggade. Förmågorna följer med, så att
+ * menyer och knappar visar samma sak som servern faktiskt tillåter — och
+ * bara det: kontrollen ligger kvar på servern.
+ */
+const omAnvandaren = (anv) => ({
+  id: anv.id,
+  namn: anv.namn,
+  epost: anv.epost,
+  roll: anv.roll,
+  rollnamn: ROLLNAMN[anv.roll] || anv.roll,
+  team: anv.team,
+  formagor: FORMAGOR[anv.roll] || [],
 });
 
 api['byt-losenord'] = async (env, request, body, anv) => {
@@ -357,11 +541,56 @@ api['byt-losenord'] = async (env, request, body, anv) => {
 /* ── Användare (admin) ── */
 
 api['anvandare-lista'] = async (env, request, body, anv) => {
-  kraver(anv, 'teamleader');
+  kraverFormaga(anv, 'se_personal');
   return {
+    roller: ROLLNAMN,
     anvandare: await alla(env,
       'SELECT id, namn, epost, roll, team, aktiv, skapad FROM anvandare ORDER BY roll DESC, namn'),
   };
+};
+
+/**
+ * Mötesbokare+ lägger upp och sköter sina mötesbokare — men bara dem.
+ * Rollen sätts av servern, så en trimmad förfrågan kan inte göra en
+ * mötesbokare till admin, och konton med andra roller går inte att röra
+ * härifrån.
+ */
+api['bokare-spara'] = async (env, request, body, anv) => {
+  kraverFormaga(anv, 'skapa_bokare');
+  const namn = txt(body.namn, 80);
+  const epost = (txt(body.epost, 160) || '').toLowerCase();
+  if (!namn || !epost) throw new Fel('Namn och e-post krävs');
+
+  if (body.id) {
+    const finns = await en(env, 'SELECT * FROM anvandare WHERE id = ?1', txt(body.id, 40));
+    if (!finns) throw new Fel('Användaren finns inte', 404);
+    if (finns.roll !== 'saljare') throw new Fel('Du kan bara ändra mötesbokare', 403);
+    await kor(env,
+      "UPDATE anvandare SET namn=?1, epost=?2, team=?3, aktiv=?4 WHERE id=?5 AND roll='saljare'",
+      namn, epost, txt(body.team, 60), body.aktiv === false ? 0 : 1, finns.id);
+    if (body.losenord) {
+      const salt = hex(crypto.getRandomValues(new Uint8Array(16)));
+      if (String(body.losenord).length < 8) throw new Fel('Lösenordet måste vara minst 8 tecken');
+      await kor(env, 'UPDATE anvandare SET hash=?1, salt=?2 WHERE id=?3',
+        await hasha(String(body.losenord), salt), salt, finns.id);
+      await kor(env, 'DELETE FROM sessioner WHERE anvandare_id = ?1', finns.id);
+    }
+    await nyhet(env, 'konto', anv.namn + ' ändrade mötesbokaren ' + namn, { anvandare_id: anv.id });
+    return { id: finns.id };
+  }
+
+  const losenord = String(body.losenord || '');
+  if (losenord.length < 8) throw new Fel('Lösenordet måste vara minst 8 tecken');
+  if (await en(env, 'SELECT id FROM anvandare WHERE epost = ?1', epost)) {
+    throw new Fel('E-postadressen används redan');
+  }
+  const salt = hex(crypto.getRandomValues(new Uint8Array(16)));
+  const id = uid();
+  await kor(env,
+    "INSERT INTO anvandare (id,namn,epost,roll,team,hash,salt,aktiv,skapad) VALUES (?1,?2,?3,'saljare',?4,?5,?6,1,?7)",
+    id, namn, epost, txt(body.team, 60), await hasha(losenord, salt), salt, Date.now());
+  await nyhet(env, 'konto', anv.namn + ' lade upp mötesbokaren ' + namn, { anvandare_id: anv.id });
+  return { id };
 };
 
 api['anvandare-spara'] = async (env, request, body, anv) => {
@@ -499,7 +728,7 @@ api['adresser-importera'] = async (env, request, body, anv) => {
 /* ── Adresser och dörrar ── */
 
 api['adresser'] = async (env, request, body, anv) => {
-  kraverSaljare(anv);
+  kraverKnackare(anv);
   const omradeId = txt(body.omrade_id, 40);
   const synliga = await synligaOmraden(env, anv);
   const idn = synliga.map((o) => o.id);
@@ -541,7 +770,7 @@ function putsaAdress(a) {
 }
 
 api['adress'] = async (env, request, body, anv) => {
-  kraverSaljare(anv);
+  kraverKnackare(anv);
   const id = txt(body.id, 40);
   const adress = await adressJagFar(env, anv, id,
     `SELECT a.*, u.namn AS senast_namn FROM adresser a
@@ -565,7 +794,7 @@ api['adress'] = async (env, request, body, anv) => {
  * uppdaterar både historiken, dörrens status och spärren.
  */
 api['handelse'] = async (env, request, body, anv) => {
-  kraverSaljare(anv);
+  kraverKnackare(anv);
   const adressId = txt(body.adress_id, 40);
   const resultat = RESULTAT.includes(body.resultat) ? body.resultat : null;
   if (!adressId || !resultat) throw new Fel('Adress och resultat krävs');
@@ -591,9 +820,13 @@ api['handelse'] = async (env, request, body, anv) => {
   // ett besök hamna i historiken utan den bokning säljaren trodde sig göra.
   const bokTid = resultat === 'bokat' ? klockslag(body.tid) : null;
   const bokDatum = resultat === 'bokat' ? datum(body.datum) : null;
+  const bokSaljare = resultat === 'bokat' ? await valjSaljare(env, body.saljare_id) : null;
   if (bokTid && bokDatum) {
     kontrolleraSlot(bokDatum, bokTid);
-    if (!(await slotLedig(env, bokDatum, bokTid))) throw new Fel(TIDEN_TAGEN, 409);
+    if (bokSaljare && !(await tidOppen(env, bokSaljare, bokDatum, bokTid))) {
+      throw new Fel(TIDEN_STANGD, 409);
+    }
+    if (!(await slotLedig(env, bokDatum, bokTid, bokSaljare))) throw new Fel(TIDEN_TAGEN, 409);
   }
 
   const aterkomDatum = datum(body.aterkom_datum);
@@ -627,11 +860,12 @@ api['handelse'] = async (env, request, body, anv) => {
     try {
       await kor(env,
         `INSERT INTO bokningar
-           (id,adress_id,handelse_id,anvandare_id,fornamn,efternamn,telefon,datum,tid,kommentar,status,skapad)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'bokad',?11)`,
+           (id,adress_id,handelse_id,anvandare_id,fornamn,efternamn,telefon,datum,tid,
+            saljare_id,kommentar,status,skapad)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,'bokad',?12)`,
         bokningId, adressId, handelseId, anv.id,
         txt(body.fornamn, 80), txt(body.efternamn, 80), txt(body.telefon, 40),
-        bokDatum, bokTid, txt(body.kommentar, 1000), nu);
+        bokDatum, bokTid, bokSaljare, txt(body.kommentar, 1000), nu);
     } catch (e) {
       // Någon annan hann boka rutan mellan kontrollen och skrivningen.
       // Besöket rullas tillbaka så att säljaren kan välja en ny tid.
@@ -640,7 +874,11 @@ api['handelse'] = async (env, request, body, anv) => {
       await raknaOmDorr(env, adressId);
       throw new Fel(TIDEN_TAGEN, 409);
     }
-    bokning = { id: bokningId };
+    bokning = { id: bokningId, saljare_id: bokSaljare };
+    await nyhet(env, 'bokning',
+      anv.namn + ' bokade ' + adress.gata + ' ' + adress.nummer +
+      (bokDatum ? ' — ' + bokDatum + (bokTid ? ' kl. ' + bokTid : '') : ''),
+      { bokning_id: bokningId, saljare_id: bokSaljare, anvandare_id: anv.id });
   }
 
   return { handelse_id: handelseId, bokning, status };
@@ -652,7 +890,7 @@ api['handelse'] = async (env, request, body, anv) => {
  * så att historiken hänger ihop och inga dubbletter uppstår.
  */
 api['adress-ny'] = async (env, request, body, anv) => {
-  kraverSaljare(anv);
+  kraverKnackare(anv);
   const gata = snyggText(txt(body.gata, 120));
   const nummer = txt(body.nummer, 20).replace(/\s+/g, ' ').trim();
   if (!gata || !nummer) throw new Fel('Gata och husnummer krävs');
@@ -711,7 +949,7 @@ api['adress-ny'] = async (env, request, body, anv) => {
  * Anteckningarna skrivs efter besöket, så spärren behöver inte bekräftas.
  */
 api['anteckningar-importera'] = async (env, request, body, anv) => {
-  kraverSaljare(anv);
+  kraverKnackare(anv);
   const rader = Array.isArray(body.rader) ? body.rader.slice(0, 100) : [];
   const postort = txt(body.postort, 80);
   const omradeId = txt(body.omrade_id, 40);
@@ -743,7 +981,7 @@ api['anteckningar-importera'] = async (env, request, body, anv) => {
  * gatunamnet. Historiken följer med dörren, bara texten ändras.
  */
 api['adress-andra'] = async (env, request, body, anv) => {
-  kraverSaljare(anv);
+  kraverKnackare(anv);
   kraver(anv, 'teamleader');
   const id = txt(body.id, 40);
   const adress = await en(env, 'SELECT * FROM adresser WHERE id = ?1', id);
@@ -866,7 +1104,7 @@ async function raknaOmDorr(env, adressId) {
 
 /** Tar bort en felaktig dörr. Dörrar med historik lämnas kvar. */
 api['adress-ta-bort'] = async (env, request, body, anv) => {
-  kraverSaljare(anv);
+  kraverKnackare(anv);
   kraver(anv, 'teamleader');
   const id = txt(body.id, 40);
   const adress = await en(env, 'SELECT * FROM adresser WHERE id = ?1', id);
@@ -882,7 +1120,7 @@ api['adress-ta-bort'] = async (env, request, body, anv) => {
 
 /** Dörrar som ska besökas igen — säljarens arbetslista. */
 api['aterbesok'] = async (env, request, body, anv) => {
-  kraverSaljare(anv);
+  kraverKnackare(anv);
   const synliga = (await synligaOmraden(env, anv)).map((o) => o.id);
   if (!synliga.length) return { adresser: [] };
   const p = synliga.map((_, i) => '?' + (i + 1)).join(',');
@@ -898,7 +1136,7 @@ api['aterbesok'] = async (env, request, body, anv) => {
 
 /** Föreslår nästa dörr: obesökt, i området, nära säljaren och inte spärrad. */
 api['nasta-dorr'] = async (env, request, body, anv) => {
-  kraverSaljare(anv);
+  kraverKnackare(anv);
   const synliga = (await synligaOmraden(env, anv)).map((o) => o.id);
   if (!synliga.length) return { adress: null };
   const omradeId = txt(body.omrade_id, 40);
@@ -932,21 +1170,25 @@ api['nasta-dorr'] = async (env, request, body, anv) => {
 /* ── Bokningar ── */
 
 api['bokningar'] = async (env, request, body, anv) => {
-  kraverSaljare(anv);
   const villkor = ['1=1'];
   const args = [];
   const lagg = (sql, v) => { args.push(v); villkor.push(sql.replace('?', '?' + args.length)); };
+  // Behörigheten först: den går inte att skriva bort med ett filter.
+  const grans = await bokningsvillkor(env, anv);
+  if (grans.args.length) villkor.push(fyllPlatshallare(grans.sql, grans.args, args));
 
   if (datum(body.fran)) lagg('b.datum >= ?', body.fran);
   if (datum(body.till)) lagg('b.datum <= ?', body.till);
-  if (txt(body.saljare_id, 40)) lagg('b.anvandare_id = ?', txt(body.saljare_id, 40));
+  if (txt(body.bokare_id, 40)) lagg('b.anvandare_id = ?', txt(body.bokare_id, 40));
+  if (txt(body.saljare_id, 40)) lagg('b.saljare_id = ?', txt(body.saljare_id, 40));
   if (txt(body.status, 20)) lagg('b.status = ?', txt(body.status, 20));
   if (txt(body.omrade_id, 40)) lagg('ad.omrade_id = ?', txt(body.omrade_id, 40));
 
   const rader = await alla(env,
-    `SELECT b.*, u.namn AS saljare, ad.gata, ad.nummer, ad.omrade_id, o.namn AS omrade
+    `SELECT b.*, u.namn AS bokare, sa.namn AS saljare, ad.gata, ad.nummer, ad.omrade_id, o.namn AS omrade
      FROM bokningar b
      LEFT JOIN anvandare u ON u.id = b.anvandare_id
+     LEFT JOIN anvandare sa ON sa.id = b.saljare_id
      LEFT JOIN adresser ad ON ad.id = b.adress_id
      LEFT JOIN omraden o ON o.id = ad.omrade_id
      WHERE ${villkor.join(' AND ')}
@@ -966,16 +1208,17 @@ api['bokningar'] = async (env, request, body, anv) => {
  * så att appen ritar samma rutnät som servern godkänner.
  */
 api['kalender'] = async (env, request, body, anv) => {
-  kraverSaljare(anv);
   const fran = datum(body.fran) || datum(body.datum);
   const till = datum(body.till) || fran;
   if (!fran) throw new Fel('Datum krävs');
 
   const rader = await alla(env,
     `SELECT b.id, b.datum, b.tid, b.fornamn, b.efternamn, b.telefon, b.kommentar, b.status,
-            b.anvandare_id, u.namn AS saljare, ad.gata, ad.nummer, ad.postort
+            b.anvandare_id, b.saljare_id, u.namn AS bokare, sa.namn AS saljare,
+            ad.gata, ad.nummer, ad.postort
      FROM bokningar b
      LEFT JOIN anvandare u ON u.id = b.anvandare_id
+     LEFT JOIN anvandare sa ON sa.id = b.saljare_id
      LEFT JOIN adresser ad ON ad.id = b.adress_id
      WHERE b.datum >= ?1 AND b.datum <= ?2 AND b.status <> 'avbokad'
      ORDER BY b.datum, b.tid LIMIT 2000`, fran, till);
@@ -983,27 +1226,64 @@ api['kalender'] = async (env, request, body, anv) => {
   const perDag = {};
   rader.forEach((b) => { perDag[b.datum] = (perDag[b.datum] || 0) + 1; });
 
+  const saljare = await saljarlista(env);
+
+  // Säljarnas öppna tider — bara för korta intervall, alltså dagsvyn.
+  // Månadsvyn behöver dem inte och skulle bli tolv gånger så tung.
+  const tider = {};
+  const dagar = dagarMellan(fran, till);
+  if (dagar.length <= 8) {
+    for (const d of dagar) {
+      tider[d] = {};
+      for (const sa of saljare) tider[d][sa.id] = await tiderForSaljare(env, sa.id, d);
+      if (!saljare.length) tider[d][''] = await tiderForSaljare(env, null, d);
+    }
+  }
+
+  // Vem som får se kundens uppgifter: den som bokade, säljaren mötet ligger
+  // på, och de som ska se allt. För övriga är rutan bara upptagen.
+  const oppen = (b) => far(anv, 'allt_bokat') || b.anvandare_id === anv.id || b.saljare_id === anv.id;
+
   return {
     installningar: {
       oppnar: KALENDER.OPPNAR, sista: KALENDER.SISTA,
       slot: KALENDER.SLOT, dagar: KALENDER.DAGAR,
     },
     slottar: slottar(),
+    saljare,
+    tider,
     per_dag: perDag,
-    bokningar: rader.map((b) => ({
+    bokningar: rader.map((b) => (oppen(b) ? {
       ...b,
       adress: b.gata ? b.gata + ' ' + b.nummer : '',
       kund: [b.fornamn, b.efternamn].filter(Boolean).join(' '),
+      min: true,
+    } : {
+      id: b.id, datum: b.datum, tid: b.tid, status: b.status,
+      saljare_id: b.saljare_id, saljare: b.saljare, bokare: b.bokare,
+      anvandare_id: b.anvandare_id, adress: '', kund: '', min: false,
     })),
   };
 };
+
+/** Datumen i ett intervall, som text. Tomt om intervallet är orimligt långt. */
+function dagarMellan(fran, till) {
+  const ut = [];
+  const d = new Date(fran + 'T12:00:00Z');
+  const slut = new Date(till + 'T12:00:00Z');
+  while (d <= slut && ut.length < 40) {
+    ut.push(d.toISOString().slice(0, 10));
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return ut;
+}
 
 /**
  * Bokar en ruta i kalendern. Adressen skapas eller återanvänds som vanligt,
  * så att bokningen också syns som en dörr på kartan.
  */
 api['kalender-boka'] = async (env, request, body, anv) => {
-  kraverSaljare(anv);
+  kraverFormaga(anv, 'boka');
   const dat = datum(body.datum);
   const tid = klockslag(body.tid);
   kontrolleraSlot(dat, tid);
@@ -1011,14 +1291,19 @@ api['kalender-boka'] = async (env, request, body, anv) => {
   const fornamn = txt(body.fornamn, 80);
   const telefon = txt(body.telefon, 40);
   if (!fornamn || !telefon) throw new Fel('Kundens namn och telefonnummer krävs');
-  if (!(await slotLedig(env, dat, tid))) throw new Fel(TIDEN_TAGEN, 409);
 
-  // Säljaren bokningen tillhör: den som bokar, eller den en teamleader väljer.
-  let saljareId = anv.id;
-  const vald = txt(body.saljare_id, 40);
+  // Säljaren mötet ska ligga på, och att han är ledig då.
+  const saljare = await valjSaljare(env, body.saljare_id);
+  if (saljare && !(await tidOppen(env, saljare, dat, tid))) throw new Fel(TIDEN_STANGD, 409);
+  if (!(await slotLedig(env, dat, tid, saljare))) throw new Fel(TIDEN_TAGEN, 409);
+
+  // Mötesbokaren bokningen tillhör: den som bokar, eller den en Mötesbokare+
+  // väljer åt någon annan.
+  let bokareId = anv.id;
+  const vald = txt(body.bokare_id, 40);
   if (vald && vald !== anv.id) {
-    kraver(anv, 'teamleader');
-    if (await en(env, 'SELECT id FROM anvandare WHERE id = ?1', vald)) saljareId = vald;
+    kraverFormaga(anv, 'allt_bokat');
+    if (await en(env, 'SELECT id FROM anvandare WHERE id = ?1', vald)) bokareId = vald;
   }
 
   let adressId = txt(body.adress_id, 40);
@@ -1045,13 +1330,15 @@ api['kalender-boka'] = async (env, request, body, anv) => {
     telefon,
     datum: dat,
     tid,
+    saljare_id: saljare,
     kommentar: txt(body.kommentar, 1000),
     bekrafta: true,
-  }, { ...anv, id: saljareId });
+  }, { ...anv, id: bokareId });
 
   const bokning = await en(env,
-    `SELECT b.*, u.namn AS saljare, ad.gata, ad.nummer FROM bokningar b
+    `SELECT b.*, u.namn AS bokare, sa.namn AS saljare, ad.gata, ad.nummer FROM bokningar b
      LEFT JOIN anvandare u ON u.id = b.anvandare_id
+     LEFT JOIN anvandare sa ON sa.id = b.saljare_id
      LEFT JOIN adresser ad ON ad.id = b.adress_id WHERE b.id = ?1`, svar.bokning.id);
   return { bokning: { ...bokning, adress: bokning.gata ? bokning.gata + ' ' + bokning.nummer : '' } };
 };
@@ -1072,38 +1359,50 @@ function delaAdressrad(rad) {
  * Flyttas den till en ny ruta gäller samma regler som vid nybokning.
  */
 api['bokning-andra'] = async (env, request, body, anv) => {
-  kraverSaljare(anv);
   const id = txt(body.id, 40);
   const bokning = await en(env, 'SELECT * FROM bokningar WHERE id = ?1', id);
   if (!bokning) throw new Fel('Bokningen finns inte', 404);
-  if (bokning.anvandare_id !== anv.id) kraver(anv, 'teamleader');
+  // Den som bokade får ändra sin bokning; annars krävs hela överblicken.
+  if (bokning.anvandare_id !== anv.id) kraverFormaga(anv, 'allt_bokat');
 
   const dat = body.datum === undefined ? bokning.datum : datum(body.datum);
   const tid = body.tid === undefined ? bokning.tid : klockslag(body.tid);
-  const flyttad = dat !== bokning.datum || tid !== bokning.tid;
-  if (flyttad) {
+  const saljare = body.saljare_id === undefined
+    ? bokning.saljare_id : await valjSaljare(env, body.saljare_id);
+  const flyttad = dat !== bokning.datum || tid !== bokning.tid || saljare !== bokning.saljare_id;
+  if (flyttad && dat && tid) {
     kontrolleraSlot(dat, tid);
-    if (!(await slotLedig(env, dat, tid, id))) throw new Fel(TIDEN_TAGEN, 409);
+    if (saljare && !(await tidOppen(env, saljare, dat, tid))) throw new Fel(TIDEN_STANGD, 409);
+    if (!(await slotLedig(env, dat, tid, saljare, id))) throw new Fel(TIDEN_TAGEN, 409);
   }
 
   try {
     await kor(env,
-      `UPDATE bokningar SET fornamn=?1, efternamn=?2, telefon=?3, datum=?4, tid=?5, kommentar=?6
-       WHERE id=?7`,
+      `UPDATE bokningar SET fornamn=?1, efternamn=?2, telefon=?3, datum=?4, tid=?5, kommentar=?6,
+         saljare_id=?7
+       WHERE id=?8`,
       body.fornamn === undefined ? bokning.fornamn : txt(body.fornamn, 80),
       body.efternamn === undefined ? bokning.efternamn : txt(body.efternamn, 80),
       body.telefon === undefined ? bokning.telefon : txt(body.telefon, 40),
       dat, tid,
-      body.kommentar === undefined ? bokning.kommentar : txt(body.kommentar, 1000), id);
+      body.kommentar === undefined ? bokning.kommentar : txt(body.kommentar, 1000),
+      saljare, id);
   } catch (e) {
     if (arKrock(e)) throw new Fel(TIDEN_TAGEN, 409);
     throw e;
   }
 
   const uppdaterad = await en(env,
-    `SELECT b.*, u.namn AS saljare, ad.gata, ad.nummer FROM bokningar b
+    `SELECT b.*, u.namn AS bokare, sa.namn AS saljare, ad.gata, ad.nummer FROM bokningar b
      LEFT JOIN anvandare u ON u.id = b.anvandare_id
+     LEFT JOIN anvandare sa ON sa.id = b.saljare_id
      LEFT JOIN adresser ad ON ad.id = b.adress_id WHERE b.id = ?1`, id);
+  if (flyttad) {
+    await nyhet(env, 'andring',
+      anv.namn + ' flyttade mötet på ' + kortAdress(uppdaterad) + ' till ' +
+      (dat || '(inget datum)') + (tid ? ' kl. ' + tid : ''),
+      { bokning_id: id, saljare_id: saljare, anvandare_id: anv.id });
+  }
   return { bokning: { ...uppdaterad, adress: uppdaterad.gata ? uppdaterad.gata + ' ' + uppdaterad.nummer : '' } };
 };
 
@@ -1116,15 +1415,19 @@ api['bokade-adresser'] = async (env, request, body, anv) => {
   const villkor = ["b.status <> 'avbokad'"];
   const args = [];
   const lagg = (sql, v) => { args.push(v); villkor.push(sql.replace('?', '?' + args.length)); };
+
+  const grans = await bokningsvillkor(env, anv);
+  if (grans.args.length) villkor.push(fyllPlatshallare(grans.sql, grans.args, args));
   if (datum(body.fran)) lagg('b.datum >= ?', body.fran);
   if (datum(body.till)) lagg('b.datum <= ?', body.till);
   if (txt(body.status, 20)) lagg('b.status = ?', txt(body.status, 20));
 
   const rader = await alla(env,
-    `SELECT b.*, u.namn AS saljare, ad.gata, ad.nummer, ad.postort, ad.lat, ad.lon,
+    `SELECT b.*, u.namn AS bokare, sa.namn AS saljare, ad.gata, ad.nummer, ad.postort, ad.lat, ad.lon,
             ad.status AS husstatus, o.namn AS omrade
      FROM bokningar b
      LEFT JOIN anvandare u ON u.id = b.anvandare_id
+     LEFT JOIN anvandare sa ON sa.id = b.saljare_id
      LEFT JOIN adresser ad ON ad.id = b.adress_id
      LEFT JOIN omraden o ON o.id = ad.omrade_id
      WHERE ${villkor.join(' AND ')}
@@ -1142,13 +1445,24 @@ api['bokade-adresser'] = async (env, request, body, anv) => {
     `SELECT id, bokning_id, namn, typ, storlek, skapad FROM bilagor
      WHERE bokning_id IN (${p}) ORDER BY skapad`, ...idn);
 
+  // Återkopplingen följer med bokningen: den som ser bokningen ser vad mötet
+  // gav. Den som inte får se bokningen kommer aldrig hit.
+  const aterkoppling = await alla(env,
+    `SELECT a.*, u.namn AS forfattare FROM aterkoppling a
+     LEFT JOIN anvandare u ON u.id = a.anvandare_id
+     WHERE a.bokning_id IN (${p}) ORDER BY a.skapad`, ...idn);
+
   return {
+    utfall: UTFALLSTEXT,
+    far_aterkoppla: far(anv, 'aterkoppla'),
     bokningar: rader.map((b) => ({
       ...b,
       adress: b.gata ? b.gata + ' ' + b.nummer : '',
       kund: [b.fornamn, b.efternamn].filter(Boolean).join(' '),
       kommentarer: kommentarer.filter((k) => k.bokning_id === b.id),
       bilagor: bilagor.filter((f) => f.bokning_id === b.id),
+      aterkoppling: aterkoppling.filter((a) => a.bokning_id === b.id)
+        .map((a) => ({ ...a, utfall_text: UTFALLSTEXT[a.utfall] || a.utfall })),
     })),
   };
 };
@@ -1158,9 +1472,9 @@ api['bokning-kommentar'] = async (env, request, body, anv) => {
   const bokningId = txt(body.bokning_id, 40);
   const text = txt(body.text, 2000);
   if (!bokningId || !text) throw new Fel('Bokning och text krävs');
-  if (!(await en(env, 'SELECT id FROM bokningar WHERE id = ?1', bokningId))) {
-    throw new Fel('Bokningen finns inte', 404);
-  }
+  const bok = await en(env, 'SELECT * FROM bokningar WHERE id = ?1', bokningId);
+  if (!bok) throw new Fel('Bokningen finns inte', 404);
+  await kraverBokning(env, anv, bok);
   const id = uid();
   await kor(env, 'INSERT INTO kommentarer (id,bokning_id,anvandare_id,text,skapad) VALUES (?1,?2,?3,?4,?5)',
     id, bokningId, anv.id, text, Date.now());
@@ -1171,7 +1485,7 @@ api['bokning-kommentar-ta-bort'] = async (env, request, body, anv) => {
   const id = txt(body.id, 40);
   const k = await en(env, 'SELECT * FROM kommentarer WHERE id = ?1', id);
   if (!k) throw new Fel('Kommentaren finns inte', 404);
-  if (k.anvandare_id !== anv.id) kraver(anv, 'teamleader');
+  if (k.anvandare_id !== anv.id) kraverFormaga(anv, 'allt_bokat');
   await kor(env, 'DELETE FROM kommentarer WHERE id = ?1', id);
   return {};
 };
@@ -1185,9 +1499,9 @@ api['bokning-bilaga'] = async (env, request, body, anv) => {
   const data = typeof body.data === 'string' ? body.data : '';
   if (!bokningId || !data.startsWith('data:image/')) throw new Fel('Bokning och bild krävs');
   if (data.length > MAX_BILD) throw new Fel('Bilden är för stor även nedskalad — försök med en annan');
-  if (!(await en(env, 'SELECT id FROM bokningar WHERE id = ?1', bokningId))) {
-    throw new Fel('Bokningen finns inte', 404);
-  }
+  const bok = await en(env, 'SELECT * FROM bokningar WHERE id = ?1', bokningId);
+  if (!bok) throw new Fel('Bokningen finns inte', 404);
+  await kraverBokning(env, anv, bok);
   const antal = await en(env, 'SELECT COUNT(*) AS n FROM bilagor WHERE bokning_id = ?1', bokningId);
   if (antal && antal.n >= 20) throw new Fel('Max 20 bilder per bokning');
 
@@ -1202,13 +1516,15 @@ api['bokning-bilaga'] = async (env, request, body, anv) => {
 api['bilaga'] = async (env, request, body, anv) => {
   const bilaga = await en(env, 'SELECT * FROM bilagor WHERE id = ?1', txt(body.id, 40));
   if (!bilaga) throw new Fel('Bilden finns inte', 404);
+  const bok = await en(env, 'SELECT * FROM bokningar WHERE id = ?1', bilaga.bokning_id);
+  if (bok) await kraverBokning(env, anv, bok);
   return { bilaga };
 };
 
 api['bilaga-ta-bort'] = async (env, request, body, anv) => {
   const bilaga = await en(env, 'SELECT id, anvandare_id FROM bilagor WHERE id = ?1', txt(body.id, 40));
   if (!bilaga) throw new Fel('Bilden finns inte', 404);
-  if (bilaga.anvandare_id !== anv.id) kraver(anv, 'teamleader');
+  if (bilaga.anvandare_id !== anv.id) kraverFormaga(anv, 'allt_bokat');
   await kor(env, 'DELETE FROM bilagor WHERE id = ?1', bilaga.id);
   return {};
 };
@@ -1221,19 +1537,270 @@ api['bokning-status'] = async (env, request, body, anv) => {
   if (!bokning) throw new Fel('Bokningen finns inte', 404);
   // Besiktaren är den som varit på plats och vet om mötet blev av — men han
   // får bara bocka av det, inte avboka andras möten.
+  await kraverBokning(env, anv, bokning);
   if (arBesiktare(anv)) {
-    if (status !== 'genomford') throw new Fel('Besiktaren kan bara markera mötet som genomfört', 403);
+    if (status !== 'genomford') throw new Fel('Säljaren kan bara markera mötet som genomfört', 403);
   } else if (bokning.anvandare_id !== anv.id) {
-    kraver(anv, 'teamleader');
+    kraverFormaga(anv, 'allt_bokat');
   }
   await kor(env, 'UPDATE bokningar SET status = ?1 WHERE id = ?2', status, id);
+
+  const rad = await en(env,
+    `SELECT b.*, ad.gata, ad.nummer FROM bokningar b
+     LEFT JOIN adresser ad ON ad.id = b.adress_id WHERE b.id = ?1`, id);
+  const ord = { bokad: 'öppnade', genomford: 'markerade som genomfört', avbokad: 'avbokade' };
+  await nyhet(env, status === 'avbokad' ? 'avbokning' : 'andring',
+    anv.namn + ' ' + ord[status] + ' mötet på ' + kortAdress(rad),
+    { bokning_id: id, saljare_id: bokning.saljare_id, anvandare_id: anv.id });
   return {};
+};
+
+/* ── Säljarnas tider ── */
+
+/**
+ * Säljarnas lediga tider i ett datumintervall, och vem varje tid tillhör.
+ * Alla får se dem: mötesbokaren behöver dem för att kunna boka, säljaren för
+ * att se sin egen dag, Admin Säljare för att styra dem.
+ */
+api['saljartider'] = async (env, request, body, anv) => {
+  kraverFormaga(anv, 'se_tider');
+  const fran = datum(body.fran) || datum(body.datum);
+  const till = datum(body.till) || fran;
+  if (!fran) throw new Fel('Datum krävs');
+
+  const saljare = await saljarlista(env);
+  const dagar = dagarMellan(fran, till);
+  const tider = {};
+  const bokat = {};
+
+  const bokningar = await alla(env,
+    `SELECT datum, tid, saljare_id FROM bokningar
+     WHERE datum >= ?1 AND datum <= ?2 AND status <> 'avbokad' AND tid IS NOT NULL AND tid <> ''`,
+    fran, till);
+
+  for (const d of dagar) {
+    tider[d] = {};
+    bokat[d] = {};
+    for (const sa of saljare) {
+      tider[d][sa.id] = await tiderForSaljare(env, sa.id, d);
+      bokat[d][sa.id] = bokningar
+        .filter((b) => b.datum === d && b.saljare_id === sa.id).map((b) => b.tid);
+    }
+  }
+
+  return {
+    saljare,
+    slottar: slottar(),
+    dagar,
+    tider,
+    bokat,
+    far_styra: far(anv, 'styr_tider'),
+    eget_schema: far(anv, 'eget_schema') ? anv.id : null,
+  };
+};
+
+/**
+ * Sätter en säljares tider för en dag. Skickas hela dagen på en gång, så att
+ * "de här tiderna jobbar jag" är en handling och inte en rad i taget.
+ *
+ * Säljaren får styra sin egen dag, Admin Säljare och Mötesbokare+ allas.
+ * Skickas listan tom betyder det att säljaren inte är tillgänglig alls den
+ * dagen; skickas den som null tas raderna bort och standarddagen gäller igen.
+ */
+api['saljartider-spara'] = async (env, request, body, anv) => {
+  const dat = datum(body.datum);
+  if (!dat) throw new Fel('Datum krävs');
+  const saljareId = txt(body.saljare_id, 40) || anv.id;
+
+  if (saljareId !== anv.id || !far(anv, 'eget_schema')) kraverFormaga(anv, 'styr_tider');
+  const saljare = await en(env,
+    "SELECT id, namn FROM anvandare WHERE id = ?1 AND roll = 'besiktare' AND aktiv = 1", saljareId);
+  if (!saljare) throw new Fel('Okänd säljare');
+
+  const giltiga = slottar();
+  const nya = body.tider === null || body.tider === undefined
+    ? null
+    : [...new Set((Array.isArray(body.tider) ? body.tider : [])
+        .map((t) => klockslag(t)).filter((t) => t && giltiga.includes(t)))].sort();
+
+  // Tider som redan har ett möte kan inte tas bort — mötet står kvar och
+  // skulle bli osynligt i kalendern.
+  const bokade = (await alla(env,
+    `SELECT tid FROM bokningar WHERE saljare_id = ?1 AND datum = ?2 AND status <> 'avbokad'
+       AND tid IS NOT NULL AND tid <> ''`, saljareId, dat)).map((b) => b.tid);
+  if (nya) {
+    const tappade = bokade.filter((t) => !nya.includes(t));
+    if (tappade.length) {
+      throw new Fel('Tiden ' + tappade.join(', ') + ' har ett bokat möte — flytta det först', 409);
+    }
+  }
+
+  await kor(env, 'DELETE FROM saljartider WHERE saljare_id = ?1 AND datum = ?2', saljareId, dat);
+  if (nya) {
+    const nu = Date.now();
+    for (const t of nya) {
+      await kor(env,
+        'INSERT INTO saljartider (id,saljare_id,datum,tid,ledig,satt_av,skapad) VALUES (?1,?2,?3,?4,1,?5,?6)',
+        uid(), saljareId, dat, t, anv.id, nu);
+    }
+  }
+
+  await nyhet(env, 'tid',
+    anv.namn + (saljareId === anv.id ? ' ändrade sina tider ' : ' ändrade ' + saljare.namn + 's tider ') +
+    dat + ' — ' + (nya === null ? 'standarddagen gäller' : nya.length ? nya.join(', ') : 'ingen tid alls'),
+    { saljare_id: saljareId, anvandare_id: anv.id });
+
+  return { datum: dat, saljare_id: saljareId, tider: await tiderForSaljare(env, saljareId, dat) };
+};
+
+/* ── Återkoppling på ett möte ── */
+
+const UTFALL = ['salt', 'ej_salt', 'uppfoljning', 'uteblev'];
+const UTFALLSTEXT = {
+  salt: 'Sålt', ej_salt: 'Inte sålt', uppfoljning: 'Uppföljning', uteblev: 'Kunden uteblev',
+};
+
+/**
+ * Säljaren skriver hur mötet gick. Återkopplingen hör till bokningen, så den
+ * som bokade får se vad hans bokning ledde till.
+ */
+api['aterkoppling-spara'] = async (env, request, body, anv) => {
+  const bokningId = txt(body.bokning_id, 40);
+  const utfall = UTFALL.includes(body.utfall) ? body.utfall : null;
+  if (!bokningId || !utfall) throw new Fel('Bokning och utfall krävs');
+
+  const bokning = await en(env,
+    `SELECT b.*, ad.gata, ad.nummer FROM bokningar b
+     LEFT JOIN adresser ad ON ad.id = b.adress_id WHERE b.id = ?1`, bokningId);
+  if (!bokning) throw new Fel('Bokningen finns inte', 404);
+
+  // Den som körde mötet återkopplar. Teamledare och admin får rätta.
+  const min = bokning.saljare_id === anv.id ||
+    (arBesiktare(anv) && !bokning.saljare_id && (await saljarlista(env)).length === 1);
+  if (!min) kraver(anv, 'teamleader');
+  if (!far(anv, 'aterkoppla')) kraver(anv, 'teamleader');
+
+  const id = uid();
+  const nu = Date.now();
+  await kor(env,
+    `INSERT INTO aterkoppling (id,bokning_id,anvandare_id,utfall,belopp,text,skapad)
+     VALUES (?1,?2,?3,?4,?5,?6,?7)`,
+    id, bokningId, anv.id, utfall,
+    body.belopp === undefined || body.belopp === '' ? null : Math.round(nr(body.belopp, 0)),
+    txt(body.text, 2000), nu);
+
+  // Mötet är kört, alltså är det genomfört.
+  if (bokning.status === 'bokad') {
+    await kor(env, "UPDATE bokningar SET status = 'genomford' WHERE id = ?1", bokningId);
+  }
+
+  await nyhet(env, 'aterkoppling',
+    anv.namn + ' återkopplade på ' + kortAdress(bokning) + ': ' + UTFALLSTEXT[utfall],
+    { bokning_id: bokningId, saljare_id: bokning.saljare_id || anv.id, anvandare_id: anv.id });
+
+  return { aterkoppling: { id, bokning_id: bokningId, utfall, text: txt(body.text, 2000),
+    forfattare: anv.namn, skapad: nu } };
+};
+
+/**
+ * Återkopplingen någon får se: säljaren sin egen, mötesbokaren den som hör
+ * till hans bokningar, Mötesbokare+ och Admin Säljare all.
+ */
+api['aterkoppling'] = async (env, request, body, anv) => {
+  const villkor = ['1=1'];
+  const args = [];
+  const lagg = (sql, v) => { args.push(v); villkor.push(sql.replace('?', '?' + args.length)); };
+
+  if (!far(anv, 'all_aterkoppling')) {
+    if (arBesiktare(anv)) lagg('a.anvandare_id = ?', anv.id);
+    else lagg('b.anvandare_id = ?', anv.id);
+  }
+  if (txt(body.bokning_id, 40)) lagg('a.bokning_id = ?', txt(body.bokning_id, 40));
+  if (datum(body.fran)) lagg('b.datum >= ?', body.fran);
+  if (datum(body.till)) lagg('b.datum <= ?', body.till);
+
+  const rader = await alla(env,
+    `SELECT a.*, u.namn AS forfattare, b.datum, b.tid, b.fornamn, b.efternamn,
+            b.anvandare_id AS bokare_id, ub.namn AS bokare, ad.gata, ad.nummer
+     FROM aterkoppling a
+     JOIN bokningar b ON b.id = a.bokning_id
+     LEFT JOIN anvandare u ON u.id = a.anvandare_id
+     LEFT JOIN anvandare ub ON ub.id = b.anvandare_id
+     LEFT JOIN adresser ad ON ad.id = b.adress_id
+     WHERE ${villkor.join(' AND ')}
+     ORDER BY a.skapad DESC LIMIT 300`, ...args);
+
+  return {
+    utfall: UTFALLSTEXT,
+    aterkoppling: rader.map((a) => ({
+      ...a,
+      adress: a.gata ? a.gata + ' ' + a.nummer : '',
+      kund: [a.fornamn, a.efternamn].filter(Boolean).join(' '),
+      utfall_text: UTFALLSTEXT[a.utfall] || a.utfall,
+    })),
+  };
+};
+
+/* ── Nyhetsflöde ── */
+
+/**
+ * Flödet, beskuret efter roll:
+ *
+ *   Mötesbokare+, teamleader, admin   allt
+ *   Admin Säljare                     det som rör en säljare
+ *   Mötesbokare                       det han själv gjort, och det som hänt
+ *                                     med hans bokningar
+ *   Säljare                           det som rör honom
+ */
+api['nyheter'] = async (env, request, body, anv) => {
+  const villkor = ['1=1'];
+  const args = [];
+  const lagg = (sql, ...v) => villkor.push(fyllPlatshallare(sql, v, args));
+
+  if (far(anv, 'allt_bokat') && far(anv, 'skapa_bokare')) {
+    // Mötesbokare+ och uppåt ser hela flödet.
+  } else if (far(anv, 'styr_tider')) {
+    lagg('n.saljare_id IS NOT NULL');
+  } else if (arBesiktare(anv)) {
+    lagg('(n.saljare_id = ? OR n.anvandare_id = ?)', anv.id, anv.id);
+  } else {
+    lagg(`(n.anvandare_id = ? OR n.bokning_id IN
+           (SELECT id FROM bokningar WHERE anvandare_id = ?))`, anv.id, anv.id);
+  }
+
+  const rader = await alla(env,
+    `SELECT n.*, u.namn AS av FROM nyheter n
+     LEFT JOIN anvandare u ON u.id = n.anvandare_id
+     WHERE ${villkor.join(' AND ')}
+     ORDER BY n.skapad DESC LIMIT ?${args.length + 1}`,
+    ...args, Math.min(200, Math.max(1, nr(body.antal, 60))));
+
+  return { nyheter: rader };
+};
+
+/* ── Puls: har något ändrats? ── */
+
+/**
+ * Ett litet anrop appen kan ställa ofta. Svarar med tidpunkten för det
+ * senaste som hänt — ändras den vet appen att den ska hämta om, och slipper
+ * hämta hela kalendern var tjugonde sekund.
+ */
+api['puls'] = async (env, request, body, anv) => {
+  const rad = await en(env,
+    `SELECT MAX(t) AS senast FROM (
+       SELECT MAX(skapad) AS t FROM nyheter
+       UNION ALL SELECT MAX(skapad) FROM bokningar
+       UNION ALL SELECT MAX(skapad) FROM saljartider
+       UNION ALL SELECT MAX(skapad) FROM aterkoppling
+       UNION ALL SELECT MAX(skapad) FROM kommentarer
+     )`);
+  return { senast: nr(rad && rad.senast, 0), tid: Date.now() };
 };
 
 /* ── Position ── */
 
 api['position'] = async (env, request, body, anv) => {
-  kraverSaljare(anv);
+  kraverKnackare(anv);
   const lat = nr(body.lat, null), lon = nr(body.lon, null);
   if (lat === null || lon === null) throw new Fel('Position saknas');
   await kor(env,
@@ -1244,7 +1811,7 @@ api['position'] = async (env, request, body, anv) => {
 };
 
 api['positioner'] = async (env, request, body, anv) => {
-  kraverSaljare(anv);
+  kraverKnackare(anv);
   kraver(anv, 'teamleader');
   const sedan = Date.now() - 30 * 60000;
   const rader = await alla(env,
@@ -1274,7 +1841,7 @@ function hitrate(rad, namnare) {
 }
 
 api['dashboard'] = async (env, request, body, anv) => {
-  kraverSaljare(anv);
+  kraverKnackare(anv);
   const { fran, till, franMs, tillMs } = period(body);
   const inst = await installningar(env);
   const namnare = inst.hitrate_namnare || 'alla';
@@ -1376,7 +1943,7 @@ api['dashboard'] = async (env, request, body, anv) => {
 
 /** Enskild säljares utveckling vecka för vecka. */
 api['saljare-trend'] = async (env, request, body, anv) => {
-  kraverSaljare(anv);
+  kraverKnackare(anv);
   const id = txt(body.id, 40) || anv.id;
   if (id !== anv.id) kraver(anv, 'teamleader');
   const veckor = Math.min(Math.max(nr(body.veckor, 6), 1), 26);

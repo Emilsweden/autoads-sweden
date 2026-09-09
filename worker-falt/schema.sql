@@ -7,7 +7,9 @@ CREATE TABLE IF NOT EXISTS anvandare (
   id        TEXT PRIMARY KEY,
   namn      TEXT NOT NULL,
   epost     TEXT NOT NULL UNIQUE,
-  roll      TEXT NOT NULL DEFAULT 'saljare',   -- admin | teamleader | saljare
+  -- admin | teamleader | bokare_plus (Mötesbokare+) | saljadmin (Admin Säljare)
+  -- | saljare (Mötesbokare) | besiktare (Säljare/Takbesiktare)
+  roll      TEXT NOT NULL DEFAULT 'saljare',
   team      TEXT,
   hash      TEXT NOT NULL,
   salt      TEXT NOT NULL,
@@ -99,16 +101,69 @@ CREATE TABLE IF NOT EXISTS bokningar (
   telefon      TEXT,
   datum        TEXT,
   tid          TEXT,
+  saljare_id   TEXT,                           -- takbesiktaren mötet är bokat på
   kommentar    TEXT,
   status       TEXT NOT NULL DEFAULT 'bokad',  -- bokad | genomford | avbokad
   skapad       INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_bok_datum ON bokningar(datum);
 CREATE INDEX IF NOT EXISTS idx_bok_anv ON bokningar(anvandare_id);
+CREATE INDEX IF NOT EXISTS idx_bok_saljare ON bokningar(saljare_id, datum);
 
-/* Skyddet mot dubbelbokning (unikt index på datum + tid) skapas i ett eget
-   steg i uppsättningen, eftersom det inte går att lägga på en databas som
-   redan innehåller två bokningar på samma tid. */
+/* Skyddet mot dubbelbokning: en säljare kan bara ha ett möte per ruta.
+   Två säljare kan däremot ha var sitt möte samma timme. Gamla bokningar utan
+   säljare står utanför indexet — de fanns innan säljaren fanns på bokningen. */
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bok_saljarslot ON bokningar(datum, tid, saljare_id)
+  WHERE tid IS NOT NULL AND tid <> '' AND saljare_id IS NOT NULL AND status <> 'avbokad';
+
+/* ── Säljarnas tider ──
+   Regeln: har en säljare ingen rad alls för ett datum är hela standarddagen
+   (08–20, mån–fre) ledig. Finns rader för datumet gäller bara de med
+   ledig = 1. Så en säljare som inte rört sin kalender är ledig som förut,
+   och den som lägger in sina tider får exakt de tiderna.                  */
+
+CREATE TABLE IF NOT EXISTS saljartider (
+  id         TEXT PRIMARY KEY,
+  saljare_id TEXT NOT NULL,
+  datum      TEXT NOT NULL,
+  tid        TEXT NOT NULL,
+  ledig      INTEGER NOT NULL DEFAULT 1,
+  satt_av    TEXT,
+  skapad     INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tid_saljare ON saljartider(saljare_id, datum, tid);
+CREATE INDEX IF NOT EXISTS idx_tid_datum ON saljartider(datum);
+
+/* ── Återkoppling på ett genomfört möte ──
+   Hör till en bokning. Säljaren skriver den, mötesbokaren som bokade får se
+   den på sin bokning, och Mötesbokare+ / Admin Säljare ser alla.          */
+
+CREATE TABLE IF NOT EXISTS aterkoppling (
+  id           TEXT PRIMARY KEY,
+  bokning_id   TEXT NOT NULL,
+  anvandare_id TEXT NOT NULL,
+  utfall       TEXT NOT NULL,        -- salt | ej_salt | uppfoljning | uteblev
+  belopp       INTEGER,
+  text         TEXT,
+  skapad       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ater_bok ON aterkoppling(bokning_id, skapad);
+CREATE INDEX IF NOT EXISTS idx_ater_tid ON aterkoppling(skapad);
+
+/* ── Nyhetsflöde ──
+   En rad per sak som hänt. anvandare_id är den som gjorde det, saljare_id
+   den säljare det rör — de två avgör vem som får se raden.                */
+
+CREATE TABLE IF NOT EXISTS nyheter (
+  id           TEXT PRIMARY KEY,
+  typ          TEXT NOT NULL,        -- bokning | andring | avbokning | aterkoppling | tid | konto
+  text         TEXT NOT NULL,
+  bokning_id   TEXT,
+  saljare_id   TEXT,
+  anvandare_id TEXT,
+  skapad       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_nyhet_tid ON nyheter(skapad);
 
 /* ── Kommentarer och bilder på en bokning ── */
 

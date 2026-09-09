@@ -9,7 +9,7 @@
 
 import { anrop, ApiFel } from './api.js';
 import { $, esc, toast, oppnaPanel, stangPanel, idag, plusDagar, visaDatum } from './ui.js';
-import { S, arRoll, dataAndrad } from './state.js';
+import { S, kan, dataAndrad } from './state.js';
 
 /** Används tills servern svarat; det är serverns värde som gäller. */
 export const SLOT_MINUTER = 60;
@@ -27,7 +27,9 @@ let manad = idag().slice(0, 7);
 let valdDag = null;
 let krockad = null;      // tid som just visade sig vara upptagen
 let pollTimer = null;
-let saljare = [];
+let saljare = [];        // takbesiktarna möten bokas på
+let tider = {};          // datum → säljare-id → öppna tider
+let bokare = [];         // mötesbokare, för den som bokar åt andra
 
 /* ── Datumhjälp ── */
 
@@ -57,6 +59,8 @@ async function hamta(tyst) {
     slottar = data.slottar || [];
     bokningar = data.bokningar || [];
     perDag = data.per_dag || {};
+    saljare = data.saljare || [];
+    tider = data.tider || {};
     rita();
   } catch (e) {
     if (!tyst) $('kalenderInnehall').innerHTML =
@@ -69,8 +73,11 @@ export function starta() {
   hamta();
   clearInterval(pollTimer);
   pollTimer = setInterval(() => { if (!document.hidden) hamta(true); }, POLL_MS);
-  if (arRoll('teamleader') && !saljare.length) {
-    anrop('anvandare-lista').then((d) => { saljare = d.anvandare || []; }).catch(() => {});
+  // Den som ser alla bokningar får också boka i någon annan bokares namn.
+  if (kan('allt_bokat') && !bokare.length) {
+    anrop('anvandare-lista')
+      .then((d) => { bokare = (d.anvandare || []).filter((a) => a.roll === 'saljare' || a.roll === 'bokare_plus'); })
+      .catch(() => {});
   }
 }
 
@@ -111,16 +118,15 @@ function manadsHtml() {
 
 /* ── Dagsvy ── */
 
+/**
+ * Dagsvyn: en rad per tid och säljare — datum, tid, säljare, status.
+ * En säljare som lagt in sina tider syns bara på dem; en som inte rört sin
+ * kalender är ledig hela standarddagen, som förut.
+ */
 function dagsHtml() {
   const dat = valdDag;
-  // Flera bokningar kan dela tid i data från tiden före dubbelbokningsskyddet.
-  // De ska synas — annars går de inte att rätta.
-  const tagna = new Map();
-  bokningar.filter((b) => b.datum === dat).forEach((b) => {
-    if (!tagna.has(b.tid)) tagna.set(b.tid, []);
-    tagna.get(b.tid).push(b);
-  });
   const rubrik = visaDatum(dat);
+  const bokDag = bokningar.filter((b) => b.datum === dat);
 
   if (arHelg(dat)) {
     return dagsTopp(rubrik) +
@@ -128,36 +134,68 @@ function dagsHtml() {
       esc(inst.oppnar) + '–' + esc(inst.sista) + ', måndag till fredag.</div>';
   }
 
-  const extra = [...tagna.keys()].filter((t) => t && !slottar.includes(t));
-  const rader = slottar.concat(extra).sort().map((tid) => {
-    const pa = tagna.get(tid);
-    if (pa && pa.length) {
-      // Rutan man just försökte boka markeras röd även när den nu är tagen,
-      // så att man ser vilken tid som gick förlorad.
-      return '<div class="slot bokad' + (krockad === tid ? ' krock' : '') +
-        (pa.length > 1 ? ' dubbel' : '') + '" data-tid="' + esc(tid) + '">' +
-        '<span class="slot-tid">' + esc(tid) + '</span>' +
-        '<span class="slot-innehall"><span class="slot-etikett">UPPTAGEN' +
-        (pa.length > 1 ? ' · ' + pa.length + ' BOKNINGAR PÅ SAMMA TID' : '') + '</span>' +
-        pa.map((b) => '<span class="slot-bokning"><b>' +
-          esc(b.kund || 'Bokad') + (krockad === tid && pa.length === 1 ? ' — upptogs precis' : '') + '</b>' +
-          (b.adress ? '<span>' + esc(b.adress) + '</span>' : '') +
-          (b.telefon ? '<span>' + esc(b.telefon) + '</span>' : '') +
-          '<span class="slot-saljare">' + esc(b.saljare || '') + '</span>' +
-          (b.anvandare_id === S.anvandare.id || arRoll('teamleader')
-            ? '<button class="slot-avboka" data-avboka="' + esc(b.id) + '">Avboka</button>' : '') +
-          '</span>').join('') +
-        '</span></div>';
-    }
-    return '<button class="slot ledig' + (krockad === tid ? ' krock' : '') + '" data-boka="' + esc(tid) + '">' +
-      '<span class="slot-tid">' + esc(tid) + '</span>' +
-      '<span class="slot-innehall"><span class="slot-etikett">' +
-      (krockad === tid ? 'UPPTAGEN — VÄLJ EN ANNAN' : 'LEDIG') + '</span></span>' +
-      '<span class="slot-plus">+</span></button>';
+  // Laget den här dagen: säljarna, plus "Ej tilldelad" om det finns gamla
+  // bokningar utan säljare.
+  const lag = saljare.slice();
+  if (bokDag.some((b) => !b.saljare_id) || !lag.length) {
+    lag.push({ id: '', namn: saljare.length ? 'Ej tilldelad' : 'Besiktning' });
+  }
+
+  const oppna = tider[dat] || {};
+  const arOppen = (sid, tid) => {
+    const lista = oppna[sid];
+    // Utan besked från servern gäller standarddagen — annars skulle en
+    // långsam hämtning se ut som att ingen är ledig.
+    return lista ? lista.includes(tid) : slottar.includes(tid);
+  };
+
+  const allaTider = new Set(slottar);
+  bokDag.forEach((b) => { if (b.tid) allaTider.add(b.tid); });
+
+  const rader = [...allaTider].sort().map((tid) => {
+    const rutor = lag.map((sa) => {
+      const pa = bokDag.filter((b) => b.tid === tid && (b.saljare_id || '') === sa.id);
+      if (pa.length) return bokadRuta(tid, sa, pa);
+      if (!arOppen(sa.id, tid)) return '';
+      return ledigRuta(tid, sa);
+    }).filter(Boolean).join('');
+    return rutor;
   }).join('');
 
   return dagsTopp(rubrik) +
-    '<div class="slotlista">' + rader + '</div>';
+    (rader
+      ? '<div class="slotlista">' + rader + '</div>'
+      : '<div class="tom">Ingen säljare har lediga tider den här dagen.</div>');
+}
+
+function bokadRuta(tid, sa, pa) {
+  return '<div class="slot bokad' + (krockad === tid ? ' krock' : '') +
+    (pa.length > 1 ? ' dubbel' : '') + '" data-tid="' + esc(tid) + '" data-saljare="' + esc(sa.id) + '">' +
+    '<span class="slot-tid">' + esc(tid) + '</span>' +
+    '<span class="slot-innehall">' +
+    '<span class="slot-etikett">' + esc(sa.namn) + ' · UPPTAGEN' +
+    (pa.length > 1 ? ' · ' + pa.length + ' BOKNINGAR PÅ SAMMA TID' : '') + '</span>' +
+    pa.map((b) => '<span class="slot-bokning"><b>' +
+      esc(b.min ? (b.kund || 'Bokad') : 'Bokad tid') +
+      (krockad === tid && pa.length === 1 ? ' — upptogs precis' : '') + '</b>' +
+      (b.adress ? '<span>' + esc(b.adress) + '</span>' : '') +
+      (b.telefon ? '<span>' + esc(b.telefon) + '</span>' : '') +
+      '<span class="slot-saljare">Bokad av ' + esc(b.bokare || '—') + '</span>' +
+      (b.anvandare_id === S.anvandare.id || kan('allt_bokat')
+        ? '<button class="slot-avboka" data-avboka="' + esc(b.id) + '">Avboka</button>' : '') +
+      '</span>').join('') +
+    '</span></div>';
+}
+
+function ledigRuta(tid, sa) {
+  const bokbar = kan('boka');
+  const inre = '<span class="slot-tid">' + esc(tid) + '</span>' +
+    '<span class="slot-innehall"><span class="slot-etikett">' + esc(sa.namn) + ' · ' +
+    (krockad === tid ? 'UPPTAGEN — VÄLJ EN ANNAN' : 'LEDIG') + '</span></span>';
+  if (!bokbar) return '<div class="slot ledig">' + inre + '</div>';
+  return '<button class="slot ledig' + (krockad === tid ? ' krock' : '') +
+    '" data-boka="' + esc(tid) + '" data-saljare="' + esc(sa.id) + '">' +
+    inre + '<span class="slot-plus">+</span></button>';
 }
 
 function dagsTopp(rubrik) {
@@ -193,7 +231,7 @@ export function rita() {
     k.onclick = () => { valdDag = k.dataset.dag; krockad = null; hamta(); };
   });
   ruta.querySelectorAll('[data-boka]').forEach((k) => {
-    k.onclick = () => visaBokningsformular(k.dataset.boka);
+    k.onclick = () => visaBokningsformular(k.dataset.boka, k.dataset.saljare);
   });
   ruta.querySelectorAll('[data-avboka]').forEach((k) => {
     k.onclick = () => avboka(k.dataset.avboka);
@@ -202,17 +240,34 @@ export function rita() {
 
 /* ── Boka och avboka ── */
 
-function visaBokningsformular(tid) {
-  const saljarVal = arRoll('teamleader') && saljare.length
+function visaBokningsformular(tid, saljareId) {
+  // Säljarna som är lediga just den tiden — mötet läggs på en av dem.
+  const oppna = (tider[valdDag] || {});
+  const lediga = saljare.filter((s) =>
+    (oppna[s.id] ? oppna[s.id].includes(tid) : true) &&
+    !bokningar.some((b) => b.datum === valdDag && b.tid === tid && b.saljare_id === s.id));
+
+  const saljarVal = lediga.length > 1
     ? '<div class="field"><label for="kSaljare">Säljare</label><select id="kSaljare">' +
-      saljare.map((s) => '<option value="' + esc(s.id) + '"' +
+      lediga.map((s) => '<option value="' + esc(s.id) + '"' +
+        (s.id === saljareId ? ' selected' : '') + '>' + esc(s.namn) + '</option>').join('') +
+      '</select></div>'
+    : lediga.length === 1
+      ? '<input type="hidden" id="kSaljare" value="' + esc(lediga[0].id) + '">'
+      : '';
+
+  const vald = lediga.find((s) => s.id === saljareId) || lediga[0];
+  const bokarVal = kan('allt_bokat') && bokare.length > 1
+    ? '<div class="field"><label for="kBokare">Bokad av</label><select id="kBokare">' +
+      bokare.map((s) => '<option value="' + esc(s.id) + '"' +
         (s.id === S.anvandare.id ? ' selected' : '') + '>' + esc(s.namn) + '</option>').join('') +
       '</select></div>'
     : '';
 
   oppnaPanel('modal',
     '<h2>' + esc(visaDatum(valdDag)) + ' kl. ' + esc(tid) + '</h2>' +
-    '<p class="sub">Bokad besiktning. Tiden reserveras för hela laget så fort du sparar.</p>' +
+    '<p class="sub">' + (vald ? esc(vald.namn) + ' tar mötet. ' : '') +
+    'Tiden reserveras så fort du sparar.</p>' +
     '<div class="rad2" style="margin-top:14px">' +
     '<div class="field"><label for="kFornamn">Förnamn</label><input id="kFornamn" type="text" autocomplete="given-name"></div>' +
     '<div class="field"><label for="kEfternamn">Efternamn</label><input id="kEfternamn" type="text" autocomplete="family-name"></div>' +
@@ -221,7 +276,7 @@ function visaBokningsformular(tid) {
     '<input id="kAdress" type="text" placeholder="Törngatan 16, Örebro" autocomplete="off"></div>' +
     '<div class="field"><label for="kTelefon">Mobilnummer</label>' +
     '<input id="kTelefon" type="tel" inputmode="tel" placeholder="070-123 45 67"></div>' +
-    saljarVal +
+    saljarVal + bokarVal +
     '<div class="field"><label for="kKomm">Anteckning</label>' +
     '<textarea id="kKomm" placeholder="T.ex. tegeltak, mossa på norrsidan"></textarea></div>' +
     '<div class="err" id="kFel"></div>' +
@@ -247,6 +302,7 @@ function visaBokningsformular(tid) {
         adress,
         kommentar: $('kKomm').value.trim(),
         saljare_id: $('kSaljare') ? $('kSaljare').value : undefined,
+        bokare_id: $('kBokare') ? $('kBokare').value : undefined,
       });
       stangPanel('modal');
       toast('Tiden är bokad ✓');
@@ -287,10 +343,25 @@ async function avboka(id) {
 export async function ledigaTider(dat) {
   const data = await anrop('kalender', { fran: dat, till: dat });
   inst = data.installningar || inst;
-  const tagna = new Set((data.bokningar || []).map((b) => b.tid));
+  const lag = data.saljare || [];
+  const oppna = (data.tider || {})[dat] || {};
+  const bokade = (data.bokningar || []).filter((b) => b.datum === dat);
+
+  // En tid är ledig så länge någon säljare är ledig då. Vilken säljare det
+  // blir avgörs i formuläret, av samma lista.
+  const fria = {};
+  (data.slottar || []).forEach((t) => {
+    const kan = lag.filter((s) =>
+      (oppna[s.id] ? oppna[s.id].includes(t) : true) &&
+      !bokade.some((b) => b.tid === t && b.saljare_id === s.id));
+    if (lag.length ? kan.length : !bokade.some((b) => b.tid === t)) fria[t] = kan;
+  });
+
   return {
     helg: !(data.installningar || inst).dagar.includes(veckodag(dat)),
-    tider: (data.slottar || []).filter((t) => !tagna.has(t)),
+    tider: Object.keys(fria).sort(),
+    saljarePer: fria,
+    saljare: lag,
     oppnar: (data.installningar || inst).oppnar,
     sista: (data.installningar || inst).sista,
   };

@@ -610,3 +610,47 @@ a.btn { display: grid; place-items: center; text-decoration: none; }
   .kpi b { font-size: 30px; }
   .sektion.tva { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
 }
+
+/* ── Säljarnas tider ── */
+
+.tidrutnat {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+.tidruta {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 10px 4px;
+  border: 1px solid var(--linje);
+  border-radius: var(--rund);
+  background: var(--kort);
+  font-size: 15px; font-weight: 700;
+  color: var(--text);
+}
+.tidruta span { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--dim); }
+.tidruta.ledig { border-color: var(--accent); color: var(--accent-mork); }
+.tidruta.ledig span { color: var(--accent-mork); }
+.tidruta.stangd { background: var(--bakgrund); color: var(--muted); }
+.tidruta.bokad { background: #0d0d0d; border-color: #0d0d0d; color: #fff; }
+.tidruta.bokad span { color: rgba(255,255,255,0.72); }
+.tidruta:disabled { cursor: default; }
+
+/* ── Nyhetsflöde ── */
+
+.flode { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
+.flode-rad {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 11px 12px;
+  border: 1px solid var(--linje);
+  border-radius: var(--rund);
+  background: var(--kort);
+  font-size: 14px;
+}
+.flode-ikon { flex: 0 0 auto; font-size: 15px; line-height: 1.35; }
+.flode-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.flode-text .under { font-size: 12px; color: var(--dim); margin-top: 2px; }
+.flode-avbokning { border-color: var(--accent); }
+.flode-aterkoppling { border-left: 3px solid var(--accent); }
+
+.komm.utfall { border-left: 3px solid var(--accent); }

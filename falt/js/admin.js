@@ -2,8 +2,19 @@
 
 import { anrop } from './api.js';
 import { $, esc, toast, oppnaPanel, stangPanel, procent } from './ui.js';
-import { S, arRoll, dataAndrad } from './state.js';
+import { S, arRoll, kan, dataAndrad } from './state.js';
 import { husnummerPaGata } from './geo.js';
+
+/** Rollernas namn i laget. Nycklarna är serverns; namnen är de vi säger. */
+const ROLLNAMN = {
+  saljare: 'Mötesbokare',
+  bokare_plus: 'Mötesbokare+',
+  besiktare: 'Säljare',
+  saljadmin: 'Admin Säljare',
+  teamleader: 'Teamleader',
+  admin: 'Admin',
+};
+const ROLLORDNING = ['saljare', 'bokare_plus', 'besiktare', 'saljadmin', 'teamleader', 'admin'];
 
 let flik = 'omraden';
 let omradesData = [];
@@ -42,8 +53,8 @@ export function tolkaAdresser(text, postort) {
 
 async function ladda() {
   const [o, a] = await Promise.all([
-    anrop('omraden'),
-    arRoll('teamleader') ? anrop('anvandare-lista') : Promise.resolve({ anvandare: [] }),
+    arRoll('teamleader') ? anrop('omraden') : Promise.resolve({ omraden: [] }),
+    kan('se_personal') ? anrop('anvandare-lista') : Promise.resolve({ anvandare: [] }),
   ]);
   omradesData = o.omraden || [];
   anvandarData = a.anvandare || [];
@@ -237,7 +248,7 @@ function tilldelaFormular(o) {
   const rita_ = () => {
     oppnaPanel('modal',
       '<h2>Tilldela ' + esc(o.namn) + '</h2>' +
-      '<p class="sub">Säljare som får se och jobba i området. Utan tilldelning ser alla området.</p>' +
+      '<p class="sub">Mötesbokare som får se och jobba i området. Utan tilldelning ser alla området.</p>' +
       '<div class="chips" style="margin:14px 0">' +
       saljare.map((s) => '<button class="chip' + (valda.includes(s.id) ? ' vald' : '') +
         '" data-s="' + esc(s.id) + '">' + esc(s.namn) + '</button>').join('') + '</div>' +
@@ -319,17 +330,31 @@ function importFormular(o) {
 
 /* ══ Användare ══ */
 
+/**
+ * Användarlistan. Administratören sköter alla konton; Mötesbokare+ ser laget
+ * men får bara lägga upp och ändra mötesbokare — servern tillåter inget
+ * annat, och listan visar bara det knappen faktiskt kan göra.
+ */
 function ritaAnvandare() {
-  const roller = { admin: 'Admin', teamleader: 'Teamleader', saljare: 'Säljare', besiktare: 'Besiktare' };
-  return '<div class="lista">' + anvandarData.map((a) =>
+  const roller = ROLLNAMN;
+  const andraAlla = arRoll('admin');
+  const barBokare = !andraAlla && kan('skapa_bokare');
+
+  return (barBokare
+    ? '<p class="karttips">Du lägger upp och sköter mötesbokarna. Övriga konton ' +
+      'ändras av administratören.</p>' : '') +
+    '<div class="lista">' + anvandarData.map((a) =>
     '<div class="kort ' + (a.aktiv ? 's-bokat' : 's-nej') + '">' +
     '<div class="kort-topp"><div>' +
     '<div class="adress">' + esc(a.namn) + '</div>' +
     '<div class="under">' + esc(a.epost) + (a.team ? ' · ' + esc(a.team) : '') + '</div>' +
     '</div><span class="märke m-' + (a.aktiv ? 'bokat' : 'nej') + '">' + esc(roller[a.roll] || a.roll) + '</span></div>' +
-    (arRoll('admin') ? '<div class="chips"><button class="chip" data-anv="' + esc(a.id) + '">Ändra</button></div>' : '') +
+    (andraAlla || (barBokare && a.roll === 'saljare')
+      ? '<div class="chips"><button class="chip" data-anv="' + esc(a.id) + '">Ändra</button></div>' : '') +
     '</div>').join('') + '</div>' +
-    (arRoll('admin') ? '<div class="sektion"><button class="btn btn-primary" id="nyAnvandare">Ny användare</button></div>' : '');
+    (andraAlla || barBokare
+      ? '<div class="sektion"><button class="btn btn-primary" id="nyAnvandare">' +
+        (andraAlla ? 'Ny användare' : 'Ny mötesbokare') + '</button></div>' : '');
 }
 
 function anvandarFormular(a) {
@@ -338,12 +363,13 @@ function anvandarFormular(a) {
     '<div class="field"><label for="aNamn">Namn</label><input id="aNamn" type="text" value="' + esc(a ? a.namn : '') + '"></div>' +
     '<div class="field"><label for="aEpost">E-post</label><input id="aEpost" type="email" autocapitalize="off" value="' + esc(a ? a.epost : '') + '"></div>' +
     '<div class="rad2">' +
-    '<div class="field"><label for="aRoll">Roll</label><select id="aRoll">' +
-    ['saljare', 'besiktare', 'teamleader', 'admin'].map((r) =>
-      '<option value="' + r + '"' + (a && a.roll === r ? ' selected' : '') + '>' +
-      ({ saljare: 'Säljare', besiktare: 'Besiktare', teamleader: 'Teamleader', admin: 'Admin' })[r] +
-      '</option>').join('') +
-    '</select></div>' +
+    (arRoll('admin')
+      ? '<div class="field"><label for="aRoll">Roll</label><select id="aRoll">' +
+        ROLLORDNING.map((r) =>
+          '<option value="' + r + '"' + (a && a.roll === r ? ' selected' : '') + '>' +
+          esc(ROLLNAMN[r]) + '</option>').join('') +
+        '</select></div>'
+      : '<div class="field"><label>Roll</label><input type="text" value="Mötesbokare" disabled></div>') +
     '<div class="field"><label for="aTeam">Team</label><input id="aTeam" type="text" value="' + esc(a ? a.team || '' : '') + '"></div>' +
     '</div>' +
     '<div class="field"><label for="aLosen">' + (a ? 'Nytt lösenord (lämna tomt för oförändrat)' : 'Lösenord') +
@@ -357,11 +383,13 @@ function anvandarFormular(a) {
   $('aAvbryt').onclick = () => stangPanel('modal');
   $('aSpara').onclick = async () => {
     try {
-      await anrop('anvandare-spara', {
+      // Administratören sparar alla roller; Mötesbokare+ går via sin egen
+      // väg, där servern sätter rollen till mötesbokare oavsett vad som skickas.
+      await anrop(arRoll('admin') ? 'anvandare-spara' : 'bokare-spara', {
         id: a ? a.id : undefined,
         namn: $('aNamn').value.trim(),
         epost: $('aEpost').value.trim(),
-        roll: $('aRoll').value,
+        roll: $('aRoll') ? $('aRoll').value : undefined,
         team: $('aTeam').value.trim(),
         losenord: $('aLosen').value || undefined,
         aktiv: a ? $('aAktiv').checked : true,
@@ -416,7 +444,17 @@ export async function rita() {
     return;
   }
 
-  $('vySub').textContent = omradesData.length + ' områden · ' + anvandarData.length + ' användare';
+  // Den som bara sköter konton har ingen anledning att se områden och regler.
+  const bara = !arRoll('teamleader');
+  if (bara) flik = 'anvandare';
+  $('adminFlikar').querySelectorAll('.flik').forEach((f) => {
+    f.hidden = bara && f.dataset.admin !== 'anvandare';
+    f.classList.toggle('aktiv', f.dataset.admin === flik);
+  });
+
+  $('vySub').textContent = bara
+    ? anvandarData.length + ' i laget'
+    : omradesData.length + ' områden · ' + anvandarData.length + ' användare';
   behallare.innerHTML = flik === 'omraden' ? ritaOmraden()
     : flik === 'anvandare' ? ritaAnvandare()
     : ritaRegler();
