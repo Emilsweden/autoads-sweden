@@ -10,7 +10,7 @@ import { anrop } from './api.js';
 import { $, esc, toast, STATUS_FARG, STATUS_TEXTFARG, visaTidpunkt } from './ui.js';
 import { S, arRoll, dataAndrad } from './state.js';
 import { oppna as oppnaDorr, manuell as manuellDorr } from './dorr.js';
-import { adressVid, husIRuta } from './geo.js';
+import { adressVid, husIRuta, sokAdress } from './geo.js';
 
 let karta = null;
 let jagMarkor = null;
@@ -276,6 +276,31 @@ function husStatus(text) {
   if (text && !/Hämtar/.test(text)) husStatusTimer = setTimeout(() => { el.hidden = true; }, 6000);
 }
 
+/** Meter mellan två punkter, tillräckligt exakt på de här avstånden. */
+function meter(lat1, lon1, lat2, lon2) {
+  const dLat = (lat1 - lat2) * 111320;
+  const dLon = (lon1 - lon2) * 111320 * Math.cos((lat1 * Math.PI) / 180);
+  return Math.sqrt(dLat * dLat + dLon * dLon);
+}
+
+/**
+ * Husnumren vi redan hämtat till kartan, närmast punkten först.
+ *
+ * Det här är poängen med att ha dem: kartans adresstjänst svarar ibland med
+ * bara gatunamnet, medan husnumret hela tiden funnits i datan vi hämtade för
+ * att kunna rita brickorna. Då ska vi använda det vi har i stället för att
+ * be säljaren skriva in ett nummer som appen känner till.
+ */
+function husNara(lat, lon, maxMeter = 45, max = 6) {
+  const alla = [];
+  husCache.forEach((hus) => hus.forEach((h) => alla.push(h)));
+  return alla
+    .map((h) => ({ ...h, avstand: meter(lat, lon, h.lat, h.lon) }))
+    .filter((h) => h.avstand <= maxMeter)
+    .sort((a, b) => a.avstand - b.avstand)
+    .slice(0, max);
+}
+
 /**
  * Ett hus från kartan trycks på: adressen är redan känd, så dörren skapas
  * och öppnas direkt — säljaren fyller bara i utfallet.
@@ -289,6 +314,7 @@ async function oppnaOkantHus(h) {
     const svar = await anrop('adress-ny', {
       gata: h.gata,
       nummer: h.nummer,
+      postnummer: h.postnummer || undefined,
       postort: h.postort || (S.omraden.find((o) => o.id === S.valtOmrade) || {}).ort || '',
       omrade_id: S.valtOmrade || undefined,
       lat: h.lat,
@@ -343,6 +369,7 @@ async function oppnaNyDorr(traff, latlng) {
     const svar = await anrop('adress-ny', {
       gata: traff.gata,
       nummer: traff.nummer,
+      postnummer: traff.postnummer || undefined,
       postort: traff.postort,
       omrade_id: S.valtOmrade || undefined,
       lat: latlng.lat,
@@ -380,21 +407,43 @@ async function vidKartklick(ev) {
   if (popp) popp.remove();
   popp = new maplibregl.Popup({ offset: 12, closeButton: true }).setLngLat(latlng).setDOMContent(ruta).addTo(karta);
 
+  // Husnumren vi redan hämtat kostar ingenting och finns direkt. De frågas
+  // först; adresstjänsten är komplementet, inte tvärtom.
+  const narmast = husNara(latlng.lat, latlng.lng);
+
   let traff = null;
   try {
     traff = await adressVid(latlng.lat, latlng.lng);
   } catch (e) { /* uppslaget kan misslyckas — då får man skriva själv */ }
+  if (!popp) return;                       // rutan stängdes medan vi väntade
 
-  const skrivSjalv = (text) => {
+  // Förslagen, i tur och ordning: husnumret vi står på, grannarna vi redan
+  // ritat ut, och adresstjänstens svar. Dubbletter räknas bara en gång.
+  const forslag = [];
+  const sedda = new Set();
+  const lagg = (a, avstand) => {
+    if (!a || !a.gata || !a.nummer) return;
+    const nyckel = (a.gata + ' ' + a.nummer).toLowerCase();
+    if (sedda.has(nyckel)) return;
+    sedda.add(nyckel);
+    forslag.push({ ...a, avstand });
+  };
+
+  if (narmast[0] && narmast[0].avstand <= 12) lagg(narmast[0], narmast[0].avstand);
+  lagg(traff, null);
+  narmast.forEach((h) => lagg(h, h.avstand));
+
+  const skrivSjalv = (text, forval) => {
     const knapp = document.createElement('button');
     knapp.className = 'kartpopp-knapp ghost';
     knapp.textContent = text;
     knapp.onclick = () => {
       if (popp) popp.remove();
       manuellDorr(S.omraden, S.valtOmrade, {
-        gata: (traff && traff.gata) || '',
-        nummer: (traff && traff.nummer) || '',
-        postort: (traff && traff.postort) || '',
+        gata: (forval && forval.gata) || '',
+        nummer: (forval && forval.nummer) || '',
+        postnummer: (forval && forval.postnummer) || '',
+        postort: (forval && forval.postort) || '',
         lat: latlng.lat, lon: latlng.lng,
       });
     };
@@ -402,24 +451,62 @@ async function vidKartklick(ev) {
   };
 
   ruta.textContent = '';
-  if (traff && traff.gata && traff.nummer) {
+
+  if (forslag.length) {
+    const basta = forslag[0];
     const rubrik = document.createElement('b');
-    rubrik.textContent = traff.gata + ' ' + traff.nummer;
+    rubrik.textContent = basta.gata + ' ' + basta.nummer;
     const ort = document.createElement('div');
     ort.className = 'kartpopp-ort';
-    ort.textContent = traff.postort || '';
+    ort.textContent = [visaPostnummer(basta.postnummer), basta.postort].filter(Boolean).join(' ');
+
     const oppna = document.createElement('button');
     oppna.className = 'kartpopp-knapp';
     oppna.textContent = 'Öppna dörren';
-    oppna.onclick = () => oppnaNyDorr(traff, latlng);
-    ruta.append(rubrik, ort, oppna, skrivSjalv('Ändra adressen'));
-  } else {
-    const text = document.createElement('div');
-    text.textContent = traff && traff.gata
-      ? 'Hittade ' + traff.gata + ', men inget husnummer på den här punkten.'
-      : 'Hittade ingen adress här.';
-    ruta.append(text, skrivSjalv('Skriv in adressen'));
+    // Husets egen punkt är bättre än den man råkade träffa med tummen.
+    oppna.onclick = () => oppnaNyDorr(basta, basta.lat && basta.lon
+      ? { lat: basta.lat, lng: basta.lon } : latlng);
+    ruta.append(rubrik, ort, oppna);
+
+    // Står man mellan två hus ska man kunna peka ut vilket, inte gissa.
+    const ovriga = forslag.slice(1, 5);
+    if (ovriga.length) {
+      const rubrik2 = document.createElement('div');
+      rubrik2.className = 'kartpopp-ort';
+      rubrik2.textContent = 'Eller en granne:';
+      ruta.append(rubrik2);
+      ovriga.forEach((a) => {
+        const k = document.createElement('button');
+        k.className = 'kartpopp-knapp ghost';
+        k.textContent = a.gata + ' ' + a.nummer +
+          (a.avstand ? ' · ' + Math.round(a.avstand) + ' m' : '');
+        k.onclick = () => oppnaNyDorr(a, a.lat && a.lon ? { lat: a.lat, lng: a.lon } : latlng);
+        ruta.append(k);
+      });
+    }
+    ruta.append(skrivSjalv('Ändra adressen', basta));
+    return;
   }
+
+  // Ingen adress med husnummer. Gatan vet vi ofta ändå — då är det bara
+  // numret som saknas, och det säger vi rakt ut i stället för att hitta på ett.
+  const gatan = (traff && traff.gata) || (narmast[0] && narmast[0].gata) || '';
+  const text = document.createElement('div');
+  text.textContent = gatan
+    ? 'Hittade ' + gatan + ', men inget husnummer i kartdatan här. Fyll i numret själv.'
+    : 'Ingen adress i kartdatan här. Skriv in den själv.';
+  ruta.append(text, skrivSjalv(gatan ? 'Fyll i husnumret' : 'Skriv in adressen', {
+    gata: gatan,
+    nummer: '',
+    postnummer: (traff && traff.postnummer) || '',
+    postort: (traff && traff.postort) || '',
+  }));
+}
+
+/** "72134" visas som "721 34". */
+function visaPostnummer(p) {
+  const d = String(p || '').replace(/\D/g, '');
+  return d.length === 5 ? d.slice(0, 3) + ' ' + d.slice(3) : '';
 }
 
 let saknarKoordinat = 0;
@@ -494,6 +581,111 @@ export function rita() {
 }
 
 /** Kartan behöver ritas om när dess behållare blir synlig. */
+/* ══ Adressökning ══ */
+
+/*
+ * "Björkvägen 17" → kartan flyger dit. Vårt eget register frågas först: det
+ * är gratis, svarar direkt och innehåller de dörrar laget faktiskt jobbar
+ * med. Först när det inte räcker frågas kartans adresstjänst, och då efter
+ * en paus så att varje bokstav inte blir ett anrop.
+ */
+const SOK_PAUS = 450;
+let sokTimer = null;
+let sokKord = '';
+
+export function kopplaSok() {
+  const falt = $('adressSok');
+  const lada = $('adressTraffar');
+  if (!falt || !lada) return;
+
+  falt.addEventListener('input', () => {
+    clearTimeout(sokTimer);
+    const fraga = falt.value.trim();
+    if (fraga.length < 2) { visaTraffar([]); return; }
+    sokTimer = setTimeout(() => sok(fraga), SOK_PAUS);
+  });
+  falt.addEventListener('search', () => { if (!falt.value.trim()) visaTraffar([]); });
+  // Tryck utanför stänger listan, annars ligger den kvar över kartan.
+  document.addEventListener('click', (ev) => {
+    if (!lada.hidden && !ev.target.closest('.adressok')) visaTraffar([]);
+  });
+}
+
+async function sok(fraga) {
+  if (fraga === sokKord) return;
+  sokKord = fraga;
+
+  let egna = [];
+  try {
+    egna = ((await anrop('adress-sok', { fraga })).traffar || [])
+      .map((a) => ({ ...a, vår: true }));
+  } catch (e) { /* utan svar får kartan svara i stället */ }
+  if (fraga !== sokKord) return;               // en nyare sökning hann före
+
+  visaTraffar(egna, egna.length ? '' : 'Söker på kartan…');
+
+  // Har vi själva adressen behöver ingen extern tjänst frågas alls.
+  if (egna.some((a) => a.nummer)) return;
+
+  let franKartan = [];
+  try {
+    franKartan = await sokAdress(fraga);
+  } catch (e) { /* ingen träff är ett giltigt svar */ }
+  if (fraga !== sokKord) return;
+
+  const nyckel = (a) => (a.gata + ' ' + a.nummer).toLowerCase();
+  const sedda = new Set(egna.map(nyckel));
+  visaTraffar(egna.concat(franKartan.filter((a) => !sedda.has(nyckel(a)))));
+}
+
+function visaTraffar(traffar, vantar) {
+  const lada = $('adressTraffar');
+  if (!lada) return;
+
+  if (!traffar.length && !vantar) { lada.hidden = true; lada.innerHTML = ''; return; }
+  lada.hidden = false;
+
+  lada.innerHTML = traffar.map((a, i) =>
+    '<button class="adressok-traff" data-i="' + i + '">' +
+    '<b>' + esc([a.gata, a.nummer].filter(Boolean).join(' ')) + '</b>' +
+    '<span>' + esc([visaPostnummer(a.postnummer), a.postort].filter(Boolean).join(' ') ||
+      (a.etikett || '').split(',').slice(1, 3).join(',').trim()) +
+    (a.vår ? ' · i registret' : '') + '</span></button>').join('') +
+    (vantar ? '<div class="adressok-vantar">' + esc(vantar) + '</div>' : '');
+
+  lada.querySelectorAll('[data-i]').forEach((k) => {
+    k.onclick = () => valjTraff(traffar[+k.dataset.i]);
+  });
+}
+
+/** En träff i listan: flyg dit, och öppna dörren om det är en av våra. */
+function valjTraff(a) {
+  visaTraffar([]);
+  $('adressSok').value = [a.gata, a.nummer].filter(Boolean).join(' ');
+  $('adressSok').blur();
+  if (a.lat && a.lon) karta.easeTo({ center: [a.lon, a.lat], zoom: 18 });
+
+  if (a.vår) { oppnaDorr(a.id); return; }
+  // En adress från kartan är ingen dörr än — säljaren får välja att lägga
+  // upp den, i stället för att ett sökresultat tyst skapar en dörr.
+  if (!a.nummer) return;
+  const popp2 = new maplibregl.Popup({ offset: 12, closeButton: true })
+    .setLngLat([a.lon, a.lat]).addTo(karta);
+  const ruta = document.createElement('div');
+  ruta.className = 'kartpopp';
+  const rubrik = document.createElement('b');
+  rubrik.textContent = a.gata + ' ' + a.nummer;
+  const ort = document.createElement('div');
+  ort.className = 'kartpopp-ort';
+  ort.textContent = [visaPostnummer(a.postnummer), a.postort].filter(Boolean).join(' ');
+  const knapp = document.createElement('button');
+  knapp.className = 'kartpopp-knapp';
+  knapp.textContent = 'Öppna dörren';
+  knapp.onclick = () => { popp2.remove(); oppnaNyDorr(a, { lat: a.lat, lng: a.lon }); };
+  ruta.append(rubrik, ort, knapp);
+  popp2.setDOMContent(ruta);
+}
+
 export function visa() {
   skapa();
   if (!karta) return;

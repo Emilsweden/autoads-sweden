@@ -326,6 +326,19 @@ const kor = (env, sql, ...a) => env.DB.prepare(sql).bind(...a).run();
  * Även mellanslag och bindestreck tas bort: anteckningar skrivs "Vinkel gatan"
  * där registret har "Vinkelgatan", och det är samma dörr.
  */
+/**
+ * Postnummer lagras som fem siffror utan mellanslag, så att "721 34" och
+ * "72134" är samma sak. Är det inte fem siffror sparas ingenting alls —
+ * ett halvt postnummer är sämre än inget.
+ */
+function postnummer(v) {
+  const rensat = String(v === undefined || v === null ? '' : v).replace(/\D/g, '');
+  return rensat.length === 5 ? rensat : null;
+}
+
+/** "72134" visas som "721 34". */
+const visaPostnummer = (p) => (p && p.length === 5 ? p.slice(0, 3) + ' ' + p.slice(3) : (p || ''));
+
 function adressnyckel(gata, nummer, postort) {
   const rensa = (s) => String(s || '')
     .toLowerCase()
@@ -703,6 +716,7 @@ api['adresser-importera'] = async (env, request, body, anv) => {
     const nummer = txt(a.nummer, 20).replace(/\s+/g, ' ').trim();
     if (!gata || !nummer) continue;
     const postort = snyggText(txt(a.postort, 80));
+    const postnr = postnummer(a.postnummer);
     const nyckel = adressnyckel(gata, nummer, postort);
 
     const befintlig = await hittaAdress(env, gata, nummer, postort);
@@ -713,12 +727,17 @@ api['adresser-importera'] = async (env, request, body, anv) => {
         await kor(env, 'UPDATE adresser SET lat = COALESCE(lat, ?1), lon = COALESCE(lon, ?2) WHERE id = ?3',
           nr(a.lat, null), nr(a.lon, null), befintlig.id);
       }
+      // Postnumret fylls på om raden saknar det — men skriver aldrig över ett.
+      if (postnr) {
+        await kor(env, 'UPDATE adresser SET postnummer = COALESCE(postnummer, ?1) WHERE id = ?2',
+          postnr, befintlig.id);
+      }
       continue;
     }
     await kor(env,
-      `INSERT INTO adresser (id,omrade_id,gata,nummer,postort,nyckel,lat,lon,status,skapad)
-       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'ejbesokt',?9)`,
-      uid(), omradeId, gata, nummer, postort, nyckel,
+      `INSERT INTO adresser (id,omrade_id,gata,nummer,postnummer,postort,nyckel,lat,lon,status,skapad)
+       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'ejbesokt',?10)`,
+      uid(), omradeId, gata, nummer, postnr, postort, nyckel,
       a.lat === undefined ? null : nr(a.lat, null), a.lon === undefined ? null : nr(a.lon, null), nu);
     nya++;
   }
@@ -753,8 +772,13 @@ function putsaAdress(a) {
     omrade_id: a.omrade_id,
     gata: a.gata,
     nummer: a.nummer,
+    postnummer: a.postnummer || null,
     postort: a.postort,
     adress: a.gata + ' ' + a.nummer,
+    full_adress: a.gata + ' ' + a.nummer +
+      (a.postnummer || a.postort
+        ? ', ' + [visaPostnummer(a.postnummer), a.postort].filter(Boolean).join(' ')
+        : ''),
     lat: a.lat,
     lon: a.lon,
     status: a.status,
@@ -895,6 +919,7 @@ api['adress-ny'] = async (env, request, body, anv) => {
   const nummer = txt(body.nummer, 20).replace(/\s+/g, ' ').trim();
   if (!gata || !nummer) throw new Fel('Gata och husnummer krävs');
   const postort = snyggText(txt(body.postort, 80));
+  const postnr = postnummer(body.postnummer);
   const nyckel = adressnyckel(gata, nummer, postort);
 
   const befintlig = await hittaAdress(env, gata, nummer, postort);
@@ -911,6 +936,10 @@ api['adress-ny'] = async (env, request, body, anv) => {
     if (!befintlig.postort && postort) {
       satt.push('postort=?' + (varden.push(postort)), 'nyckel=?' + (varden.push(nyckel)));
       befintlig.postort = postort;
+    }
+    if (!befintlig.postnummer && postnr) {
+      satt.push('postnummer=?' + (varden.push(postnr)));
+      befintlig.postnummer = postnr;
     }
     if (satt.length) {
       await kor(env, 'UPDATE adresser SET ' + satt.join(', ') + ' WHERE id=?' + (varden.push(befintlig.id)), ...varden);
@@ -933,9 +962,9 @@ api['adress-ny'] = async (env, request, body, anv) => {
 
   const id = uid();
   await kor(env,
-    `INSERT INTO adresser (id,omrade_id,gata,nummer,postort,nyckel,lat,lon,status,skapad)
-     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'ejbesokt',?9)`,
-    id, omradeId, gata, nummer, postort, nyckel,
+    `INSERT INTO adresser (id,omrade_id,gata,nummer,postnummer,postort,nyckel,lat,lon,status,skapad)
+     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'ejbesokt',?10)`,
+    id, omradeId, gata, nummer, postnr, postort, nyckel,
     body.lat === undefined ? null : nr(body.lat, null),
     body.lon === undefined ? null : nr(body.lon, null), Date.now());
 
@@ -961,7 +990,8 @@ api['anteckningar-importera'] = async (env, request, body, anv) => {
     if (!gata || !nummer) { ut.push({ gata, nummer, fel: 'Gata och husnummer krävs' }); continue; }
     try {
       const { adress, fanns } = await api['adress-ny'](env, request,
-        { gata, nummer, postort: txt(r.postort, 80) || postort, omrade_id: omradeId }, anv);
+        { gata, nummer, postnummer: r.postnummer, postort: txt(r.postort, 80) || postort,
+          omrade_id: omradeId }, anv);
 
       const resultat = RESULTAT.includes(r.resultat) ? r.resultat : null;
       if (resultat) {
@@ -990,16 +1020,17 @@ api['adress-andra'] = async (env, request, body, anv) => {
   const gata = snyggText(txt(body.gata, 120)) || adress.gata;
   const nummer = txt(body.nummer, 20).replace(/\s+/g, ' ').trim() || adress.nummer;
   const postort = body.postort === undefined ? adress.postort : snyggText(txt(body.postort, 80));
+  const postnr = body.postnummer === undefined ? adress.postnummer : postnummer(body.postnummer);
   const nyckel = adressnyckel(gata, nummer, postort);
 
   const krock = await en(env, 'SELECT id FROM adresser WHERE nyckel = ?1 AND id <> ?2', nyckel, id);
   if (krock) throw new Fel('En annan dörr har redan den adressen', 409);
 
   await kor(env,
-    'UPDATE adresser SET gata=?1, nummer=?2, postort=?3, nyckel=?4, lat=?5, lon=?6 WHERE id=?7',
+    'UPDATE adresser SET gata=?1, nummer=?2, postort=?3, nyckel=?4, lat=?5, lon=?6, postnummer=?8 WHERE id=?7',
     gata, nummer, postort, nyckel,
     body.lat === undefined ? adress.lat : nr(body.lat, null),
-    body.lon === undefined ? adress.lon : nr(body.lon, null), id);
+    body.lon === undefined ? adress.lon : nr(body.lon, null), id, postnr);
 
   const uppdaterad = await en(env,
     `SELECT a.*, u.namn AS senast_namn FROM adresser a
@@ -1313,6 +1344,7 @@ api['kalender-boka'] = async (env, request, body, anv) => {
     if (!delad.gata || !delad.nummer) throw new Fel('Adress med husnummer krävs');
     const svar = await api['adress-ny'](env, request, {
       gata: delad.gata, nummer: delad.nummer,
+      postnummer: body.postnummer,
       postort: txt(body.postort, 80) || delad.postort,
       omrade_id: txt(body.omrade_id, 40),
     }, anv);
@@ -1553,6 +1585,48 @@ api['bokning-status'] = async (env, request, body, anv) => {
     anv.namn + ' ' + ord[status] + ' mötet på ' + kortAdress(rad),
     { bokning_id: id, saljare_id: bokning.saljare_id, anvandare_id: anv.id });
   return {};
+};
+
+/**
+ * Adressökning i vårt eget register: "Björkvägen 17", "Björkvägen", "72134".
+ *
+ * Ligger först i sökkedjan för att den är gratis, omedelbar och innehåller
+ * de adresser laget faktiskt jobbar med. Hittas inget här går appen vidare
+ * till kartans adresstjänst.
+ */
+api['adress-sok'] = async (env, request, body, anv) => {
+  kraverKnackare(anv);
+  const fraga = txt(body.fraga, 120);
+  if (!fraga || fraga.length < 2) return { traffar: [] };
+
+  const idn = await synligaOmradesIdn(env, anv);
+  if (!idn.length) return { traffar: [] };
+
+  // "Björkvägen 17" delas upp så att numret matchas för sig — annars skulle
+  // sökningen på hela strängen missa allt utom exakta träffar.
+  const delar = fraga.match(/^(.*?[^\d\s])\s+(\d+\s*[A-Za-zÅÄÖåäö]?)\s*$/);
+  const gatDel = (delar ? delar[1] : fraga).trim();
+  const numDel = delar ? delar[2].replace(/\s+/g, '') : '';
+  const siffror = fraga.replace(/\D/g, '');
+
+  const platshallare = idn.map((_, i) => '?' + (i + 1)).join(',');
+  const n = idn.length;
+  const rader = await alla(env,
+    `SELECT a.*, u.namn AS senast_namn FROM adresser a
+     LEFT JOIN anvandare u ON u.id = a.senast_av
+     WHERE a.omrade_id IN (${platshallare})
+       AND (a.gata LIKE ?${n + 1}
+            OR (a.gata LIKE ?${n + 2} AND a.nummer = ?${n + 3})
+            OR (?${n + 4} <> '' AND a.postnummer = ?${n + 4}))
+     ORDER BY (a.nummer = ?${n + 3}) DESC, a.gata, CAST(a.nummer AS INTEGER), a.nummer
+     LIMIT 25`,
+    ...idn,
+    numDel ? gatDel + '%' : fraga + '%',
+    gatDel + '%',
+    numDel,
+    siffror.length === 5 ? siffror : '');
+
+  return { traffar: rader.map(putsaAdress) };
 };
 
 /* ── Säljarnas tider ── */

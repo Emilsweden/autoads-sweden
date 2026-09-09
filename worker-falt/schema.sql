@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS adresser (
   omrade_id       TEXT NOT NULL,
   gata            TEXT NOT NULL,
   nummer          TEXT NOT NULL,
+  postnummer      TEXT,                              -- fem siffror, utan mellanslag
   postort         TEXT,
   nyckel          TEXT NOT NULL UNIQUE,
   lat             REAL,

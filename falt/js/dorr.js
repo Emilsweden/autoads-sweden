@@ -267,7 +267,8 @@ function visaBokning() {
 function huvudRubrik() {
   const a = aktuell.adress;
   // Hela adressen, inte bara husnumret — man ska se vilken gata man står på.
-  const hela = [a.gata, a.nummer].filter(Boolean).join(' ') + (a.postort ? ', ' + a.postort : '');
+  const svans = [visaPostnr(a.postnummer), a.postort].filter(Boolean).join(' ');
+  const hela = [a.gata, a.nummer].filter(Boolean).join(' ') + (svans ? ', ' + svans : '');
   return '<h2>' + esc(hela || a.adress) + '</h2>' +
     '<p class="sub">' + esc(STATUS_TEXT[a.status] || '') + '</p>';
 }
@@ -487,23 +488,32 @@ function visaRatta() {
     '<div class="rad2">' +
     '<div class="field"><label for="rNummer">Husnummer</label>' +
     '<input id="rNummer" type="text" value="' + esc(a.nummer || '') + '" autocomplete="off"></div>' +
+    '<div class="field"><label for="rPostnummer">Postnummer</label>' +
+    '<input id="rPostnummer" type="text" inputmode="numeric" placeholder="721 34" value="' +
+    esc(visaPostnr(a.postnummer)) + '" autocomplete="off"></div>' +
+    '</div>' +
     '<div class="field"><label for="rPostort">Postort</label>' +
     '<input id="rPostort" type="text" value="' + esc(a.postort || '') + '" autocomplete="off"></div>' +
-    '</div>' +
     '<div class="err" id="rFel"></div>' +
     '<div class="btn-rad"><button class="btn btn-ghost" id="rTillbaka">Tillbaka</button>' +
     '<button class="btn btn-primary" id="rSpara">Spara</button></div>' +
     '<button class="btn btn-ghost" id="rBort" style="margin-top:10px">Ta bort dörren</button>');
 
-  delaVidInmatning('rGata', 'rNummer', 'rPostort');
+  delaVidInmatning('rGata', 'rNummer', 'rPostort', 'rPostnummer');
 
   $('rTillbaka').onclick = () => oppna(a.id);
   $('rSpara').onclick = async () => {
     try {
+      const postnr = $('rPostnummer').value.replace(/\D/g, '');
+      if (postnr && postnr.length !== 5) {
+        $('rFel').textContent = 'Postnumret ska vara fem siffror, t.ex. 721 34.';
+        return;
+      }
       await anrop('adress-andra', {
         id: a.id,
         gata: $('rGata').value.trim(),
         nummer: $('rNummer').value.trim(),
+        postnummer: postnr,
         postort: $('rPostort').value.trim(),
       });
       toast('Adressen är rättad ✓');
@@ -526,14 +536,23 @@ function visaRatta() {
  * Delar upp en hel adress som skrivits i gatufältet, så att
  * "Sippgatan 9, 942 33 Byske" hamnar i rätt rutor i stället för allt i en.
  */
-function delaVidInmatning(gataId, nummerId, postortId) {
+function delaVidInmatning(gataId, nummerId, postortId, postnrId) {
   $(gataId).addEventListener('blur', () => {
     const delad = delaAdress($(gataId).value);
-    if (!delad.nummer && !delad.postort) return;
+    if (!delad.nummer && !delad.postort && !delad.postnummer) return;
     $(gataId).value = delad.gata;
     if (delad.nummer && !$(nummerId).value.trim()) $(nummerId).value = delad.nummer;
     if (delad.postort && !$(postortId).value.trim()) $(postortId).value = delad.postort;
+    if (postnrId && delad.postnummer && $(postnrId) && !$(postnrId).value.trim()) {
+      $(postnrId).value = visaPostnr(delad.postnummer);
+    }
   });
+}
+
+/** "72134" visas som "721 34" i fälten. */
+function visaPostnr(p) {
+  const d = String(p || '').replace(/\D/g, '');
+  return d.length === 5 ? d.slice(0, 3) + ' ' + d.slice(3) : '';
 }
 
 /**
@@ -555,14 +574,19 @@ export function manuell(omraden, valtOmrade, forval = {}) {
     '<div class="field" style="margin-top:16px"><label for="mGata">Gata</label>' +
     '<input id="mGata" type="text" placeholder="Västeråsvägen" autocomplete="off" value="' + esc(forval.gata || '') + '"></div>' +
     '<div class="rad2">' +
-    '<div class="field"><label for="mNummer">Husnummer</label><input id="mNummer" type="text" placeholder="17" autocomplete="off" value="' + esc(forval.nummer || '') + '"></div>' +
+    '<div class="field"><label for="mNummer">Husnummer</label><input id="mNummer" type="text" placeholder="17" inputmode="numeric" autocomplete="off" value="' + esc(forval.nummer || '') + '"></div>' +
+    '<div class="field"><label for="mPostnummer">Postnummer</label><input id="mPostnummer" type="text" placeholder="721 34" inputmode="numeric" autocomplete="off" value="' + esc(visaPostnr(forval.postnummer)) + '"></div>' +
+    '</div>' +
     '<div class="field"><label for="mPostort">Postort</label><input id="mPostort" type="text" placeholder="Västerås" autocomplete="off" value="' + esc(forval.postort || '') + '"></div>' +
-    '</div>' + omradesVal +
+    omradesVal +
     '<div class="err" id="mFel"></div>' +
     '<div class="btn-rad"><button class="btn btn-ghost" id="mAvbryt">Avbryt</button>' +
     '<button class="btn btn-primary" id="mNasta">Fortsätt</button></div>');
 
-  delaVidInmatning('mGata', 'mNummer', 'mPostort');
+  delaVidInmatning('mGata', 'mNummer', 'mPostort', 'mPostnummer');
+
+  // Kom man hit för att husnumret saknades ska markören stå i det fältet.
+  if (forval.gata && !forval.nummer) $('mNummer').focus();
 
   $('mAvbryt').onclick = () => stangPanel('dorr');
   $('mNasta').onclick = async () => {
@@ -572,7 +596,12 @@ export function manuell(omraden, valtOmrade, forval = {}) {
     const gata = (delad.nummer ? delad.gata : $('mGata').value).trim();
     const nummer = ($('mNummer').value || delad.nummer || '').trim();
     const postort = ($('mPostort').value || delad.postort || '').trim();
+    const postnr = ($('mPostnummer').value || delad.postnummer || '').replace(/\D/g, '');
     if (!gata || !nummer) { $('mFel').textContent = 'Fyll i gata och husnummer.'; return; }
+    if (postnr && postnr.length !== 5) {
+      $('mFel').textContent = 'Postnumret ska vara fem siffror, t.ex. 721 34.';
+      return;
+    }
 
     $('mNasta').textContent = 'Hämtar…';
     try {
@@ -581,6 +610,7 @@ export function manuell(omraden, valtOmrade, forval = {}) {
       const svar = await anrop('adress-ny', {
         gata,
         nummer,
+        postnummer: postnr || undefined,
         postort,
         omrade_id: $('mOmrade') ? $('mOmrade').value || undefined : undefined,
         ...lage,

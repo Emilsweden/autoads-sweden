@@ -531,6 +531,7 @@ $('bokFlikar').addEventListener('click', (ev) => {
   visaBokningsflik();
 });
 
+karta.kopplaSok();
 listor.kopplaLista();
 admin.koppla();
 kopplaStangning();
