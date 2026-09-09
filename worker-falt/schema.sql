@@ -108,13 +108,18 @@ CREATE TABLE IF NOT EXISTS bokningar (
 );
 CREATE INDEX IF NOT EXISTS idx_bok_datum ON bokningar(datum);
 CREATE INDEX IF NOT EXISTS idx_bok_anv ON bokningar(anvandare_id);
-CREATE INDEX IF NOT EXISTS idx_bok_saljare ON bokningar(saljare_id, datum);
 
-/* Skyddet mot dubbelbokning: en säljare kan bara ha ett möte per ruta.
-   Två säljare kan däremot ha var sitt möte samma timme. Gamla bokningar utan
-   säljare står utanför indexet — de fanns innan säljaren fanns på bokningen. */
-CREATE UNIQUE INDEX IF NOT EXISTS idx_bok_saljarslot ON bokningar(datum, tid, saljare_id)
-  WHERE tid IS NOT NULL AND tid <> '' AND saljare_id IS NOT NULL AND status <> 'avbokad';
+/* Indexen på saljare_id skapas i uppsättningen, inte här.
+   På en databas som redan finns gör CREATE TABLE IF NOT EXISTS ingenting, så
+   kolumnen saknas fortfarande när den här filen körs — ett index på den
+   avbryter hela filen med "no such column". Uppsättningen lägger till
+   kolumnen först och indexen efteråt:
+
+     idx_bok_saljare      (saljare_id, datum)
+     idx_bok_saljarslot   unikt på (datum, tid, saljare_id) — skyddet mot
+                          dubbelbokning, per säljare. Två säljare kan ha var
+                          sitt möte samma timme; samma säljare kan inte.
+                          Gamla bokningar utan säljare står utanför indexet. */
 
 /* ── Säljarnas tider ──
    Regeln: har en säljare ingen rad alls för ett datum är hela standarddagen

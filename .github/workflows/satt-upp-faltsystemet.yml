@@ -100,7 +100,8 @@ jobs:
 
       # Kolumner som tillkommit efter att databasen skapades. ALTER TABLE
       # saknar IF NOT EXISTS i SQLite, så den får misslyckas tyst när
-      # kolumnen redan finns.
+      # kolumnen redan finns. Steget måste ligga efter schema.sql (som skapar
+      # tabellen på en tom databas) och före indexen på kolumnen.
       - name: Uppdatera gamla tabeller
         continue-on-error: true
         run: |
@@ -108,6 +109,12 @@ jobs:
           npx wrangler d1 execute autoads-falt --remote --yes \
             --command "ALTER TABLE bokningar ADD COLUMN saljare_id TEXT;" \
             || echo "Kolumnen saljare_id fanns redan."
+
+          # Indexet på kolumnen kan inte ligga i schema.sql: på en databas som
+          # redan finns är CREATE TABLE IF NOT EXISTS en tom instruktion, så
+          # kolumnen skulle saknas när filen kördes.
+          npx wrangler d1 execute autoads-falt --remote --yes \
+            --command "CREATE INDEX IF NOT EXISTS idx_bok_saljare ON bokningar(saljare_id, datum);"
 
           # Det gamla indexet gällde datum + tid för hela laget och skulle nu
           # hindra två säljare från att ha var sitt möte samma timme.
