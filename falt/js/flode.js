@@ -1,8 +1,8 @@
 /**
- * Nyhetsflödet — vad som hänt i laget, beskuret efter roll av servern.
+ * Nyheter — vad som hänt, beskuret efter roll av servern.
  *
- * Mötesbokaren ser sina egna bokningar och vad de lett till, säljaren sina
- * möten, Admin Säljare det som rör säljarna, Mötesbokare+ allt.
+ * Mötesbokaren ser sina egna bokningar och vad de lett till, besiktaren sina
+ * möten, Admin Besiktare allt som rör besiktarna, Mötesbokare+ allt.
  */
 
 import { anrop } from './api.js';
@@ -32,7 +32,7 @@ export async function rita() {
     return;
   }
 
-  if (S.vy === 'bokningar') $('vySub').textContent = nyheter.length + ' händelser';
+  if (S.vy === 'nyheter') $('vySub').textContent = nyheter.length + ' händelser';
 
   ruta.innerHTML = nyheter.length
     ? '<div class="flode">' + nyheter.map((n) =>

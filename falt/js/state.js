@@ -33,7 +33,7 @@ export const kan = (formaga) => {
   return lista.includes('*') || lista.includes(formaga);
 };
 
-export const arSaljare = () => S.anvandare?.roll === 'besiktare';
+export const arBesiktare = () => S.anvandare?.roll === 'besiktare';
 
 export const adressenMed = (id) => S.adresser.find((a) => a.id === id);
 

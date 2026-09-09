@@ -1,10 +1,13 @@
 /**
- * Bokningskalendern — månadsvy, dagsvy med tidsrutor och bokning.
+ * Bokningskalendern — månadsvy, dagsvy och bokning.
  *
- * Rutorna kommer från servern (öppettider, slotlängd och vilka veckodagar
- * som går att boka) så att appen aldrig erbjuder en tid servern ändå nekar.
- * Kalendern hämtas om när vyn öppnas och var 20:e sekund medan den syns,
- * för att två säljare ska se samma lediga tider.
+ * Kalendern har inget rutnät av timmar. En tid finns för att en besiktare
+ * lagt in den, och under varje tid står de besiktare som har den, lediga
+ * eller bokade var för sig. Allt kommer från servern, så appen erbjuder
+ * aldrig en tid som ändå skulle nekas.
+ *
+ * Hämtas om när vyn öppnas och var 20:e sekund medan den syns, för att två
+ * mötesbokare ska se samma lediga tider.
  */
 
 import { anrop, ApiFel } from './api.js';
@@ -19,16 +22,16 @@ const DAGNAMN = ['mån', 'tis', 'ons', 'tors', 'fre', 'lör', 'sön'];
 const MANADER = ['januari', 'februari', 'mars', 'april', 'maj', 'juni',
   'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
 
-let inst = { oppnar: '08:00', sista: '20:00', slot: SLOT_MINUTER, dagar: [1, 2, 3, 4, 5] };
-let slottar = [];
+let inst = { tidigast: '06:00', senast: '22:00', steg: 30, langd: SLOT_MINUTER };
 let bokningar = [];
 let perDag = {};
+let ledigaPerDag = {};
 let manad = idag().slice(0, 7);
 let valdDag = null;
 let krockad = null;      // tid som just visade sig vara upptagen
 let pollTimer = null;
-let saljare = [];        // takbesiktarna möten bokas på
-let tider = {};          // datum → säljare-id → öppna tider
+let saljare = [];        // besiktarna möten bokas på
+let tider = [];          // { datum, tid, saljare_id, saljare } — det som faktiskt lagts in
 let bokare = [];         // mötesbokare, för den som bokar åt andra
 
 /* ── Datumhjälp ── */
@@ -37,7 +40,7 @@ const dagIManad = (m, d) => m + '-' + String(d).padStart(2, '0');
 const antalDagar = (m) => new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0).getDate();
 /** Veckodag 0–6 (söndag = 0), uträknat utan tidszonsberoende. */
 const veckodag = (d) => new Date(d + 'T12:00:00Z').getUTCDay();
-const arHelg = (d) => !inst.dagar.includes(veckodag(d));
+/* Helger är inte längre stängda: det är besiktaren som avgör när han jobbar. */
 const forstaVeckodag = (m) => (veckodag(m + '-01') + 6) % 7;   // 0 = måndag
 
 function bytManad(steg) {
@@ -56,11 +59,11 @@ async function hamta(tyst) {
   try {
     const data = await anrop('kalender', { fran, till });
     inst = data.installningar || inst;
-    slottar = data.slottar || [];
     bokningar = data.bokningar || [];
     perDag = data.per_dag || {};
+    ledigaPerDag = data.lediga_per_dag || {};
     saljare = data.saljare || [];
-    tider = data.tider || {};
+    tider = data.tider || [];
     rita();
   } catch (e) {
     if (!tyst) $('kalenderInnehall').innerHTML =
@@ -98,22 +101,29 @@ function manadsHtml() {
   for (let d = 1; d <= dagar; d++) {
     const dat = dagIManad(manad, d);
     const antal = perDag[dat] || 0;
-    rutor += '<button class="kal-dag' + (arHelg(dat) ? ' helg' : '') +
-      (dat === nu ? ' idag' : '') + (dat < nu ? ' passerad' : '') + '" data-dag="' + dat + '">' +
+    const lediga = ledigaPerDag[dat] || 0;
+    rutor += '<button class="kal-dag' +
+      (dat === nu ? ' idag' : '') + (dat < nu ? ' passerad' : '') +
+      (!antal && !lediga ? ' tom' : '') + '" data-dag="' + dat + '">' +
       '<span class="kal-siffra">' + d + '</span>' +
+      (lediga ? '<span class="kal-ledig">' + lediga + '</span>' : '') +
       (antal ? '<span class="kal-antal">' + antal + '</span>' : '') + '</button>';
   }
 
   const rubrik = MANADER[Number(manad.slice(5, 7)) - 1] + ' ' + manad.slice(0, 4);
   const bokade = Object.values(perDag).reduce((a, b) => a + b, 0);
+  const fria = Object.values(ledigaPerDag).reduce((a, b) => a + b, 0);
 
   return '<div class="kal-topp">' +
     '<button class="kal-pil" id="kalBak" aria-label="Föregående månad">‹</button>' +
-    '<div class="kal-rubrik">' + esc(rubrik) + '<span>' + bokade + ' bokningar</span></div>' +
+    '<div class="kal-rubrik">' + esc(rubrik) +
+    '<span>' + fria + ' lediga · ' + bokade + ' bokade</span></div>' +
     '<button class="kal-pil" id="kalFram" aria-label="Nästa månad">›</button></div>' +
     '<div class="kal-veckodagar">' + DAGNAMN.map((d) => '<span>' + d + '</span>').join('') + '</div>' +
     '<div class="kal-rutnat">' + rutor + '</div>' +
-    '<p class="karttips">Tryck på en dag för att se tiderna. Helger går inte att boka.</p>';
+    '<p class="karttips">Tryck på en dag för att se tiderna. ' +
+    'Grön siffra är lediga tider, svart är bokade möten. ' +
+    'En dag utan siffror har ingen besiktare lagt in någon tid på.</p>';
 }
 
 /* ── Dagsvy ── */
@@ -123,61 +133,73 @@ function manadsHtml() {
  * En säljare som lagt in sina tider syns bara på dem; en som inte rört sin
  * kalender är ledig hela standarddagen, som förut.
  */
+/**
+ * Dagsvyn. Bara tider som någon besiktare faktiskt lagt in finns — en dag
+ * ingen fyllt är tom, och timmarna däremellan visas inte alls.
+ *
+ * Under varje tid står besiktarna som har den, med ledig eller bokad var för
+ * sig: att Karl är bokad 16:00 säger ingenting om Hugos 16:00.
+ */
 function dagsHtml() {
   const dat = valdDag;
   const rubrik = visaDatum(dat);
   const bokDag = bokningar.filter((b) => b.datum === dat);
+  const inlagda = tider.filter((t) => t.datum === dat);
 
-  if (arHelg(dat)) {
-    return dagsTopp(rubrik) +
-      '<div class="tom">Helg — inga bokningsbara tider.<br>Tider bokas ' +
-      esc(inst.oppnar) + '–' + esc(inst.sista) + ', måndag till fredag.</div>';
-  }
-
-  // Laget den här dagen: säljarna, plus "Ej tilldelad" om det finns gamla
-  // bokningar utan säljare.
-  const lag = saljare.slice();
-  if (bokDag.some((b) => !b.saljare_id) || !lag.length) {
-    lag.push({ id: '', namn: saljare.length ? 'Ej tilldelad' : 'Besiktning' });
-  }
-
-  const oppna = tider[dat] || {};
-  const arOppen = (sid, tid) => {
-    const lista = oppna[sid];
-    // Utan besked från servern gäller standarddagen — annars skulle en
-    // långsam hämtning se ut som att ingen är ledig.
-    return lista ? lista.includes(tid) : slottar.includes(tid);
+  // Varje tid som finns: inlagd av någon, eller upptagen av ett möte.
+  const tidsrader = new Map();
+  const raden = (tid) => {
+    if (!tidsrader.has(tid)) tidsrader.set(tid, new Map());
+    return tidsrader.get(tid);
   };
+  inlagda.forEach((t) => {
+    raden(t.tid).set(t.saljare_id, { id: t.saljare_id, namn: t.saljare, bokningar: [] });
+  });
+  bokDag.forEach((b) => {
+    if (!b.tid) return;
+    const rad = raden(b.tid);
+    const id = b.saljare_id || '';
+    if (!rad.has(id)) {
+      rad.set(id, { id, namn: b.saljare || 'Ej tilldelad', bokningar: [] });
+    }
+    rad.get(id).bokningar.push(b);
+  });
 
-  const allaTider = new Set(slottar);
-  bokDag.forEach((b) => { if (b.tid) allaTider.add(b.tid); });
+  if (!tidsrader.size) {
+    return dagsTopp(rubrik) +
+      '<div class="tom">Ingen besiktare har lagt in någon tid den här dagen.' +
+      (kan('styr_tider') || kan('eget_schema')
+        ? '<br>Lägg in tider under Bokningar → ' +
+          (kan('styr_tider') ? 'Besiktarnas tider' : 'Mina tider') + '.'
+        : '') + '</div>';
+  }
 
-  const rader = [...allaTider].sort().map((tid) => {
-    const rutor = lag.map((sa) => {
-      const pa = bokDag.filter((b) => b.tid === tid && (b.saljare_id || '') === sa.id);
-      if (pa.length) return bokadRuta(tid, sa, pa);
-      if (!arOppen(sa.id, tid)) return '';
-      return ledigRuta(tid, sa);
-    }).filter(Boolean).join('');
-    return rutor;
+  const rader = [...tidsrader.keys()].sort().map((tid) => {
+    const personer = [...tidsrader.get(tid).values()]
+      .sort((a, b) => (a.namn || '').localeCompare(b.namn || '', 'sv'));
+    const lediga = personer.filter((p) => !p.bokningar.length).length;
+
+    return '<div class="tidblock' + (krockad === tid ? ' krock' : '') + '">' +
+      '<div class="tidblock-topp"><b>' + esc(tid) + '</b>' +
+      '<span>' + (lediga ? lediga + ' ledig' + (lediga > 1 ? 'a' : '') : 'alla bokade') +
+      ' av ' + personer.length + '</span></div>' +
+      personer.map((p) => (p.bokningar.length ? bokadRuta(tid, p) : ledigRuta(tid, p))).join('') +
+      '</div>';
   }).join('');
 
-  return dagsTopp(rubrik) +
-    (rader
-      ? '<div class="slotlista">' + rader + '</div>'
-      : '<div class="tom">Ingen säljare har lediga tider den här dagen.</div>');
+  return dagsTopp(rubrik) + '<div class="slotlista">' + rader + '</div>';
 }
 
-function bokadRuta(tid, sa, pa) {
-  return '<div class="slot bokad' + (krockad === tid ? ' krock' : '') +
-    (pa.length > 1 ? ' dubbel' : '') + '" data-tid="' + esc(tid) + '" data-saljare="' + esc(sa.id) + '">' +
-    '<span class="slot-tid">' + esc(tid) + '</span>' +
+/** En besiktare som är bokad på tiden. */
+function bokadRuta(tid, p) {
+  return '<div class="slot bokad' + (p.bokningar.length > 1 ? ' dubbel' : '') +
+    '" data-tid="' + esc(tid) + '" data-saljare="' + esc(p.id) + '">' +
+    '<span class="slot-namn">' + esc(p.namn) + '</span>' +
     '<span class="slot-innehall">' +
-    '<span class="slot-etikett">' + esc(sa.namn) + ' · UPPTAGEN' +
-    (pa.length > 1 ? ' · ' + pa.length + ' BOKNINGAR PÅ SAMMA TID' : '') + '</span>' +
-    pa.map((b) => '<span class="slot-bokning"><b>' +
-      esc(b.min ? (b.kund || 'Bokad') : 'Bokad tid') +
-      (krockad === tid && pa.length === 1 ? ' — upptogs precis' : '') + '</b>' +
+    '<span class="slot-etikett">BOKAD' +
+    (p.bokningar.length > 1 ? ' · ' + p.bokningar.length + ' PÅ SAMMA TID' : '') + '</span>' +
+    p.bokningar.map((b) => '<span class="slot-bokning"><b>' +
+      esc(b.min ? (b.kund || 'Bokad') : 'Bokad tid') + '</b>' +
       (b.adress ? '<span>' + esc(b.adress) + '</span>' : '') +
       (b.telefon ? '<span>' + esc(b.telefon) + '</span>' : '') +
       '<span class="slot-saljare">Bokad av ' + esc(b.bokare || '—') + '</span>' +
@@ -187,14 +209,12 @@ function bokadRuta(tid, sa, pa) {
     '</span></div>';
 }
 
-function ledigRuta(tid, sa) {
-  const bokbar = kan('boka');
-  const inre = '<span class="slot-tid">' + esc(tid) + '</span>' +
-    '<span class="slot-innehall"><span class="slot-etikett">' + esc(sa.namn) + ' · ' +
-    (krockad === tid ? 'UPPTAGEN — VÄLJ EN ANNAN' : 'LEDIG') + '</span></span>';
-  if (!bokbar) return '<div class="slot ledig">' + inre + '</div>';
-  return '<button class="slot ledig' + (krockad === tid ? ' krock' : '') +
-    '" data-boka="' + esc(tid) + '" data-saljare="' + esc(sa.id) + '">' +
+/** En besiktare som är ledig på tiden. */
+function ledigRuta(tid, p) {
+  const inre = '<span class="slot-namn">' + esc(p.namn) + '</span>' +
+    '<span class="slot-innehall"><span class="slot-etikett">LEDIG</span></span>';
+  if (!kan('boka')) return '<div class="slot ledig">' + inre + '</div>';
+  return '<button class="slot ledig" data-boka="' + esc(tid) + '" data-saljare="' + esc(p.id) + '">' +
     inre + '<span class="slot-plus">+</span></button>';
 }
 
@@ -241,16 +261,18 @@ export function rita() {
 /* ── Boka och avboka ── */
 
 function visaBokningsformular(tid, saljareId) {
-  // Säljarna som är lediga just den tiden — mötet läggs på en av dem.
-  const oppna = (tider[valdDag] || {});
-  const lediga = saljare.filter((s) =>
-    (oppna[s.id] ? oppna[s.id].includes(tid) : true) &&
-    !bokningar.some((b) => b.datum === valdDag && b.tid === tid && b.saljare_id === s.id));
+  // Besiktarna som lagt in just den tiden och inte redan är bokade på den.
+  // Mötet läggs på en av dem, och det är mötesbokaren som väljer vem.
+  const lediga = tider
+    .filter((t) => t.datum === valdDag && t.tid === tid &&
+      !bokningar.some((b) => b.datum === valdDag && b.tid === tid && b.saljare_id === t.saljare_id))
+    .map((t) => ({ id: t.saljare_id, namn: t.saljare }))
+    .sort((a, b) => a.namn.localeCompare(b.namn, 'sv'));
 
   const saljarVal = lediga.length > 1
-    ? '<div class="field"><label for="kSaljare">Säljare</label><select id="kSaljare">' +
+    ? '<div class="field"><label for="kSaljare">Välj besiktare</label><select id="kSaljare">' +
       lediga.map((s) => '<option value="' + esc(s.id) + '"' +
-        (s.id === saljareId ? ' selected' : '') + '>' + esc(s.namn) + '</option>').join('') +
+        (s.id === saljareId ? ' selected' : '') + '>' + esc(s.namn) + ' – ledig</option>').join('') +
       '</select></div>'
     : lediga.length === 1
       ? '<input type="hidden" id="kSaljare" value="' + esc(lediga[0].id) + '">'
@@ -266,8 +288,11 @@ function visaBokningsformular(tid, saljareId) {
 
   oppnaPanel('modal',
     '<h2>' + esc(visaDatum(valdDag)) + ' kl. ' + esc(tid) + '</h2>' +
-    '<p class="sub">' + (vald ? esc(vald.namn) + ' tar mötet. ' : '') +
-    'Tiden reserveras så fort du sparar.</p>' +
+    '<p class="sub">' +
+    (lediga.length > 1
+      ? esc(String(lediga.length)) + ' besiktare är lediga den tiden — välj vem som tar mötet.'
+      : vald ? esc(vald.namn) + ' tar mötet.' : 'Ingen besiktare är ledig den tiden.') +
+    '</p>' +
     '<div class="rad2" style="margin-top:14px">' +
     '<div class="field"><label for="kFornamn">Förnamn</label><input id="kFornamn" type="text" autocomplete="given-name"></div>' +
     '<div class="field"><label for="kEfternamn">Efternamn</label><input id="kEfternamn" type="text" autocomplete="family-name"></div>' +
@@ -337,32 +362,29 @@ async function avboka(id) {
 /* ── Lediga tider för dörrpanelen ── */
 
 /**
- * Vilka tider är lediga en viss dag? Används när ett knack blir en bokning,
- * så att säljaren väljer tid direkt vid dörren.
+ * Vilka tider är lediga en viss dag, och vilka besiktare har dem?
+ * Används när ett knack blir en bokning, så att mötesbokaren väljer tid och
+ * besiktare direkt vid dörren — ur samma tider som kalendern visar.
  */
 export async function ledigaTider(dat) {
   const data = await anrop('kalender', { fran: dat, till: dat });
   inst = data.installningar || inst;
-  const lag = data.saljare || [];
-  const oppna = (data.tider || {})[dat] || {};
   const bokade = (data.bokningar || []).filter((b) => b.datum === dat);
 
-  // En tid är ledig så länge någon säljare är ledig då. Vilken säljare det
-  // blir avgörs i formuläret, av samma lista.
+  // En tid är ledig så länge någon besiktare har lagt in den och inte är
+  // bokad på den. Vem som tar mötet väljs sedan i formuläret.
   const fria = {};
-  (data.slottar || []).forEach((t) => {
-    const kan = lag.filter((s) =>
-      (oppna[s.id] ? oppna[s.id].includes(t) : true) &&
-      !bokade.some((b) => b.tid === t && b.saljare_id === s.id));
-    if (lag.length ? kan.length : !bokade.some((b) => b.tid === t)) fria[t] = kan;
+  (data.tider || []).filter((t) => t.datum === dat).forEach((t) => {
+    const upptagen = bokade.some((b) => b.tid === t.tid && b.saljare_id === t.saljare_id);
+    if (upptagen) return;
+    if (!fria[t.tid]) fria[t.tid] = [];
+    fria[t.tid].push({ id: t.saljare_id, namn: t.saljare });
   });
+  Object.values(fria).forEach((lista) => lista.sort((a, b) => a.namn.localeCompare(b.namn, 'sv')));
 
   return {
-    helg: !(data.installningar || inst).dagar.includes(veckodag(dat)),
     tider: Object.keys(fria).sort(),
     saljarePer: fria,
-    saljare: lag,
-    oppnar: (data.installningar || inst).oppnar,
-    sista: (data.installningar || inst).sista,
+    saljare: data.saljare || [],
   };
 }

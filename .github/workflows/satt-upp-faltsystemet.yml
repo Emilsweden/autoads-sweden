@@ -161,6 +161,24 @@ jobs:
           fi
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
+      # E-post till besiktaren när han får en bokning. Frivilligt: saknas
+      # hemligheterna skickas inga brev, och allt annat fungerar ändå.
+      # Ligger efter publiceringen — wrangler kan inte sätta en hemlighet på
+      # en worker som inte finns.
+      - name: Koppla e-postutskick
+        env:
+          EPOST_NYCKEL: ${{ secrets.EPOST_NYCKEL }}
+          EPOST_AVSANDARE: ${{ secrets.EPOST_AVSANDARE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EPOST_NYCKEL:-}" ] || [ -z "${EPOST_AVSANDARE:-}" ]; then
+            echo "EPOST_NYCKEL/EPOST_AVSANDARE är inte satta — inga bokningsmejl skickas."
+            exit 0
+          fi
+          printf '%s' "$EPOST_NYCKEL" | npx wrangler secret put EPOST_NYCKEL
+          printf '%s' "$EPOST_AVSANDARE" | npx wrangler secret put EPOST_AVSANDARE
+          echo "E-postutskicket är kopplat."
+
       - name: Skapa den första administratören
         env:
           ADMIN_LOSENORD: ${{ secrets.ADMIN_LOSENORD }}

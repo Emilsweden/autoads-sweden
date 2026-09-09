@@ -690,3 +690,47 @@ a.btn { display: grid; place-items: center; text-decoration: none; }
 .adressok-traff b { font-weight: 600; }
 .adressok-traff span { font-size: 12px; color: var(--dim); }
 .adressok-vantar { padding: 9px 12px; font-size: 12px; color: var(--dim); }
+
+/* ── Kalenderns tidblock: en tid, besiktarna under ── */
+
+.tidblock {
+  border: 1px solid var(--linje);
+  border-radius: var(--rund);
+  background: var(--kort);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.tidblock-topp {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 9px 12px;
+  background: var(--bakgrund);
+  border-bottom: 1px solid var(--linje);
+}
+.tidblock-topp b { font-size: 17px; font-weight: 700; }
+.tidblock-topp span { font-size: 12px; color: var(--dim); }
+.tidblock.krock { box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* Inuti ett tidblock ligger raderna kant i kant. */
+.tidblock .slot {
+  border: 0; border-bottom: 1px solid var(--linje);
+  border-radius: 0; margin: 0; width: 100%;
+}
+.tidblock .slot:last-child { border-bottom: 0; }
+.slot-namn {
+  flex: 0 0 auto; max-width: 45%;
+  font-size: 14px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tidblock .slot.ledig .slot-etikett { color: #1a7f37; }
+.tidblock .slot.ledig { border-left: 3px solid #1a7f37; }
+.tidblock .slot.bokad { border-left: 3px solid #0d0d0d; }
+
+/* Månadsvyns gröna siffra = lediga tider den dagen. */
+.kal-ledig {
+  display: inline-block; min-width: 16px;
+  font-size: 11px; font-weight: 700; color: #1a7f37;
+}
+.kal-dag.tom .kal-siffra { color: var(--muted); }
+
+/* Välj besiktare vid dörren. */
+.besiktarval { margin-bottom: 4px; }

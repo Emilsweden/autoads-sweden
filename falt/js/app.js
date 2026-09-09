@@ -21,19 +21,23 @@ const IKONER = {
     '<path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
   bokningar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
   dashboard: '<path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/>',
+  nyheter: '<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Z"/>' +
+    '<path d="M18 14h-8M15 18h-5M10 6h8v4h-8V6Z"/>',
   admin: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H1a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 2.6 7a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H7a1.7 1.7 0 0 0 1-1.5V1a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V7a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
 };
 
 /* Ordningen är den i bottenmenyn. Admin ligger inte där — den nås via
-   profilen, så att fältvyerna får hela bredden. */
+   profilen, så att fältvyerna får hela bredden. Översikten är tills vidare
+   borta ur menyn och har lämnat plats åt Nyheter; koden står kvar. */
 const VYER = {
   karta: 'Karta',
   bokningar: 'Bokningar',
   lista: 'Kunder',
+  nyheter: 'Nyheter',
   dashboard: 'Översikt',
   admin: 'Admin',
 };
-const NAVVYER = ['karta', 'bokningar', 'lista', 'dashboard'];
+const NAVVYER = ['karta', 'bokningar', 'lista', 'nyheter'];
 
 let dashTimer = null;
 
@@ -42,7 +46,7 @@ let dashTimer = null;
 function ritaNav() {
   // Den som inte knackar dörrar har ingen karta, inget register och ingen
   // topplista — bara bokningarna. Servern säger samma sak.
-  const vyer = kan('knacka') ? NAVVYER : ['bokningar'];
+  const vyer = kan('knacka') ? NAVVYER : ['bokningar', 'nyheter'];
   $('botten').innerHTML = vyer.map((v) =>
     '<button data-vy="' + v + '" class="' + (v === S.vy ? 'aktiv' : '') + '">' +
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
@@ -65,6 +69,7 @@ export function visaVy(vy) {
   if (vy === 'karta') karta.visa();
   if (vy === 'lista') listor.ritaLista();
   if (vy === 'bokningar') visaBokningsflik();
+  if (vy === 'nyheter') flode.rita();
   if (vy === 'admin') admin.rita();
   if (vy === 'dashboard') {
     dashboard.rita();
@@ -85,9 +90,8 @@ function bokFlikar() {
   const flikar = [['kalender', 'Kalender'], ['bokade', saljare ? 'Mina möten' : 'Bokade adresser']];
   if (kan('knacka')) flikar.push(['lista', 'Lista']);
   if (kan('styr_tider') || kan('eget_schema')) {
-    flikar.push(['tider', kan('styr_tider') ? 'Säljarnas tider' : 'Mina tider']);
+    flikar.push(['tider', kan('styr_tider') ? 'Besiktarnas tider' : 'Mina tider']);
   }
-  flikar.push(['flode', 'Flöde']);
   return flikar;
 }
 
@@ -106,13 +110,11 @@ function visaBokningsflik() {
   $('bokadeInnehall').hidden = bokFlik !== 'bokade';
   $('bokningsLista').hidden = bokFlik !== 'lista';
   $('tiderInnehall').hidden = bokFlik !== 'tider';
-  $('flodeInnehall').hidden = bokFlik !== 'flode';
 
   if (bokFlik === 'kalender') { kalender.starta(); return; }
   kalender.stoppa();
   if (bokFlik === 'bokade') bokade.rita();
   else if (bokFlik === 'tider') tider.rita();
-  else if (bokFlik === 'flode') flode.rita();
   else listor.ritaBokningar();
 }
 
@@ -156,10 +158,11 @@ async function kollaPuls() {
 
 /** Hämtar om det som faktiskt syns — inte allt. */
 function uppdateraSynligt() {
-  if (S.vy === 'bokningar') {
+  if (S.vy === 'nyheter') {
+    flode.rita();
+  } else if (S.vy === 'bokningar') {
     if (bokFlik === 'bokade') bokade.rita();
     else if (bokFlik === 'tider') tider.rita();
-    else if (bokFlik === 'flode') flode.rita();
     else if (bokFlik === 'lista') listor.ritaBokningar();
     // Kalendern har en egen hämtning som redan går medan den syns.
   } else if (S.vy === 'karta' || S.vy === 'lista') {
@@ -485,7 +488,7 @@ async function start() {
   // servern säger nej till dem, så appen frågar inte heller efter dem.
   if (!kan('knacka')) {
     bokFlik = S.anvandare.roll === 'besiktare' ? 'bokade' : 'kalender';
-    visaVy('bokningar');
+    visaVy('nyheter');
     startaPuls();
     skickaKo();
     return;

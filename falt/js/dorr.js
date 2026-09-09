@@ -202,8 +202,13 @@ function visaBokning() {
     try {
       const svar = await ledigaTider($('bDatum').value);
       ledigaPer = svar.saljarePer || {};
-      if (svar.helg) { ruta.innerHTML = '<span class="sub">Helg — besiktningar bokas måndag till fredag.</span>'; return; }
-      if (!svar.tider.length) { ruta.innerHTML = '<span class="sub">Alla tider är bokade den dagen.</span>'; return; }
+      if (!svar.tider.length) {
+        ruta.innerHTML = '<span class="sub">' +
+          (svar.saljare && svar.saljare.length
+            ? 'Ingen besiktare har någon ledig tid den dagen.'
+            : 'Ingen besiktare är upplagd än.') + '</span>';
+        return;
+      }
       ruta.innerHTML = svar.tider.map((t) =>
         '<button class="chip" data-tid="' + esc(t) + '">' + esc(t) + '</button>').join('');
       ruta.querySelectorAll('[data-tid]').forEach((b) => {
@@ -218,20 +223,31 @@ function visaBokning() {
     }
   }
 
-  /** Vilken säljare mötet läggs på, när fler än en är ledig just då. */
+  /**
+   * Steget "Välj besiktare": alla som lagt in just den tiden och är lediga
+   * visas, och mötesbokaren pekar ut vem som ska ta mötet.
+   */
   function visaSaljarval() {
     const lediga = ledigaPer[valdTid] || [];
     valdSaljare = lediga.length ? lediga[0].id : '';
-    if (lediga.length < 2) {
-      $('bSaljarRad').innerHTML = lediga.length === 1
-        ? '<p class="sub">Mötet läggs på ' + esc(lediga[0].namn) + '.</p>' : '';
+    if (!lediga.length) { $('bSaljarRad').innerHTML = ''; return; }
+    if (lediga.length === 1) {
+      $('bSaljarRad').innerHTML =
+        '<h3>Besiktare</h3><p class="sub">' + esc(lediga[0].namn) + ' är ledig ' +
+        esc(valdTid) + ' och tar mötet.</p>';
       return;
     }
-    $('bSaljarRad').innerHTML =
-      '<div class="field"><label for="bSaljare">Säljare</label><select id="bSaljare">' +
-      lediga.map((s) => '<option value="' + esc(s.id) + '">' + esc(s.namn) + '</option>').join('') +
-      '</select></div>';
-    $('bSaljare').onchange = () => { valdSaljare = $('bSaljare').value; };
+    $('bSaljarRad').innerHTML = '<h3>Välj besiktare</h3>' +
+      '<div class="chips besiktarval">' +
+      lediga.map((s, i) => '<button class="chip' + (i === 0 ? ' vald' : '') +
+        '" data-bes="' + esc(s.id) + '">' + esc(s.namn) + ' – ledig</button>').join('') +
+      '</div>';
+    $('bSaljarRad').querySelectorAll('[data-bes]').forEach((b) => {
+      b.onclick = () => {
+        valdSaljare = b.dataset.bes;
+        $('bSaljarRad').querySelectorAll('.chip').forEach((x) => x.classList.toggle('vald', x === b));
+      };
+    });
   }
 
   panel.querySelectorAll('#bokChips .chip').forEach((b) => {
@@ -247,6 +263,7 @@ function visaBokning() {
     if (!fornamn || !telefon) { $('bFel').textContent = 'Förnamn och mobilnummer krävs.'; return; }
     if (!$('bDatum').value) { $('bFel').textContent = 'Välj datum för besiktningen.'; return; }
     if (!valdTid) { $('bFel').textContent = 'Välj en ledig tid.'; return; }
+    if (!valdSaljare) { $('bFel').textContent = 'Välj vilken besiktare som ska ta mötet.'; return; }
     skicka('bokat', {
       fornamn,
       efternamn: $('bEfternamn').value.trim(),

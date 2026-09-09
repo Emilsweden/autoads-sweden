@@ -1,9 +1,9 @@
 /**
- * Säljarnas tider — vilka timmar varje takbesiktare tar möten.
+ * Besiktarnas tider — vilka klockslag var och en faktiskt tar möten.
  *
- * Regeln är serverns: har en säljare inte lagt in något för en dag är hela
- * standarddagen ledig. Lägger han in tider gäller bara de. Säljaren styr sin
- * egen dag; Admin Säljare och Mötesbokare+ styr allas.
+ * En dag är tom tills någon lägger in en tid. Det som står här är hela
+ * kalendern: mötesbokarna kan bara boka tider som finns här. Besiktaren styr
+ * sin egen dag; Admin Besiktare och Mötesbokare+ styr allas.
  */
 
 import { anrop } from './api.js';
@@ -29,8 +29,8 @@ export async function rita() {
   const lag = data.saljare || [];
   if (!lag.length) {
     ruta.innerHTML = topp() +
-      '<div class="tom">Ingen säljare är upplagd än. En säljare läggs upp under ' +
-      'Admin → Användare med rollen Säljare.</div>';
+      '<div class="tom">Ingen besiktare är upplagd än. Ett konto läggs upp under ' +
+      'Admin → Användare med rollen Besiktare.</div>';
     kopplaTopp();
     return;
   }
@@ -43,7 +43,6 @@ export async function rita() {
   const oppna = (data.tider[dag] || {})[valdSaljare] || [];
   const bokade = (data.bokat[dag] || {})[valdSaljare] || [];
   const rorbar = data.far_styra || (egen && egen === valdSaljare);
-  const standard = !oppna.length || oppna.length === (data.slottar || []).length;
 
   ruta.innerHTML = topp() +
     (egen ? '' : '<div class="filterrad"><select id="tSaljare" class="valj">' +
@@ -52,29 +51,36 @@ export async function rita() {
       '</select></div>') +
     '<p class="karttips">' +
     (rorbar
-      ? 'Tryck på en timme för att öppna eller stänga den. ' +
-        (standard ? 'Inget är inlagt för dagen, så hela dagen är öppen.' : '')
+      ? 'Tryck på ett klockslag för att lägga till eller ta bort det. ' +
+        (oppna.length
+          ? oppna.length + ' tid' + (oppna.length > 1 ? 'er' : '') + ' inlagda — det är dessa ' +
+            'mötesbokarna kan boka.'
+          : 'Dagen är tom: ingen kan boka något förrän du lagt in en tid.')
       : 'Du kan se tiderna men inte ändra dem.') +
     '</p>' +
     '<div class="tidrutnat">' +
-    (data.slottar || []).map((t) => {
+    (data.mojliga_tider || []).map((t) => {
       const bokad = bokade.includes(t);
       const oppen = oppna.includes(t);
       return '<button class="tidruta' + (bokad ? ' bokad' : oppen ? ' ledig' : ' stangd') + '"' +
         (rorbar && !bokad ? ' data-tid="' + esc(t) + '"' : ' disabled') + '>' +
-        esc(t) + '<span>' + (bokad ? 'Möte' : oppen ? 'Ledig' : 'Stängd') + '</span></button>';
+        esc(t) + '<span>' + (bokad ? 'Möte' : oppen ? 'Ledig' : '—') + '</span></button>';
     }).join('') +
     '</div>' +
     (rorbar ? '<div class="listverktyg">' +
-      '<button class="knapp-mork" id="tAlla">Öppna hela dagen</button>' +
-      '<button class="knapp-mork" id="tInga">Stäng hela dagen</button></div>' : '');
+      '<button class="knapp-mork" id="tKontor">Lägg in 08–17</button>' +
+      '<button class="knapp-mork" id="tInga">Töm dagen</button></div>' : '');
 
   kopplaTopp();
   if ($('tSaljare')) $('tSaljare').onchange = () => { valdSaljare = $('tSaljare').value; rita(); };
   ruta.querySelectorAll('[data-tid]').forEach((k) => {
     k.onclick = () => vaxla(k.dataset.tid, oppna);
   });
-  if ($('tAlla')) $('tAlla').onclick = () => spara(null);
+  // En vanlig arbetsdag med ett tryck, i stället för nio.
+  if ($('tKontor')) {
+    $('tKontor').onclick = () => spara(
+      (data.mojliga_tider || []).filter((t) => t >= '08:00' && t <= '17:00' && t.endsWith(':00')));
+  }
   if ($('tInga')) $('tInga').onclick = () => spara([]);
 }
 
@@ -95,11 +101,11 @@ function vaxla(tid, oppna) {
   spara(nya);
 }
 
-/** `null` betyder "ta bort raderna" — då gäller standarddagen igen. */
+/** Hela dagens tider skickas på en gång; en tom lista tömmer dagen. */
 async function spara(tider) {
   try {
     await anrop('saljartider-spara', { saljare_id: valdSaljare, datum: dag, tider });
-    toast('Tiderna är sparade');
+    toast(tider.length ? 'Tiderna är sparade' : 'Dagen är tömd');
     await rita();
   } catch (e) {
     toast(e.message);

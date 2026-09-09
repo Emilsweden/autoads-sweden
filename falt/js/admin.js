@@ -9,12 +9,16 @@ import { husnummerPaGata } from './geo.js';
 const ROLLNAMN = {
   saljare: 'Mötesbokare',
   bokare_plus: 'Mötesbokare+',
-  besiktare: 'Säljare',
-  saljadmin: 'Admin Säljare',
+  besiktare: 'Besiktare',
+  saljadmin: 'Admin Besiktare',
   teamleader: 'Teamleader',
   admin: 'Admin',
 };
 const ROLLORDNING = ['saljare', 'bokare_plus', 'besiktare', 'saljadmin', 'teamleader', 'admin'];
+
+/** Rollerna Mötesbokare+ får lägga upp. Servern har samma lista. */
+const BOKARE_PLUS_ROLLER = ['saljare', 'bokare_plus', 'besiktare', 'saljadmin'];
+const mojligaRoller = () => (arRoll('admin') ? ROLLORDNING : BOKARE_PLUS_ROLLER);
 
 let flik = 'omraden';
 let omradesData = [];
@@ -338,23 +342,24 @@ function importFormular(o) {
 function ritaAnvandare() {
   const roller = ROLLNAMN;
   const andraAlla = arRoll('admin');
-  const barBokare = !andraAlla && kan('skapa_bokare');
+  const farSkapa = kan('skapa_konton');
+  const farRora = (a) => andraAlla || (farSkapa && BOKARE_PLUS_ROLLER.includes(a.roll));
 
-  return (barBokare
-    ? '<p class="karttips">Du lägger upp och sköter mötesbokarna. Övriga konton ' +
-      'ändras av administratören.</p>' : '') +
+  return (farSkapa && !andraAlla
+    ? '<p class="karttips">Du lägger upp och sköter lagets konton — mötesbokare, ' +
+      'besiktare, Admin Besiktare och Mötesbokare+. Administratörskonton sköts ' +
+      'av en administratör.</p>' : '') +
     '<div class="lista">' + anvandarData.map((a) =>
     '<div class="kort ' + (a.aktiv ? 's-bokat' : 's-nej') + '">' +
     '<div class="kort-topp"><div>' +
     '<div class="adress">' + esc(a.namn) + '</div>' +
     '<div class="under">' + esc(a.epost) + (a.team ? ' · ' + esc(a.team) : '') + '</div>' +
     '</div><span class="märke m-' + (a.aktiv ? 'bokat' : 'nej') + '">' + esc(roller[a.roll] || a.roll) + '</span></div>' +
-    (andraAlla || (barBokare && a.roll === 'saljare')
+    (farRora(a)
       ? '<div class="chips"><button class="chip" data-anv="' + esc(a.id) + '">Ändra</button></div>' : '') +
     '</div>').join('') + '</div>' +
-    (andraAlla || barBokare
-      ? '<div class="sektion"><button class="btn btn-primary" id="nyAnvandare">' +
-        (andraAlla ? 'Ny användare' : 'Ny mötesbokare') + '</button></div>' : '');
+    (farSkapa
+      ? '<div class="sektion"><button class="btn btn-primary" id="nyAnvandare">Ny användare</button></div>' : '');
 }
 
 function anvandarFormular(a) {
@@ -363,13 +368,11 @@ function anvandarFormular(a) {
     '<div class="field"><label for="aNamn">Namn</label><input id="aNamn" type="text" value="' + esc(a ? a.namn : '') + '"></div>' +
     '<div class="field"><label for="aEpost">E-post</label><input id="aEpost" type="email" autocapitalize="off" value="' + esc(a ? a.epost : '') + '"></div>' +
     '<div class="rad2">' +
-    (arRoll('admin')
-      ? '<div class="field"><label for="aRoll">Roll</label><select id="aRoll">' +
-        ROLLORDNING.map((r) =>
-          '<option value="' + r + '"' + (a && a.roll === r ? ' selected' : '') + '>' +
-          esc(ROLLNAMN[r]) + '</option>').join('') +
-        '</select></div>'
-      : '<div class="field"><label>Roll</label><input type="text" value="Mötesbokare" disabled></div>') +
+    '<div class="field"><label for="aRoll">Roll</label><select id="aRoll">' +
+    mojligaRoller().map((r) =>
+      '<option value="' + r + '"' + (a && a.roll === r ? ' selected' : '') + '>' +
+      esc(ROLLNAMN[r]) + '</option>').join('') +
+    '</select></div>' +
     '<div class="field"><label for="aTeam">Team</label><input id="aTeam" type="text" value="' + esc(a ? a.team || '' : '') + '"></div>' +
     '</div>' +
     '<div class="field"><label for="aLosen">' + (a ? 'Nytt lösenord (lämna tomt för oförändrat)' : 'Lösenord') +
@@ -383,13 +386,13 @@ function anvandarFormular(a) {
   $('aAvbryt').onclick = () => stangPanel('modal');
   $('aSpara').onclick = async () => {
     try {
-      // Administratören sparar alla roller; Mötesbokare+ går via sin egen
-      // väg, där servern sätter rollen till mötesbokare oavsett vad som skickas.
-      await anrop(arRoll('admin') ? 'anvandare-spara' : 'bokare-spara', {
+      // Vilka roller som får sättas avgörs på servern — den här listan är
+      // bara det som visas.
+      await anrop('anvandare-spara', {
         id: a ? a.id : undefined,
         namn: $('aNamn').value.trim(),
         epost: $('aEpost').value.trim(),
-        roll: $('aRoll') ? $('aRoll').value : undefined,
+        roll: $('aRoll').value,
         team: $('aTeam').value.trim(),
         losenord: $('aLosen').value || undefined,
         aktiv: a ? $('aAktiv').checked : true,
