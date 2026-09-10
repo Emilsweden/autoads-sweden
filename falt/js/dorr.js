@@ -8,7 +8,7 @@ import {
   $, esc, toast, oppnaPanel, stangPanel, idag, plusDagar, visaDatum, visaTidpunkt,
   sedan, STATUS_TEXT, RESULTAT_TEXT, NEJ_ORSAKER,
 } from './ui.js';
-import { S, arRoll, dataAndrad } from './state.js';
+import { S, arRoll, kan, dataAndrad } from './state.js';
 import { delaAdress, vagbeskrivning, kartappNamn } from './geo.js';
 import { ledigaTider } from './kalender.js';
 
@@ -161,77 +161,151 @@ function visaNej() {
   $('nejAterkom').onclick = () => visaTidsval('aterkom');
 }
 
+/**
+ * Bokning vid dörren, i den ordning arbetet faktiskt går: först en dag som
+ * har lediga tider, sedan en tid, sedan vilken besiktare som tar den — och
+ * först därefter kundens uppgifter. Att fylla i namn och nummer och sedan
+ * upptäcka att ingen är ledig är fel väg runt.
+ */
 function visaBokning() {
-  const a = aktuell.adress;
-  const html =
-    '<h3>Bokad takbesiktning</h3>' +
-    '<div class="rad2">' +
-    '<div class="field"><label for="bFornamn">Förnamn</label><input id="bFornamn" type="text" autocomplete="given-name"></div>' +
-    '<div class="field"><label for="bEfternamn">Efternamn</label><input id="bEfternamn" type="text" autocomplete="family-name"></div>' +
-    '</div>' +
-    '<div class="field"><label for="bTelefon">Mobilnummer</label><input id="bTelefon" type="tel" inputmode="tel" placeholder="070-123 45 67"></div>' +
-    '<div class="field"><label for="bDatum">Datum</label><input id="bDatum" type="date" value="' + plusDagar(1) + '"></div>' +
-    '<div class="chips" id="bokChips">' +
-    ['Idag', 'Imorgon', 'Om 2 dgr', 'Om 1 vecka'].map((t, i) =>
-      '<button class="chip" data-d="' + [0, 1, 2, 7][i] + '">' + t + '</button>').join('') +
-    '</div>' +
-    '<h3>Ledig tid</h3><div id="bTider" class="chips tider">Hämtar tider…</div>' +
-    '<div class="field" style="margin-top:14px"><label for="bKomm">Kommentar / takinformation</label>' +
-    '<textarea id="bKomm" placeholder="T.ex. tegeltak, ca 15 år, mossa på norrsidan"></textarea></div>' +
-    '<div class="err" id="bFel"></div>' +
-    '<div class="btn-rad"><button class="btn btn-ghost" id="bAvbryt">Tillbaka</button>' +
-    '<button class="btn btn-primary" id="bSpara">Spara bokning</button></div>';
+  const panel = oppnaPanel('dorr', huvudRubrik() +
+    '<h3>Bokad takbesiktning</h3><div id="bSteg"><div class="tom">Hämtar lediga dagar…</div></div>');
 
-  const panel = oppnaPanel('dorr', huvudRubrik() + html);
+  let valdDag = '';
   let valdTid = '';
+  let valdSaljare = '';
+  let valdSaljarNamn = '';
+  let stege = false;
+  let dagar = [];
+  let ledigaPer = {};
 
-  /** Tiderna hämtas från kalendern, så två säljare inte säljer in samma tid. */
-  async function laddaTider() {
-    valdTid = '';
-    const ruta = $('bTider');
-    ruta.textContent = 'Hämtar tider…';
+  /* Steg 1: dagarna som har en ledig tid. Inga tomma dagar att bläddra förbi. */
+  async function visaDagar() {
+    const ruta = $('bSteg');
     try {
-      const svar = await ledigaTider($('bDatum').value);
-      if (svar.helg) { ruta.innerHTML = '<span class="sub">Helg — besiktningar bokas måndag till fredag.</span>'; return; }
-      if (!svar.tider.length) { ruta.innerHTML = '<span class="sub">Alla tider är bokade den dagen.</span>'; return; }
-      ruta.innerHTML = svar.tider.map((t) =>
-        '<button class="chip" data-tid="' + esc(t) + '">' + esc(t) + '</button>').join('');
-      ruta.querySelectorAll('[data-tid]').forEach((b) => {
-        b.onclick = () => {
-          valdTid = b.dataset.tid;
-          ruta.querySelectorAll('.chip').forEach((x) => x.classList.toggle('vald', x === b));
-        };
-      });
+      dagar = (await anrop('lediga-dagar', {})).dagar || [];
     } catch (e) {
-      ruta.innerHTML = '<span class="sub">Kunde inte hämta tider: ' + esc(e.message) + '</span>';
+      ruta.innerHTML = '<div class="tom">Kunde inte hämta lediga dagar: ' + esc(e.message) + '</div>';
+      return;
     }
+    if (!dagar.length) {
+      ruta.innerHTML = '<div class="tom">Ingen besiktare har någon ledig tid inlagd.<br>' +
+        'Tider läggs in under Bokningar → ' +
+        (kan('styr_tider') ? 'Besiktarnas tider' : 'Mina tider') + '.</div>';
+      return;
+    }
+
+    ruta.innerHTML = '<p class="sub">Välj en dag med lediga tider.</p>' +
+      '<div class="dagval">' + dagar.map((d) =>
+        '<button class="dagruta" data-dag="' + esc(d.datum) + '">' +
+        '<b>' + esc(visaDatum(d.datum)) + '</b>' +
+        '<span>' + d.lediga + ' ledig' + (d.lediga > 1 ? 'a' : '') + ' · ' +
+        esc(d.besiktare.join(', ')) + '</span></button>').join('') + '</div>';
+
+    ruta.querySelectorAll('[data-dag]').forEach((k) => {
+      k.onclick = () => { valdDag = k.dataset.dag; visaTider(); };
+    });
   }
 
-  panel.querySelectorAll('#bokChips .chip').forEach((b) => {
-    b.onclick = () => { $('bDatum').value = plusDagar(+b.dataset.d); laddaTider(); };
-  });
-  $('bDatum').onchange = laddaTider;
-  laddaTider();
+  /* Steg 2 och 3: tiderna den dagen, och vem som har varje tid. */
+  async function visaTider() {
+    const ruta = $('bSteg');
+    ruta.innerHTML = '<div class="tom">Hämtar tider…</div>';
+    let svar;
+    try {
+      svar = await ledigaTider(valdDag);
+    } catch (e) {
+      ruta.innerHTML = '<div class="tom">Kunde inte hämta tiderna: ' + esc(e.message) + '</div>';
+      return;
+    }
+    ledigaPer = svar.saljarePer || {};
 
-  $('bAvbryt').onclick = () => oppna(a.id);
-  $('bSpara').onclick = () => {
+    ruta.innerHTML =
+      '<button class="knapp-mork" id="bTillbakaDag">‹ Byt dag</button>' +
+      '<p class="sub" style="margin-top:10px">' + esc(visaDatum(valdDag)) + ' — välj tid och besiktare.</p>' +
+      (svar.tider.length
+        ? '<div class="tidval">' + svar.tider.map((t) =>
+          '<div class="tidval-block"><div class="tidval-tid">' + esc(t) + '</div>' +
+          (ledigaPer[t] || []).map((sa) =>
+            '<button class="tidval-bes" data-tid="' + esc(t) + '" data-bes="' + esc(sa.id) + '"' +
+            ' data-namn="' + esc(sa.namn) + '">' + esc(sa.namn) +
+            '<span>Ledig</span></button>').join('') + '</div>').join('') + '</div>'
+        : '<div class="tom">Alla tider den dagen är bokade.</div>');
+
+    $('bTillbakaDag').onclick = visaDagar;
+    ruta.querySelectorAll('[data-bes]').forEach((k) => {
+      k.onclick = () => {
+        valdTid = k.dataset.tid;
+        valdSaljare = k.dataset.bes;
+        valdSaljarNamn = k.dataset.namn;
+        visaKund();
+      };
+    });
+  }
+
+  /* Steg 4: kundens uppgifter, allt på en sida. */
+  function visaKund() {
+    $('bSteg').innerHTML =
+      '<button class="knapp-mork" id="bTillbakaTid">‹ Byt tid</button>' +
+      '<div class="vald-tid">' + esc(visaDatum(valdDag)) + ' kl. ' + esc(valdTid) +
+      ' · ' + esc(valdSaljarNamn) + '</div>' +
+      '<div class="rad2">' +
+      '<div class="field"><label for="bFornamn">Förnamn</label>' +
+      '<input id="bFornamn" type="text" autocomplete="given-name"></div>' +
+      '<div class="field"><label for="bEfternamn">Efternamn</label>' +
+      '<input id="bEfternamn" type="text" autocomplete="family-name"></div>' +
+      '</div>' +
+      '<div class="field"><label for="bTelefon">Mobilnummer</label>' +
+      '<input id="bTelefon" type="tel" inputmode="tel" placeholder="070-123 45 67"></div>' +
+      '<div class="field"><label for="bAdress">Adress</label>' +
+      '<input id="bAdress" type="text" value="' + esc(adressText()) + '"></div>' +
+      '<button class="stegeval" id="bStege" type="button" aria-pressed="false">' +
+      '<span>🪜 Ta med stege</span><span class="stegeval-lage">Nej</span></button>' +
+      '<div class="field"><label for="bKomm">Kommentar / takinformation</label>' +
+      '<textarea id="bKomm" placeholder="T.ex. tegeltak, ca 15 år, mossa på norrsidan"></textarea></div>' +
+      '<div class="err" id="bFel"></div>' +
+      '<div class="btn-rad"><button class="btn btn-ghost" id="bAvbryt">Avbryt</button>' +
+      '<button class="btn btn-primary" id="bSpara">Spara bokning</button></div>';
+
+    $('bTillbakaTid').onclick = visaTider;
+    $('bStege').onclick = () => {
+      stege = !stege;
+      $('bStege').setAttribute('aria-pressed', String(stege));
+      $('bStege').classList.toggle('pa', stege);
+      $('bStege').querySelector('.stegeval-lage').textContent = stege ? 'Ja' : 'Nej';
+    };
+    $('bAvbryt').onclick = () => oppna(aktuell.adress.id);
+    $('bSpara').onclick = spara;
+  }
+
+  function adressText() {
+    const a = aktuell.adress;
+    return [a.gata, a.nummer].filter(Boolean).join(' ') + (a.postort ? ', ' + a.postort : '');
+  }
+
+  function spara() {
     const fornamn = $('bFornamn').value.trim();
     const telefon = $('bTelefon').value.trim();
     if (!fornamn || !telefon) { $('bFel').textContent = 'Förnamn och mobilnummer krävs.'; return; }
-    if (!$('bDatum').value) { $('bFel').textContent = 'Välj datum för besiktningen.'; return; }
-    if (!valdTid) { $('bFel').textContent = 'Välj en ledig tid.'; return; }
+
     skicka('bokat', {
       fornamn,
       efternamn: $('bEfternamn').value.trim(),
       telefon,
-      datum: $('bDatum').value,
+      datum: valdDag,
       tid: valdTid,
+      saljare_id: valdSaljare,
+      stege,
       kommentar: $('bKomm').value.trim(),
     }, false, (meddelande) => {
       $('bFel').textContent = meddelande;
-      laddaTider();
+      // Någon hann före: tillbaka till tiderna, som nu visar det som gäller.
+      visaTider();
     });
-  };
+  }
+
+  visaDagar();
+  return panel;
 }
 
 /* ── Huvudvy ── */
@@ -239,7 +313,8 @@ function visaBokning() {
 function huvudRubrik() {
   const a = aktuell.adress;
   // Hela adressen, inte bara husnumret — man ska se vilken gata man står på.
-  const hela = [a.gata, a.nummer].filter(Boolean).join(' ') + (a.postort ? ', ' + a.postort : '');
+  const svans = [visaPostnr(a.postnummer), a.postort].filter(Boolean).join(' ');
+  const hela = [a.gata, a.nummer].filter(Boolean).join(' ') + (svans ? ', ' + svans : '');
   return '<h2>' + esc(hela || a.adress) + '</h2>' +
     '<p class="sub">' + esc(STATUS_TEXT[a.status] || '') + '</p>';
 }
@@ -292,6 +367,44 @@ function aktivBokning() {
 }
 
 /** Kunden bakom bokningen: uppgifter, kommentar och vad man gör härnäst. */
+/**
+ * Broschyr i brevlådan. Nästa som står vid dörren ska se att någon redan
+ * varit där, och vem — annars läggs det två i samma lucka.
+ */
+function broschyrHtml() {
+  const a = aktuell.adress;
+  if (aktuell.offline) return '';
+  return '<button class="stegeval broschyr' + (a.broschyr ? ' pa' : '') + '" id="dBroschyr"' +
+    ' type="button" aria-pressed="' + (a.broschyr ? 'true' : 'false') + '">' +
+    '<span>📄 Lämnat broschyr</span>' +
+    '<span class="stegeval-lage">' +
+    (a.broschyr
+      ? esc((a.broschyr_namn ? a.broschyr_namn + ' · ' : '') + (a.broschyr_tid ? sedan(a.broschyr_tid) : 'ja'))
+      : 'Nej') +
+    '</span></button>';
+}
+
+async function vaxlaBroschyr() {
+  const a = aktuell.adress;
+  const knapp = $('dBroschyr');
+  knapp.disabled = true;
+  try {
+    const svar = await anrop('adress-broschyr', { id: a.id, broschyr: !a.broschyr });
+    a.broschyr = svar.broschyr;
+    a.broschyr_namn = svar.broschyr_namn;
+    a.broschyr_tid = svar.broschyr_tid;
+    knapp.classList.toggle('pa', !!svar.broschyr);
+    knapp.setAttribute('aria-pressed', String(!!svar.broschyr));
+    knapp.querySelector('.stegeval-lage').textContent = svar.broschyr
+      ? (svar.broschyr_namn || 'Ja') : 'Nej';
+    toast(svar.broschyr ? 'Broschyr noterad ✓' : 'Broschyren är borttagen');
+  } catch (e) {
+    toast('Kunde inte spara: ' + e.message);
+  } finally {
+    knapp.disabled = false;
+  }
+}
+
 function kundkort() {
   const b = aktivBokning();
   if (!b) return '';
@@ -418,6 +531,7 @@ export async function oppna(adressId, direktBokning) {
     '<button class="r-nej" data-r="nej">NEJ</button>' +
     '<button class="r-aterkom" data-r="aterkom">ÅTERKOM</button>' +
     '</div>' +
+    broschyrHtml() +
     '<h3>Historik</h3>' + historikHtml() +
     '<div class="btn-rad">' +
     '<button class="btn btn-ghost" id="dVag">Vägbeskrivning</button>' +
@@ -436,6 +550,7 @@ export async function oppna(adressId, direktBokning) {
   });
   if ($('dAndra')) $('dAndra').onclick = visaAndraBokning;
   if ($('dRatta')) $('dRatta').onclick = visaRatta;
+  if ($('dBroschyr')) $('dBroschyr').onclick = vaxlaBroschyr;
   // Öppnar dörrens adress i telefonens kartapp för att gå eller köra dit.
   $('dVag').onclick = () => {
     toast('Öppnar ' + kartappNamn());
@@ -459,23 +574,32 @@ function visaRatta() {
     '<div class="rad2">' +
     '<div class="field"><label for="rNummer">Husnummer</label>' +
     '<input id="rNummer" type="text" value="' + esc(a.nummer || '') + '" autocomplete="off"></div>' +
+    '<div class="field"><label for="rPostnummer">Postnummer</label>' +
+    '<input id="rPostnummer" type="text" inputmode="numeric" placeholder="721 34" value="' +
+    esc(visaPostnr(a.postnummer)) + '" autocomplete="off"></div>' +
+    '</div>' +
     '<div class="field"><label for="rPostort">Postort</label>' +
     '<input id="rPostort" type="text" value="' + esc(a.postort || '') + '" autocomplete="off"></div>' +
-    '</div>' +
     '<div class="err" id="rFel"></div>' +
     '<div class="btn-rad"><button class="btn btn-ghost" id="rTillbaka">Tillbaka</button>' +
     '<button class="btn btn-primary" id="rSpara">Spara</button></div>' +
     '<button class="btn btn-ghost" id="rBort" style="margin-top:10px">Ta bort dörren</button>');
 
-  delaVidInmatning('rGata', 'rNummer', 'rPostort');
+  delaVidInmatning('rGata', 'rNummer', 'rPostort', 'rPostnummer');
 
   $('rTillbaka').onclick = () => oppna(a.id);
   $('rSpara').onclick = async () => {
     try {
+      const postnr = $('rPostnummer').value.replace(/\D/g, '');
+      if (postnr && postnr.length !== 5) {
+        $('rFel').textContent = 'Postnumret ska vara fem siffror, t.ex. 721 34.';
+        return;
+      }
       await anrop('adress-andra', {
         id: a.id,
         gata: $('rGata').value.trim(),
         nummer: $('rNummer').value.trim(),
+        postnummer: postnr,
         postort: $('rPostort').value.trim(),
       });
       toast('Adressen är rättad ✓');
@@ -498,14 +622,23 @@ function visaRatta() {
  * Delar upp en hel adress som skrivits i gatufältet, så att
  * "Sippgatan 9, 942 33 Byske" hamnar i rätt rutor i stället för allt i en.
  */
-function delaVidInmatning(gataId, nummerId, postortId) {
+function delaVidInmatning(gataId, nummerId, postortId, postnrId) {
   $(gataId).addEventListener('blur', () => {
     const delad = delaAdress($(gataId).value);
-    if (!delad.nummer && !delad.postort) return;
+    if (!delad.nummer && !delad.postort && !delad.postnummer) return;
     $(gataId).value = delad.gata;
     if (delad.nummer && !$(nummerId).value.trim()) $(nummerId).value = delad.nummer;
     if (delad.postort && !$(postortId).value.trim()) $(postortId).value = delad.postort;
+    if (postnrId && delad.postnummer && $(postnrId) && !$(postnrId).value.trim()) {
+      $(postnrId).value = visaPostnr(delad.postnummer);
+    }
   });
+}
+
+/** "72134" visas som "721 34" i fälten. */
+function visaPostnr(p) {
+  const d = String(p || '').replace(/\D/g, '');
+  return d.length === 5 ? d.slice(0, 3) + ' ' + d.slice(3) : '';
 }
 
 /**
@@ -527,14 +660,19 @@ export function manuell(omraden, valtOmrade, forval = {}) {
     '<div class="field" style="margin-top:16px"><label for="mGata">Gata</label>' +
     '<input id="mGata" type="text" placeholder="Västeråsvägen" autocomplete="off" value="' + esc(forval.gata || '') + '"></div>' +
     '<div class="rad2">' +
-    '<div class="field"><label for="mNummer">Husnummer</label><input id="mNummer" type="text" placeholder="17" autocomplete="off" value="' + esc(forval.nummer || '') + '"></div>' +
+    '<div class="field"><label for="mNummer">Husnummer</label><input id="mNummer" type="text" placeholder="17" inputmode="numeric" autocomplete="off" value="' + esc(forval.nummer || '') + '"></div>' +
+    '<div class="field"><label for="mPostnummer">Postnummer</label><input id="mPostnummer" type="text" placeholder="721 34" inputmode="numeric" autocomplete="off" value="' + esc(visaPostnr(forval.postnummer)) + '"></div>' +
+    '</div>' +
     '<div class="field"><label for="mPostort">Postort</label><input id="mPostort" type="text" placeholder="Västerås" autocomplete="off" value="' + esc(forval.postort || '') + '"></div>' +
-    '</div>' + omradesVal +
+    omradesVal +
     '<div class="err" id="mFel"></div>' +
     '<div class="btn-rad"><button class="btn btn-ghost" id="mAvbryt">Avbryt</button>' +
     '<button class="btn btn-primary" id="mNasta">Fortsätt</button></div>');
 
-  delaVidInmatning('mGata', 'mNummer', 'mPostort');
+  delaVidInmatning('mGata', 'mNummer', 'mPostort', 'mPostnummer');
+
+  // Kom man hit för att husnumret saknades ska markören stå i det fältet.
+  if (forval.gata && !forval.nummer) $('mNummer').focus();
 
   $('mAvbryt').onclick = () => stangPanel('dorr');
   $('mNasta').onclick = async () => {
@@ -544,7 +682,12 @@ export function manuell(omraden, valtOmrade, forval = {}) {
     const gata = (delad.nummer ? delad.gata : $('mGata').value).trim();
     const nummer = ($('mNummer').value || delad.nummer || '').trim();
     const postort = ($('mPostort').value || delad.postort || '').trim();
+    const postnr = ($('mPostnummer').value || delad.postnummer || '').replace(/\D/g, '');
     if (!gata || !nummer) { $('mFel').textContent = 'Fyll i gata och husnummer.'; return; }
+    if (postnr && postnr.length !== 5) {
+      $('mFel').textContent = 'Postnumret ska vara fem siffror, t.ex. 721 34.';
+      return;
+    }
 
     $('mNasta').textContent = 'Hämtar…';
     try {
@@ -553,6 +696,7 @@ export function manuell(omraden, valtOmrade, forval = {}) {
       const svar = await anrop('adress-ny', {
         gata,
         nummer,
+        postnummer: postnr || undefined,
         postort,
         omrade_id: $('mOmrade') ? $('mOmrade').value || undefined : undefined,
         ...lage,

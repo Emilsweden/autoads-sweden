@@ -159,7 +159,17 @@ button { cursor: pointer; border: none; background: none; }
 }
 /* Egen staplingskontext: kartans kontroller ligger på höga z-index och
    ritades annars ovanpå headern, menyn och panelerna. */
-#karta { flex: 1 1 auto; min-height: 200px; background: var(--bg-2); position: relative; z-index: 0; }
+/* Kartan ska ta skärmen. Allt annat på kartfliken är en smal sökrad. */
+#karta {
+  flex: 1 1 auto;
+  min-height: 60vh;
+  background: var(--bg-2);
+  position: relative; z-index: 0;
+}
+/* MapLibres egna knappar tar plats på en telefon och behövs inte —
+   nypa för att zooma, två fingrar för att rotera. */
+#karta .maplibregl-ctrl-bottom-left,
+#karta .maplibregl-ctrl-top-right .maplibregl-ctrl-group:not(:first-child) { display: none; }
 .gps-rad {
   flex: 0 0 auto; display: flex; align-items: center; gap: 7px;
   padding: 0 16px 8px; font-size: 12px; color: var(--dim);
@@ -610,3 +620,228 @@ a.btn { display: grid; place-items: center; text-decoration: none; }
   .kpi b { font-size: 30px; }
   .sektion.tva { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
 }
+
+/* ── Säljarnas tider ── */
+
+.tidrutnat {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+.tidruta {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 10px 4px;
+  border: 1px solid var(--linje);
+  border-radius: var(--rund);
+  background: var(--kort);
+  font-size: 15px; font-weight: 700;
+  color: var(--text);
+}
+.tidruta span { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--dim); }
+.tidruta.ledig { border-color: var(--accent); color: var(--accent-mork); }
+.tidruta.ledig span { color: var(--accent-mork); }
+.tidruta.stangd { background: var(--bakgrund); color: var(--muted); }
+.tidruta.bokad { background: #0d0d0d; border-color: #0d0d0d; color: #fff; }
+.tidruta.bokad span { color: rgba(255,255,255,0.72); }
+.tidruta:disabled { cursor: default; }
+
+/* ── Nyhetsflöde ── */
+
+.flode { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
+.flode-rad {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 11px 12px;
+  border: 1px solid var(--linje);
+  border-radius: var(--rund);
+  background: var(--kort);
+  font-size: 14px;
+}
+.flode-ikon { flex: 0 0 auto; font-size: 15px; line-height: 1.35; }
+.flode-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.flode-text .under { font-size: 12px; color: var(--dim); margin-top: 2px; }
+.flode-avbokning { border-color: var(--accent); }
+.flode-aterkoppling { border-left: 3px solid var(--accent); }
+
+.komm.utfall { border-left: 3px solid var(--accent); }
+
+/* ── Adressökning på kartan ── */
+
+.adressok { position: relative; margin: 0 var(--kant) 8px; }
+.adressok input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--linje);
+  border-radius: var(--rund);
+  background: var(--kort);
+  font-size: 15px;
+  color: var(--text);
+  -webkit-appearance: none;
+}
+.adressok input:focus { outline: none; border-color: var(--accent); }
+
+.adressok-traffar {
+  position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px);
+  background: var(--kort);
+  border: 1px solid var(--linje);
+  border-radius: var(--rund);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  overflow: hidden;
+  max-height: 46vh; overflow-y: auto;
+}
+.adressok-traff {
+  display: flex; flex-direction: column; gap: 2px;
+  width: 100%; padding: 10px 12px;
+  background: none; border: 0; border-bottom: 1px solid var(--linje);
+  text-align: left; font-size: 14px; color: var(--text); cursor: pointer;
+}
+.adressok-traff:last-child { border-bottom: 0; }
+.adressok-traff:active { background: var(--accent-dim); }
+.adressok-traff b { font-weight: 600; }
+.adressok-traff span { font-size: 12px; color: var(--dim); }
+.adressok-vantar { padding: 9px 12px; font-size: 12px; color: var(--dim); }
+
+/* ── Kalenderns tidblock: en tid, besiktarna under ── */
+
+.tidblock {
+  border: 1px solid var(--linje);
+  border-radius: var(--rund);
+  background: var(--kort);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.tidblock-topp {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 9px 12px;
+  background: var(--bakgrund);
+  border-bottom: 1px solid var(--linje);
+}
+.tidblock-topp b { font-size: 17px; font-weight: 700; }
+.tidblock-topp span { font-size: 12px; color: var(--dim); }
+.tidblock.krock { box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* Inuti ett tidblock ligger raderna kant i kant. */
+.tidblock .slot {
+  border: 0; border-bottom: 1px solid var(--linje);
+  border-radius: 0; margin: 0; width: 100%;
+}
+.tidblock .slot:last-child { border-bottom: 0; }
+.slot-namn {
+  flex: 0 0 auto; max-width: 45%;
+  font-size: 14px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tidblock .slot.ledig .slot-etikett { color: #1a7f37; }
+.tidblock .slot.ledig { border-left: 3px solid #1a7f37; }
+.tidblock .slot.bokad { border-left: 3px solid #0d0d0d; }
+
+/* Månadsvyns gröna siffra = lediga tider den dagen. */
+.kal-ledig {
+  display: inline-block; min-width: 16px;
+  font-size: 11px; font-weight: 700; color: #1a7f37;
+}
+.kal-dag.tom .kal-siffra { color: var(--muted); }
+
+/* Välj besiktare vid dörren. */
+.besiktarval { margin-bottom: 4px; }
+
+/* ── Bokning i steg: dag → tid → besiktare → kund ── */
+
+.dagval { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.dagruta {
+  display: flex; flex-direction: column; gap: 2px;
+  width: 100%; padding: 12px 14px;
+  border: 1px solid var(--linje); border-radius: var(--rund);
+  background: var(--kort); text-align: left; cursor: pointer;
+}
+.dagruta:active { background: var(--accent-dim); }
+.dagruta b { font-size: 15px; font-weight: 600; }
+.dagruta span { font-size: 12px; color: var(--dim); }
+
+.tidval { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.tidval-block {
+  border: 1px solid var(--linje); border-radius: var(--rund);
+  background: var(--kort); overflow: hidden;
+}
+.tidval-tid {
+  padding: 8px 12px; background: var(--bakgrund);
+  border-bottom: 1px solid var(--linje);
+  font-size: 16px; font-weight: 700;
+}
+.tidval-bes {
+  display: flex; justify-content: space-between; align-items: center;
+  width: 100%; padding: 11px 12px;
+  background: none; border: 0; border-bottom: 1px solid var(--linje);
+  border-left: 3px solid #1a7f37;
+  font-size: 14px; font-weight: 600; color: var(--text);
+  text-align: left; cursor: pointer;
+}
+.tidval-bes:last-child { border-bottom: 0; }
+.tidval-bes:active { background: var(--accent-dim); }
+.tidval-bes span { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: #1a7f37; }
+
+.vald-tid {
+  margin: 10px 0 14px; padding: 10px 12px;
+  background: var(--accent-dim); border-radius: var(--rund);
+  font-size: 14px; font-weight: 600;
+}
+
+/* Ta med stege och broschyr — knappar som syns när de är på. */
+.stegeval.broschyr { margin: 12px 0; }
+
+.stegeval {
+  display: flex; justify-content: space-between; align-items: center;
+  width: 100%; margin-bottom: 14px; padding: 12px 14px;
+  border: 1px solid var(--linje); border-radius: var(--rund);
+  background: var(--kort); font-size: 15px; color: var(--text); cursor: pointer;
+}
+.stegeval-lage { font-size: 13px; font-weight: 700; color: var(--dim); }
+.stegeval.pa { border-color: var(--accent); background: var(--accent-dim); }
+.stegeval.pa .stegeval-lage { color: var(--accent-mork); }
+
+/* ── Nyheter: svep bort ── */
+
+.flode-svep { transition: transform 0.2s, opacity 0.2s; touch-action: pan-y; }
+.flode-svep.bortsvept { transform: translateX(-110%); opacity: 0; }
+.flode-rad { position: relative; }
+.flode-bort {
+  flex: 0 0 auto; align-self: flex-start;
+  width: 28px; height: 28px; padding: 0;
+  border: 0; border-radius: 50%;
+  background: none; color: var(--muted);
+  font-size: 15px; line-height: 1; cursor: pointer;
+}
+.flode-bort:active { background: var(--linje); color: var(--text); }
+
+/* Sparstatus på tidsidan — man ska aldrig behöva undra om det gick fram. */
+.sparstatus {
+  margin-top: 10px; padding: 9px 12px;
+  border-radius: var(--rund);
+  background: var(--bakgrund);
+  border: 1px solid var(--linje);
+  font-size: 13px; color: var(--dim);
+}
+
+/* ── Månadsvyn som lista: bara dagar som har något ── */
+
+.dagrader { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.dagrad {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; padding: 11px 12px;
+  border: 1px solid var(--linje); border-radius: var(--rund);
+  background: var(--kort); text-align: left; cursor: pointer;
+}
+.dagrad:active { background: var(--accent-dim); }
+.dagrad.idag { border-color: var(--accent); }
+.dagrad.passerad { opacity: 0.6; }
+.dagrad-dag { flex: 0 0 64px; display: flex; flex-direction: column; }
+.dagrad-dag b { font-size: 16px; font-weight: 700; }
+.dagrad-dag span { font-size: 11px; color: var(--dim); text-transform: capitalize; }
+.dagrad-tal { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 6px; }
+.dagrad-tal span {
+  font-size: 12px; font-weight: 600;
+  padding: 2px 8px; border-radius: 999px;
+}
+.dagrad-bokade { background: #0d0d0d; color: #fff; }
+.dagrad-lediga { background: rgba(26,127,55,0.12); color: #1a7f37; }
+.dagrad-pil { flex: 0 0 auto; color: var(--muted); font-size: 18px; }

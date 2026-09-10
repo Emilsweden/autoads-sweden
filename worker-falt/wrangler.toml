@@ -15,5 +15,16 @@ database_id = "FYLL_I_DATABASE_ID_HAR"
 [assets]
 directory = "../falt"
 
+# Påminnelser skickas av workern själv, inte av någon som har appen öppen.
+# Varje minut tittar den efter bokningar som börjar om trettio minuter.
+[triggers]
+crons = ["* * * * *"]
+
+# Egen domän: lägg till zonen i Cloudflare och avkommentera raderna nedan.
+# Appen anropar den adress den själv serveras från, så inget mer behöver ändras.
+# [[routes]]
+# pattern = "app.villatakrenovering.se"
+# custom_domain = true
+
 # Hemligheter sätts separat, inte här:
 #   npx wrangler secret put INSTALL_NYCKEL   (används en gång, för första admin)

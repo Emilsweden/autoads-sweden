@@ -98,25 +98,68 @@ jobs:
       - name: Skapa tabellerna
         run: npx wrangler d1 execute autoads-falt --remote --file=./schema.sql --yes
 
-      # Databasen ska själv vägra två bokningar på samma tid. Det unika
-      # indexet går bara att lägga på om inga sådana redan finns — därför
+      # Kolumner som tillkommit efter att databasen skapades. ALTER TABLE
+      # saknar IF NOT EXISTS i SQLite, så den får misslyckas tyst när
+      # kolumnen redan finns. Steget måste ligga efter schema.sql (som skapar
+      # tabellen på en tom databas) och före indexen på kolumnen.
+      - name: Uppdatera gamla tabeller
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          npx wrangler d1 execute autoads-falt --remote --yes \
+            --command "ALTER TABLE bokningar ADD COLUMN saljare_id TEXT;" \
+            || echo "Kolumnen saljare_id fanns redan."
+
+          npx wrangler d1 execute autoads-falt --remote --yes \
+            --command "ALTER TABLE adresser ADD COLUMN postnummer TEXT;" \
+            || echo "Kolumnen postnummer fanns redan."
+
+          for kolumn in \
+            "bokningar|stege INTEGER NOT NULL DEFAULT 0" \
+            "adresser|broschyr INTEGER NOT NULL DEFAULT 0" \
+            "adresser|broschyr_av TEXT" \
+            "adresser|broschyr_tid INTEGER" \
+            "anvandare|max_per_dag INTEGER NOT NULL DEFAULT 3" \
+            "anvandare|snabbtider TEXT"
+          do
+            tabell="${kolumn%%|*}"
+            rest="${kolumn#*|}"
+            npx wrangler d1 execute autoads-falt --remote --yes \
+              --command "ALTER TABLE $tabell ADD COLUMN $rest;" \
+              || echo "Kolumnen $rest fanns redan i $tabell."
+          done
+
+          # Indexet på kolumnen kan inte ligga i schema.sql: på en databas som
+          # redan finns är CREATE TABLE IF NOT EXISTS en tom instruktion, så
+          # kolumnen skulle saknas när filen kördes.
+          npx wrangler d1 execute autoads-falt --remote --yes \
+            --command "CREATE INDEX IF NOT EXISTS idx_bok_saljare ON bokningar(saljare_id, datum);"
+
+          # Det gamla indexet gällde datum + tid för hela laget och skulle nu
+          # hindra två säljare från att ha var sitt möte samma timme.
+          npx wrangler d1 execute autoads-falt --remote --yes \
+            --command "DROP INDEX IF EXISTS idx_bok_slot;" || true
+
+      # Databasen ska själv vägra två möten hos samma säljare samma tid.
+      # Indexet går bara att lägga på om inga sådana redan finns — därför
       # stoppar det här steget inte utrullningen, det säger till.
       - name: Skydda mot dubbelbokning
         id: dubbelskydd
         continue-on-error: true
         run: |
           set -uo pipefail
-          index="CREATE UNIQUE INDEX IF NOT EXISTS idx_bok_slot ON bokningar(datum, tid)
-                 WHERE tid IS NOT NULL AND tid <> '' AND status <> 'avbokad';"
+          index="CREATE UNIQUE INDEX IF NOT EXISTS idx_bok_saljarslot ON bokningar(datum, tid, saljare_id)
+                 WHERE tid IS NOT NULL AND tid <> '' AND saljare_id IS NOT NULL AND status <> 'avbokad';"
           if npx wrangler d1 execute autoads-falt --remote --command "$index" --yes; then
             echo "skydd=på" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "skydd=av" >> "$GITHUB_OUTPUT"
           fraga="SELECT datum || ' ' || tid || ' — ' || COUNT(*) || ' bokningar' AS krock
-                 FROM bokningar WHERE tid IS NOT NULL AND tid <> '' AND status <> 'avbokad'
-                 GROUP BY datum, tid HAVING COUNT(*) > 1;"
-          echo "::warning::Skyddet mot dubbelbokning kunde inte läggas på — de här tiderna har fler än en bokning:"
+                 FROM bokningar WHERE tid IS NOT NULL AND tid <> '' AND saljare_id IS NOT NULL
+                   AND status <> 'avbokad'
+                 GROUP BY datum, tid, saljare_id HAVING COUNT(*) > 1;"
+          echo "::warning::Skyddet mot dubbelbokning kunde inte läggas på — de här tiderna har fler än en bokning på samma säljare:"
           npx wrangler d1 execute autoads-falt --remote --command "$fraga" --yes || true
           echo "::warning::Avboka eller flytta den ena i appen (Bokningar → dagen) och kör jobbet igen."
 
@@ -132,6 +175,24 @@ jobs:
             exit 1
           fi
           echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      # E-post till besiktaren när han får en bokning. Frivilligt: saknas
+      # hemligheterna skickas inga brev, och allt annat fungerar ändå.
+      # Ligger efter publiceringen — wrangler kan inte sätta en hemlighet på
+      # en worker som inte finns.
+      - name: Koppla e-postutskick
+        env:
+          EPOST_NYCKEL: ${{ secrets.EPOST_NYCKEL }}
+          EPOST_AVSANDARE: ${{ secrets.EPOST_AVSANDARE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EPOST_NYCKEL:-}" ] || [ -z "${EPOST_AVSANDARE:-}" ]; then
+            echo "EPOST_NYCKEL/EPOST_AVSANDARE är inte satta — inga bokningsmejl skickas."
+            exit 0
+          fi
+          printf '%s' "$EPOST_NYCKEL" | npx wrangler secret put EPOST_NYCKEL
+          printf '%s' "$EPOST_AVSANDARE" | npx wrangler secret put EPOST_AVSANDARE
+          echo "E-postutskicket är kopplat."
 
       - name: Skapa den första administratören
         env:
@@ -196,6 +257,10 @@ jobs:
         if: success()
         env:
           URL: ${{ steps.publicera.outputs.url }}
+          # Inmatningarna går in som miljövariabler, aldrig som ${{ }} inne i
+          # skriptet: det som skrivs i formuläret skulle annars köras som kod.
+          ADMIN_EPOST: ${{ inputs.admin_epost }}
+          SKYDD: ${{ steps.dubbelskydd.outputs.skydd }}
         run: |
           {
             echo "## Fältsystemet är uppsatt"
@@ -204,14 +269,14 @@ jobs:
             echo
             echo "Appen serveras av samma adress — öppna den i mobilen och logga in."
             echo
-            if [ "${{ steps.dubbelskydd.outputs.skydd }}" = "av" ]; then
-              echo "> **Obs:** skyddet mot dubbelbokning är inte påslaget än — några tider har"
-              echo "> mer än en bokning. Appen visar dem i kalendern; flytta eller avboka den"
-              echo "> ena och kör det här jobbet igen."
+            if [ "$SKYDD" = "av" ]; then
+              echo "> **Obs:** skyddet mot dubbelbokning är inte påslaget än — någon säljare"
+              echo "> har mer än ett möte på samma tid. Appen visar dem i kalendern; flytta"
+              echo "> eller avboka det ena och kör det här jobbet igen."
               echo
             fi
             echo "1. Öppna <$URL> i mobilen"
-            echo "2. Logga in med \`${{ inputs.admin_epost }}\` och lösenordet från ADMIN_LOSENORD"
+            echo "2. Logga in med \`$ADMIN_EPOST\` och lösenordet från ADMIN_LOSENORD"
             echo "3. Lägg till appen på hemskärmen"
             echo
             echo "Övriga säljare läggs upp inifrån appen under **Admin → Användare**."
