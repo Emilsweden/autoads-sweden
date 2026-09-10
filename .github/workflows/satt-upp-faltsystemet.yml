@@ -114,6 +114,21 @@ jobs:
             --command "ALTER TABLE adresser ADD COLUMN postnummer TEXT;" \
             || echo "Kolumnen postnummer fanns redan."
 
+          for kolumn in \
+            "bokningar|stege INTEGER NOT NULL DEFAULT 0" \
+            "adresser|broschyr INTEGER NOT NULL DEFAULT 0" \
+            "adresser|broschyr_av TEXT" \
+            "adresser|broschyr_tid INTEGER" \
+            "anvandare|max_per_dag INTEGER NOT NULL DEFAULT 3" \
+            "anvandare|snabbtider TEXT"
+          do
+            tabell="${kolumn%%|*}"
+            rest="${kolumn#*|}"
+            npx wrangler d1 execute autoads-falt --remote --yes \
+              --command "ALTER TABLE $tabell ADD COLUMN $rest;" \
+              || echo "Kolumnen $rest fanns redan i $tabell."
+          done
+
           # Indexet på kolumnen kan inte ligga i schema.sql: på en databas som
           # redan finns är CREATE TABLE IF NOT EXISTS en tom instruktion, så
           # kolumnen skulle saknas när filen kördes.

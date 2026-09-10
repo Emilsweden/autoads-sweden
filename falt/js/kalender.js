@@ -41,7 +41,6 @@ const antalDagar = (m) => new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)),
 /** Veckodag 0–6 (söndag = 0), uträknat utan tidszonsberoende. */
 const veckodag = (d) => new Date(d + 'T12:00:00Z').getUTCDay();
 /* Helger är inte längre stängda: det är besiktaren som avgör när han jobbar. */
-const forstaVeckodag = (m) => (veckodag(m + '-01') + 6) % 7;   // 0 = måndag
 
 function bytManad(steg) {
   const d = new Date(manad + '-01T12:00:00Z');
@@ -91,24 +90,17 @@ export function stoppa() {
 
 /* ── Månadsvy ── */
 
+/**
+ * Månadsvyn är en lista, inte ett rutnät. På en telefon är sju smala
+ * kolumner med mest tomma rutor svårläst — och en dag utan vare sig
+ * bokningar eller lediga tider är inget man vill trycka på.
+ *
+ * Här visas bara dagar som har något: "mån 17 juni · 3 bokade · 2 lediga".
+ */
 function manadsHtml() {
-  const dagar = antalDagar(manad);
-  const tomma = forstaVeckodag(manad);
   const nu = idag();
-
-  let rutor = '';
-  for (let i = 0; i < tomma; i++) rutor += '<div class="kal-tom"></div>';
-  for (let d = 1; d <= dagar; d++) {
-    const dat = dagIManad(manad, d);
-    const antal = perDag[dat] || 0;
-    const lediga = ledigaPerDag[dat] || 0;
-    rutor += '<button class="kal-dag' +
-      (dat === nu ? ' idag' : '') + (dat < nu ? ' passerad' : '') +
-      (!antal && !lediga ? ' tom' : '') + '" data-dag="' + dat + '">' +
-      '<span class="kal-siffra">' + d + '</span>' +
-      (lediga ? '<span class="kal-ledig">' + lediga + '</span>' : '') +
-      (antal ? '<span class="kal-antal">' + antal + '</span>' : '') + '</button>';
-  }
+  const dagar = new Set([...Object.keys(perDag), ...Object.keys(ledigaPerDag)]);
+  const rader = [...dagar].filter((d) => d.startsWith(manad)).sort();
 
   const rubrik = MANADER[Number(manad.slice(5, 7)) - 1] + ' ' + manad.slice(0, 4);
   const bokade = Object.values(perDag).reduce((a, b) => a + b, 0);
@@ -117,22 +109,27 @@ function manadsHtml() {
   return '<div class="kal-topp">' +
     '<button class="kal-pil" id="kalBak" aria-label="Föregående månad">‹</button>' +
     '<div class="kal-rubrik">' + esc(rubrik) +
-    '<span>' + fria + ' lediga · ' + bokade + ' bokade</span></div>' +
+    '<span>' + bokade + ' bokade · ' + fria + ' lediga</span></div>' +
     '<button class="kal-pil" id="kalFram" aria-label="Nästa månad">›</button></div>' +
-    '<div class="kal-veckodagar">' + DAGNAMN.map((d) => '<span>' + d + '</span>').join('') + '</div>' +
-    '<div class="kal-rutnat">' + rutor + '</div>' +
-    '<p class="karttips">Tryck på en dag för att se tiderna. ' +
-    'Grön siffra är lediga tider, svart är bokade möten. ' +
-    'En dag utan siffror har ingen besiktare lagt in någon tid på.</p>';
+    (rader.length
+      ? '<div class="dagrader">' + rader.map((dat) => {
+        const antal = perDag[dat] || 0;
+        const lediga = ledigaPerDag[dat] || 0;
+        return '<button class="dagrad' + (dat === nu ? ' idag' : '') +
+          (dat < nu ? ' passerad' : '') + '" data-dag="' + esc(dat) + '">' +
+          '<span class="dagrad-dag"><b>' + esc(kortDatum(dat)) + '</b>' +
+          '<span>' + DAGNAMN[(veckodag(dat) + 6) % 7] + '</span></span>' +
+          '<span class="dagrad-tal">' +
+          (antal ? '<span class="dagrad-bokade">' + antal + ' bokade</span>' : '') +
+          (lediga ? '<span class="dagrad-lediga">' + lediga + ' lediga</span>' : '') +
+          '</span><span class="dagrad-pil">›</span></button>';
+      }).join('') + '</div>'
+      : '<div class="tom">Inga bokningar och inga inlagda tider den här månaden.</div>');
 }
 
-/* ── Dagsvy ── */
+/** "17/6" — kort nog för en rad på en telefon. */
+const kortDatum = (d) => Number(d.slice(8, 10)) + '/' + Number(d.slice(5, 7));
 
-/**
- * Dagsvyn: en rad per tid och säljare — datum, tid, säljare, status.
- * En säljare som lagt in sina tider syns bara på dem; en som inte rört sin
- * kalender är ledig hela standarddagen, som förut.
- */
 /**
  * Dagsvyn. Bara tider som någon besiktare faktiskt lagt in finns — en dag
  * ingen fyllt är tom, och timmarna däremellan visas inte alls.

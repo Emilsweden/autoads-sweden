@@ -17,8 +17,7 @@ import * as admin from './admin.js';
 
 const IKONER = {
   karta: '<path d="M9 3 3 6v15l6-3 6 3 6-3V3l-6 3z"/><path d="M9 3v15M15 6v15"/>',
-  lista: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>' +
-    '<path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+  lista: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   bokningar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
   dashboard: '<path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/>',
   nyheter: '<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Z"/>' +
@@ -27,12 +26,12 @@ const IKONER = {
 };
 
 /* Ordningen är den i bottenmenyn. Admin ligger inte där — den nås via
-   profilen, så att fältvyerna får hela bredden. Översikten är tills vidare
-   borta ur menyn och har lämnat plats åt Nyheter; koden står kvar. */
+   profilen, så att fältvyerna får hela bredden. Översikten ligger sist och
+   bara för dem som ser laget: en mötesbokare ska ha en kort meny. */
 const VYER = {
   karta: 'Karta',
   bokningar: 'Bokningar',
-  lista: 'Kunder',
+  lista: 'Kommande',
   nyheter: 'Nyheter',
   dashboard: 'Översikt',
   admin: 'Admin',
@@ -46,7 +45,9 @@ let dashTimer = null;
 function ritaNav() {
   // Den som inte knackar dörrar har ingen karta, inget register och ingen
   // topplista — bara bokningarna. Servern säger samma sak.
-  const vyer = kan('knacka') ? NAVVYER : ['bokningar', 'nyheter'];
+  // Siffrorna över laget är chefernas — Mötesbokare+ och Admin Besiktare.
+  const vyer = (kan('knacka') ? NAVVYER : ['bokningar', 'lista', 'nyheter'])
+    .concat(kan('se_personal') ? ['dashboard'] : []);
   $('botten').innerHTML = vyer.map((v) =>
     '<button data-vy="' + v + '" class="' + (v === S.vy ? 'aktiv' : '') + '">' +
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
@@ -88,7 +89,7 @@ let bokFlik = 'kalender';
 function bokFlikar() {
   const saljare = S.anvandare && S.anvandare.roll === 'besiktare';
   const flikar = [['kalender', 'Kalender'], ['bokade', saljare ? 'Mina möten' : 'Bokade adresser']];
-  if (kan('knacka')) flikar.push(['lista', 'Lista']);
+  flikar.push(['lista', 'Månadslista']);
   if (kan('styr_tider') || kan('eget_schema')) {
     flikar.push(['tider', kan('styr_tider') ? 'Besiktarnas tider' : 'Mina tider']);
   }
@@ -117,6 +118,13 @@ function visaBokningsflik() {
   else if (bokFlik === 'tider') tider.rita();
   else listor.ritaBokningar();
 }
+
+// Från en användares profil: hoppa till hans tidsida.
+buss.addEventListener('oppna-tider', (ev) => {
+  tider.visaFor(ev.detail.id);
+  bokFlik = 'tider';
+  visaVy('bokningar');
+});
 
 /* ══ Puls: håll alla i laget på samma bild ══ */
 
@@ -191,6 +199,7 @@ function fyllOmradesval() {
     .concat(S.omraden.map((o) => '<option value="' + esc(o.id) + '">' + esc(o.namn) + '</option>'));
   ['omradeVal', 'lOmrade', 'dOmrade'].forEach((id) => {
     const el = $(id);
+    if (!el) return;                       // rutan finns inte i alla vyer
     const tidigare = el.value;
     el.innerHTML = val.join('');
     el.value = tidigare || S.valtOmrade || '';
@@ -222,6 +231,7 @@ const SENASTE_POSITION = 'falt_position';
 
 function gpsRad(text, klass) {
   const el = $('gpsRad');
+  if (!el) return;                          // raden är borta från kartan
   if (!el) return;
   el.textContent = text;
   el.className = 'gps-rad' + (klass ? ' ' + klass : '');
@@ -487,6 +497,7 @@ async function start() {
   // Den som inte knackar dörrar har varken karta eller adressregister —
   // servern säger nej till dem, så appen frågar inte heller efter dem.
   if (!kan('knacka')) {
+    fyllOmradesval();   // översikten har ett områdesval, om han når den
     bokFlik = S.anvandare.roll === 'besiktare' ? 'bokade' : 'kalender';
     visaVy('nyheter');
     startaPuls();
@@ -495,7 +506,7 @@ async function start() {
   }
 
   fyllOmradesval();
-  listor.kopplaBokningar(kan('allt_bokat') ? (await hamtaSaljare()) : [S.anvandare]);
+  listor.kopplaBokningar();
   await laddaDorrar();
   visaVy('karta');
   startaGps();
@@ -503,27 +514,24 @@ async function start() {
   skickaKo();
 }
 
-async function hamtaSaljare() {
-  try { return (await anrop('anvandare-lista')).anvandare || []; } catch (e) { return []; }
-}
 
 /* ══ Koppling ══ */
 
 $('loginForm').addEventListener('submit', loggaIn);
 $('profilKnapp').addEventListener('click', visaProfil);
 $('koPill').addEventListener('click', skickaKo);
-$('nastaDorr').addEventListener('click', karta.nastaDorr);
 ['manuellDorr', 'manuellDorr2'].forEach((id) => {
-  $(id).addEventListener('click', () => manuellBokning(S.omraden, S.valtOmrade));
+  if ($(id)) $(id).addEventListener('click', () => manuellBokning(S.omraden, S.valtOmrade));
 });
 $('anteckningarKnapp').addEventListener('click', () => visaAnteckningar(S.omraden, S.valtOmrade));
-// Områdesvalet finns i både kartan och listan och ska följas åt.
+// Områdesvalet ligger kvar i översikten; kartan visar alla områden.
 ['omradeVal', 'lOmrade'].forEach((id) => {
-  $(id).addEventListener('change', async (ev) => {
+  const el = $(id);
+  if (!el) return;
+  el.addEventListener('change', async (ev) => {
     S.valtOmrade = ev.target.value;
-    ['omradeVal', 'lOmrade'].forEach((annat) => { $(annat).value = S.valtOmrade; });
     await laddaDorrar();
-    if (S.vy === 'karta') karta.rita(); else listor.ritaLista();
+    if (S.vy === 'karta') karta.rita();
   });
 });
 

@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS anvandare (
   -- | saljare (Mötesbokare) | besiktare (Säljare/Takbesiktare)
   roll      TEXT NOT NULL DEFAULT 'saljare',
   team      TEXT,
+  max_per_dag INTEGER NOT NULL DEFAULT 3,   -- besiktarens tak för bokningar per dag
+  snabbtider  TEXT,                         -- egen mall, t.ex. "10:00,13:00,17:00"
   hash      TEXT NOT NULL,
   salt      TEXT NOT NULL,
   aktiv     INTEGER NOT NULL DEFAULT 1,
@@ -63,6 +65,9 @@ CREATE TABLE IF NOT EXISTS adresser (
   aterkom_datum   TEXT,
   aterkom_tid     TEXT,
   antal_besok     INTEGER NOT NULL DEFAULT 0,
+  broschyr        INTEGER NOT NULL DEFAULT 0,   -- broschyr lämnad i brevlådan
+  broschyr_av     TEXT,
+  broschyr_tid    INTEGER,
   skapad          INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_adr_omrade ON adresser(omrade_id);
@@ -102,7 +107,8 @@ CREATE TABLE IF NOT EXISTS bokningar (
   telefon      TEXT,
   datum        TEXT,
   tid          TEXT,
-  saljare_id   TEXT,                           -- takbesiktaren mötet är bokat på
+  saljare_id   TEXT,                           -- besiktaren mötet är bokat på
+  stege        INTEGER NOT NULL DEFAULT 0,     -- ta med stege
   kommentar    TEXT,
   status       TEXT NOT NULL DEFAULT 'bokad',  -- bokad | genomford | avbokad
   skapad       INTEGER NOT NULL
@@ -170,6 +176,15 @@ CREATE TABLE IF NOT EXISTS nyheter (
   skapad       INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_nyhet_tid ON nyheter(skapad);
+
+/* En bortsvepad nyhet försvinner bara för den som svepte. Nyheten står kvar
+   för alla andra — därför en rad per användare och nyhet, inte en radering. */
+CREATE TABLE IF NOT EXISTS nyhet_dold (
+  anvandare_id TEXT NOT NULL,
+  nyhet_id     TEXT NOT NULL,
+  skapad       INTEGER NOT NULL,
+  PRIMARY KEY (anvandare_id, nyhet_id)
+);
 
 /* ── Kommentarer och bilder på en bokning ── */
 

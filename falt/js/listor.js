@@ -1,188 +1,256 @@
-/** Listvyerna: dörrar att jobba med, och bokningskalendern. */
+/**
+ * Listvyerna: kommande bokningar i tur och ordning, och månadslistan.
+ *
+ * Båda visar det servern släpper fram för rollen — mötesbokaren sina egna,
+ * besiktaren sina möten, Admin Besiktare och Mötesbokare+ allas. En bokning
+ * går att öppna och visar då allt, inklusive hur besiktningen gick.
+ */
 
 import { anrop } from './api.js';
-import {
-  $, esc, toast, idag, visaDatum, visaTidpunkt, sedan,
-  STATUS_TEXT, RESULTAT_TEXT,
-} from './ui.js';
-import { S, arRoll, dataAndrad } from './state.js';
-import { oppna as oppnaDorr } from './dorr.js';
+import { $, esc, idag, visaDatum, visaTidpunkt, oppnaPanel, stangPanel } from './ui.js';
+import { S, kan } from './state.js';
 
 let listTyp = 'aterbesok';
 let sok = '';
 
-/* ══ DÖRRLISTA ══ */
+/* ══ KOMMANDE BOKNINGAR ══ */
 
-function kortHtml(a) {
-  const forsenad = a.aterkom_datum && a.aterkom_datum <= idag();
-  return '<button class="kort s-' + esc(a.status) + '" data-id="' + esc(a.id) + '">' +
-    '<div class="kort-topp"><div>' +
-    '<div class="adress">' + esc(a.adress) + '</div>' +
-    (a.senast_namn
-      ? '<div class="under">' + esc(a.senast_namn) + ' · ' + esc(sedan(a.senast_tid)) +
-        (a.senast_resultat ? ' · ' + esc(RESULTAT_TEXT[a.senast_resultat]) : '') + '</div>'
-      : '<div class="under">Aldrig besökt</div>') +
-    '</div><span class="märke m-' + esc(a.status) + '">' + esc(STATUS_TEXT[a.status]) + '</span></div>' +
-    '<div class="rad">' +
-    (a.aterkom_datum
-      ? '<span' + (forsenad ? ' style="color:var(--st-aterkom);font-weight:600"' : '') + '>Återkom ' +
-        esc(visaDatum(a.aterkom_datum)) + (a.aterkom_tid ? ' kl. ' + esc(a.aterkom_tid) : '') + '</span>'
-      : '') +
-    (a.antal_besok > 1 ? '<span>' + a.antal_besok + ' besök</span>' : '') +
-    (a.sparrad_till > Date.now() && a.status !== 'ejbesokt' ? '<span>Fredad</span>' : '') +
-    '</div></button>';
-}
+/*
+ * Allt som är på gång, i tur och ordning. Vad var och en ser avgör servern:
+ * mötesbokaren sina egna, besiktaren sina möten, Admin Besiktare och
+ * Mötesbokare+ allas. Poängen är att inte missa något — inte att bläddra.
+ */
+let kommande = [];
 
-function gruppera(adresser) {
-  const grupper = new Map();
-  const nu = idag();
-  adresser.forEach((a) => {
-    let g;
-    if (listTyp === 'aterbesok') {
-      g = !a.aterkom_datum ? 'Utan planerad tid'
-        : a.aterkom_datum < nu ? 'Försenade'
-        : a.aterkom_datum === nu ? 'Idag'
-        : visaDatum(a.aterkom_datum);
-    } else {
-      g = a.gata;
-    }
-    if (!grupper.has(g)) grupper.set(g, []);
-    grupper.get(g).push(a);
-  });
-  return grupper;
-}
-
-export function ritaLista() {
-  const nu = idag();
-  let urval = S.adresser.filter((a) => !S.valtOmrade || a.omrade_id === S.valtOmrade);
-
-  if (listTyp === 'aterbesok') {
-    urval = urval.filter((a) => a.status === 'aterkom' || a.status === 'ejsvar');
-    urval.sort((a, b) => (a.aterkom_datum || '9999').localeCompare(b.aterkom_datum || '9999'));
-  } else if (listTyp === 'ejbesokt') {
-    urval = urval.filter((a) => a.status === 'ejbesokt');
-  }
-
-  if (sok) {
-    const q = sok.toLowerCase();
-    urval = urval.filter((a) => (a.adress + ' ' + (a.senast_namn || '')).toLowerCase().includes(q));
-  }
-
+export async function ritaLista() {
   const behallare = $('listInnehall');
-  if (!urval.length) {
-    behallare.innerHTML = '<div class="tom">' +
-      (listTyp === 'aterbesok' ? 'Inga dörrar att återkomma till.'
-        : listTyp === 'ejbesokt' ? 'Alla dörrar i området är bearbetade.'
-        : 'Inga dörrar hittades.') + '</div>';
+  if (!kommande.length) behallare.innerHTML = '<div class="tom">Hämtar bokningar…</div>';
+
+  const verktyg = $('listVerktyg');
+  if (verktyg) verktyg.hidden = !kan('knacka');
+
+  let data;
+  try {
+    data = await anrop('bokningar', { fran: idag(), status: 'bokad' });
+  } catch (e) {
+    behallare.innerHTML = '<div class="tom">Kunde inte hämta bokningar: ' + esc(e.message) + '</div>';
     return;
   }
 
-  const forsenade = urval.filter((a) => a.aterkom_datum && a.aterkom_datum <= nu).length;
-  $('vySub').textContent = urval.length + ' dörrar' + (forsenade && listTyp === 'aterbesok' ? ' · ' + forsenade + ' att göra nu' : '');
+  kommande = (data.bokningar || []).slice().sort((a, b) =>
+    (a.datum || '9999').localeCompare(b.datum || '9999') || (a.tid || '').localeCompare(b.tid || ''));
 
+  if (S.vy === 'lista') $('vySub').textContent = kommande.length + ' kommande bokningar';
+
+  if (!kommande.length) {
+    behallare.innerHTML = '<div class="tom">Inga kommande bokningar.</div>';
+    return;
+  }
+
+  // Gruppera per besiktare när man ser fler än sina egna — annars blandas de.
+  const flera = new Set(kommande.map((b) => b.saljare_id)).size > 1;
   let html = '<div class="lista">';
-  gruppera(urval).forEach((rader, grupp) => {
-    html += '<div class="rubrik">' + esc(grupp) + ' (' + rader.length + ')</div>';
-    html += rader.map(kortHtml).join('');
-  });
-  behallare.innerHTML = html + '</div>';
 
-  behallare.querySelectorAll('.kort').forEach((k) => {
-    k.onclick = () => oppnaDorr(k.dataset.id);
+  if (flera) {
+    const per = new Map();
+    kommande.forEach((b) => {
+      const namn = b.saljare || 'Ej tilldelad';
+      if (!per.has(namn)) per.set(namn, []);
+      per.get(namn).push(b);
+    });
+    [...per.keys()].sort((a, b) => a.localeCompare(b, 'sv')).forEach((namn) => {
+      html += '<div class="rubrik">' + esc(namn) + ' (' + per.get(namn).length + ')</div>';
+      html += per.get(namn).map(kortHtml).join('');
+    });
+  } else {
+    let senasteDag = null;
+    kommande.forEach((b) => {
+      if (b.datum !== senasteDag) {
+        senasteDag = b.datum;
+        html += '<div class="rubrik">' + esc(b.datum ? visaDatum(b.datum) : 'Utan datum') + '</div>';
+      }
+      html += kortHtml(b);
+    });
+  }
+
+  behallare.innerHTML = html + '</div>';
+  behallare.querySelectorAll('[data-bok]').forEach((k) => {
+    k.onclick = () => visaBokning(k.dataset.bok, kommande);
   });
+}
+
+function kortHtml(b) {
+  const idagNu = b.datum === idag();
+  return '<button class="kort bokrad' + (idagNu ? ' s-aterkom' : '') + '" data-bok="' + esc(b.id) + '">' +
+    '<div class="kort-topp"><div>' +
+    '<div class="adress">' + esc(visaDatum(b.datum) || '—') + ' kl. ' + esc(b.tid || '—') + '</div>' +
+    '<div class="under">' + esc(b.adress || 'Adress saknas') +
+    (b.kund ? ' · ' + esc(b.kund) : '') + '</div>' +
+    '</div>' + (idagNu ? '<span class="märke m-aterkom">IDAG</span>' : '') + '</div>' +
+    '<div class="rad">' +
+    (b.telefon ? '<span>' + esc(b.telefon) + '</span>' : '') +
+    (b.saljare ? '<span>' + esc(b.saljare) + '</span>' : '') +
+    (b.stege ? '<span>🪜 Stege</span>' : '') +
+    '</div></button>';
 }
 
 export function kopplaLista() {
-  $('listFlikar').addEventListener('click', (ev) => {
-    const b = ev.target.closest('.flik');
-    if (!b) return;
-    listTyp = b.dataset.lista;
-    $('listFlikar').querySelectorAll('.flik').forEach((x) => x.classList.toggle('aktiv', x === b));
-    ritaLista();
-  });
-  $('sokDorr').addEventListener('input', (ev) => { sok = ev.target.value.trim(); ritaLista(); });
+  /* Sökrutan och flikarna är borta — listan är kort och sorterad av sig själv. */
 }
 
-/* ══ BOKNINGAR ══ */
+/* ══ MÅNADSLISTAN ══ */
+
+/*
+ * Listan står alltid i innevarande månad och börjar om av sig själv när en
+ * ny månad börjar. Vad som syns avgör servern efter roll: mötesbokaren sina
+ * egna, besiktaren sina möten, Admin Besiktare och Mötesbokare+ allas — de
+ * senare kan dessutom växla mellan personer.
+ */
+let manad = idag().slice(0, 7);
+let valdPerson = '';
+let personer = [];
+let manadsBokningar = [];
+
+const MANADER = ['januari', 'februari', 'mars', 'april', 'maj', 'juni',
+  'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
+
+const forsta = (m) => m + '-01';
+const sista = (m) => m + '-' + new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0).getDate();
+
+function bytManad(steg) {
+  const d = new Date(manad + '-01T12:00:00Z');
+  d.setUTCMonth(d.getUTCMonth() + steg);
+  manad = d.toISOString().slice(0, 7);
+  ritaBokningar();
+}
 
 export async function ritaBokningar() {
   const behallare = $('bokInnehall');
-  behallare.innerHTML = '<div class="tom">Hämtar bokningar…</div>';
+  if (!manadsBokningar.length) behallare.innerHTML = '<div class="tom">Hämtar bokningar…</div>';
+
+  // Den som ser allas listor får välja vems han tittar på.
+  if (kan('se_personal') && !personer.length) {
+    try {
+      personer = (await anrop('anvandare-lista')).anvandare.filter((a) => a.aktiv) || [];
+    } catch (e) { /* utan listan visas allt, som förut */ }
+  }
+
+  const bes = personer.find((p) => p.id === valdPerson);
+  const somBesiktare = bes && (bes.roll === 'besiktare' || bes.roll === 'saljadmin');
 
   let data;
   try {
     data = await anrop('bokningar', {
-      fran: $('bokFran').value || undefined,
-      till: $('bokTill').value || undefined,
-      bokare_id: $('bokSaljare').value || undefined,
+      fran: forsta(manad),
+      till: sista(manad),
+      bokare_id: valdPerson && !somBesiktare ? valdPerson : undefined,
+      saljare_id: valdPerson && somBesiktare ? valdPerson : undefined,
     });
   } catch (e) {
     behallare.innerHTML = '<div class="tom">Kunde inte hämta bokningar: ' + esc(e.message) + '</div>';
     return;
   }
 
-  const bokningar = data.bokningar || [];
-  $('vySub').textContent = bokningar.length + ' bokningar';
-  if (!bokningar.length) {
-    behallare.innerHTML = '<div class="tom">Inga bokningar i perioden.</div>';
-    return;
+  manadsBokningar = (data.bokningar || []).slice().sort((a, b) =>
+    (a.datum || '9999').localeCompare(b.datum || '9999') || (a.tid || '').localeCompare(b.tid || ''));
+
+  if (S.vy === 'bokningar') {
+    $('vySub').textContent = manadsBokningar.length + ' bokningar i ' + MANADER[Number(manad.slice(5, 7)) - 1];
   }
 
-  const dagar = new Map();
-  bokningar.forEach((b) => {
-    const d = b.datum || 'Utan datum';
-    if (!dagar.has(d)) dagar.set(d, []);
-    dagar.get(d).push(b);
-  });
+  behallare.innerHTML =
+    '<div class="kal-topp">' +
+    '<button class="kal-pil" id="mBak" aria-label="Föregående månad">‹</button>' +
+    '<div class="kal-rubrik">' + esc(MANADER[Number(manad.slice(5, 7)) - 1] + ' ' + manad.slice(0, 4)) +
+    '<span>' + manadsBokningar.length + ' bokningar</span></div>' +
+    '<button class="kal-pil" id="mFram" aria-label="Nästa månad">›</button></div>' +
+    (kan('se_personal') && personer.length
+      ? '<div class="filterrad"><select id="mPerson" class="valj">' +
+        '<option value="">Alla</option>' +
+        personer.map((p) => '<option value="' + esc(p.id) + '"' +
+          (p.id === valdPerson ? ' selected' : '') + '>' + esc(p.namn) + '</option>').join('') +
+        '</select></div>'
+      : '') +
+    (manadsBokningar.length ? listHtml() : '<div class="tom">Inga bokningar den här månaden.</div>');
 
-  let html = '<div class="lista">';
-  dagar.forEach((rader, dag) => {
-    html += '<div class="rubrik">' + esc(dag === 'Utan datum' ? dag : visaDatum(dag)) + ' (' + rader.length + ')</div>';
-    rader.forEach((b) => {
-      const klar = b.status === 'genomford';
-      html += '<div class="kort s-' + (klar ? 'bokat' : b.status === 'avbokad' ? 'nej' : 'ejbesokt') + '">' +
-        '<div class="kort-topp"><div>' +
-        '<div class="adress">' + esc(b.tid || '--:--') + ' · ' + esc(b.kund || 'Kund') + '</div>' +
-        '<div class="under">' + esc(b.adress) + (b.omrade ? ' · ' + esc(b.omrade) : '') + '</div>' +
-        '</div><span class="märke m-' + (klar ? 'bokat' : b.status === 'avbokad' ? 'nej' : 'ejbesokt') + '">' +
-        esc(klar ? 'Genomförd' : b.status === 'avbokad' ? 'Avbokad' : 'Bokad') + '</span></div>' +
-        '<div class="rad"><span>' + esc(b.bokare || b.saljare || '') + '</span>' +
-        (b.telefon ? '<span>' + esc(b.telefon) + '</span>' : '') + '</div>' +
-        (b.kommentar ? '<div class="under" style="margin-top:8px">' + esc(b.kommentar) + '</div>' : '') +
-        '<div class="chips">' +
-        (b.telefon ? '<a class="chip" href="tel:' + esc(b.telefon.replace(/[^\d+]/g, '')) + '">Ring</a>' : '') +
-        (b.adress ? '<a class="chip" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=' +
-          encodeURIComponent(b.adress) + '">Karta</a>' : '') +
-        (!klar ? '<button class="chip" data-bok="' + esc(b.id) + '" data-status="genomford">Markera genomförd</button>' : '') +
-        (b.status !== 'avbokad' ? '<button class="chip" data-bok="' + esc(b.id) + '" data-status="avbokad">Avboka</button>' : '') +
-        '</div></div>';
-    });
-  });
-  behallare.innerHTML = html + '</div>';
-
-  behallare.querySelectorAll('[data-bok]').forEach((b) => {
-    b.onclick = async () => {
-      try {
-        await anrop('bokning-status', { id: b.dataset.bok, status: b.dataset.status });
-        toast(b.dataset.status === 'genomford' ? 'Markerad som genomförd' : 'Avbokad');
-        ritaBokningar();
-        dataAndrad();
-      } catch (e) { toast('Gick inte: ' + e.message); }
-    };
+  $('mBak').onclick = () => bytManad(-1);
+  $('mFram').onclick = () => bytManad(1);
+  if ($('mPerson')) $('mPerson').onchange = () => { valdPerson = $('mPerson').value; ritaBokningar(); };
+  behallare.querySelectorAll('[data-bok]').forEach((k) => {
+    k.onclick = () => visaBokning(k.dataset.bok, manadsBokningar);
   });
 }
 
-export function kopplaBokningar(saljare) {
-  $('bokFran').value = idag();
-  $('bokTill').value = idag();
-  const val = ['<option value="">Alla säljare</option>']
-    .concat((saljare || []).map((s) => '<option value="' + esc(s.id) + '">' + esc(s.namn) + '</option>'));
-  $('bokSaljare').innerHTML = val.join('');
-  if (!arRoll('teamleader')) {
-    $('bokSaljare').value = S.anvandare.id;
-    $('bokSaljare').disabled = true;
-  }
-  ['bokFran', 'bokTill', 'bokSaljare'].forEach((id) => {
-    $(id).addEventListener('change', ritaBokningar);
+function listHtml() {
+  const nu = idag();
+  let html = '<div class="lista">';
+  let senasteDag = null;
+
+  manadsBokningar.forEach((b) => {
+    if (b.datum !== senasteDag) {
+      senasteDag = b.datum;
+      html += '<div class="rubrik">' + esc(b.datum ? visaDatum(b.datum) : 'Utan datum') +
+        (b.datum === nu ? ' · idag' : '') + '</div>';
+    }
+    const utfall = (b.aterkoppling || [])[0];
+    html += '<button class="kort bokrad" data-bok="' + esc(b.id) + '">' +
+      '<div class="kort-topp"><div>' +
+      '<div class="adress">' + esc(b.tid || '—') + ' · ' + esc(b.adress || 'Adress saknas') + '</div>' +
+      '<div class="under">' + esc(b.kund || 'Kund saknas') +
+      (b.saljare ? ' · ' + esc(b.saljare) : '') + '</div>' +
+      '</div><span class="märke m-' + (b.status === 'genomford' ? 'bokat'
+        : b.status === 'avbokad' ? 'nej' : 'aterkom') + '">' +
+      (b.status === 'genomford' ? 'GENOMFÖRD' : b.status === 'avbokad' ? 'AVBOKAD' : 'BOKAD') +
+      '</span></div>' +
+      '<div class="rad">' +
+      (b.stege ? '<span>🪜 Stege</span>' : '') +
+      (utfall ? '<span>' + esc(utfall.utfall_text) + '</span>' : '') +
+      (b.bokare ? '<span>Bokad av ' + esc(b.bokare) + '</span>' : '') +
+      '</div></button>';
   });
+  return html + '</div>';
+}
+
+/** Hela bokningen: vad som bokades, av vem, hos vem — och hur det gick. */
+function visaBokning(id, lista) {
+  const b = (lista || manadsBokningar).find((x) => x.id === id);
+  if (!b) return;
+  const telefon = (b.telefon || '').replace(/[^\d+]/g, '');
+
+  oppnaPanel('modal',
+    '<h2>' + esc(b.adress || 'Bokning') + '</h2>' +
+    '<p class="sub">' + esc([visaDatum(b.datum), b.tid && 'kl. ' + b.tid].filter(Boolean).join(' ')) + '</p>' +
+    '<div class="bokad-fakta" style="margin-top:14px">' +
+    fakta('Kund', b.kund) +
+    fakta('Telefon', b.telefon) +
+    fakta('Adress', [b.adress, b.postort].filter(Boolean).join(', ')) +
+    fakta('Besiktare', b.saljare) +
+    fakta('Bokad av', b.bokare) +
+    fakta('Status', b.status === 'genomford' ? 'Genomförd'
+      : b.status === 'avbokad' ? 'Avbokad' : 'Bokad') +
+    fakta('Ta med stege', b.stege ? 'Ja' : 'Nej') +
+    (b.kommentar ? fakta('Från bokningen', b.kommentar) : '') +
+    '</div>' +
+    (telefon ? '<div class="btn-rad"><a class="btn btn-primary" href="tel:' + esc(telefon) + '">Ring kund</a></div>' : '') +
+
+    '<h3>Hur gick besiktningen?</h3>' +
+    ((b.aterkoppling || []).length
+      ? '<div class="komm-lista">' + b.aterkoppling.map((a) =>
+        '<div class="komm utfall"><div class="komm-topp"><b>' + esc(a.utfall_text) + '</b>' +
+        (a.belopp ? ' · ' + esc(String(a.belopp)) + ' kr' : '') +
+        ' · ' + esc(a.forfattare || 'Okänd') + ' · ' + esc(visaTidpunkt(a.skapad)) + '</div>' +
+        esc(a.text || '') + '</div>').join('') + '</div>'
+      : '<p class="sub">' + (b.status === 'genomford'
+        ? 'Ingen återkoppling lämnad.'
+        : 'Mötet är inte genomfört än.') + '</p>') +
+    '<div class="btn-rad"><button class="btn btn-ghost" id="bkStang">Stäng</button></div>');
+
+  $('bkStang').onclick = () => stangPanel('modal');
+}
+
+const fakta = (etikett, varde) => (varde
+  ? '<div class="fakta-rad"><span>' + esc(etikett) + '</span><b>' + esc(String(varde)) + '</b></div>' : '');
+
+export function kopplaBokningar() {
+  manad = idag().slice(0, 7);
 }

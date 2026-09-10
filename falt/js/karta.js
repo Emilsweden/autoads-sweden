@@ -139,7 +139,8 @@ function skapa() {
     uppdateraBanner();
   });
 
-  $('teckenforklaring').innerHTML =
+  const teckenruta = $('teckenforklaring');
+  if (teckenruta) teckenruta.innerHTML =
     '<span><i style="background:#fff;border:2px solid #1a73e8"></i>Ej registrerat (husnummer)</span>' +
     [['ejbesokt', 'Ej besökt'], ['bokat', 'Bokad'], ['ejsvar', 'Inget svar'],
       ['aterkom', 'Återkom'], ['nej', 'Nej'], ['sparrad', 'Nyligen besökt'],
@@ -518,7 +519,7 @@ let harDorrar = 0;
  */
 function uppdateraBanner() {
   const banner = $('kartBanner');
-  if (!banner) return;
+  if (!banner) return;   // banderollen är borttagen från kartvyn
   const rader = [];
   if (saknarKoordinat) {
     rader.push(harDorrar
@@ -592,6 +593,7 @@ export function rita() {
 const SOK_PAUS = 450;
 let sokTimer = null;
 let sokKord = '';
+let sokTraffar = [];         // senaste svaret, så samma sökning kan visas igen
 
 export function kopplaSok() {
   const falt = $('adressSok');
@@ -612,16 +614,25 @@ export function kopplaSok() {
 }
 
 async function sok(fraga) {
-  if (fraga === sokKord) return;
+  // Samma sökning igen ska visa listan igen — inte tiga. Söker någon på
+  // samma hus två gånger i rad är det för att han vill dit en gång till.
+  if (fraga === sokKord) { visaTraffar(sokTraffar); return; }
   sokKord = fraga;
+  sokTraffar = [];
 
   let egna = [];
   try {
     egna = ((await anrop('adress-sok', { fraga })).traffar || [])
       .map((a) => ({ ...a, vår: true }));
-  } catch (e) { /* utan svar får kartan svara i stället */ }
+  } catch (e) {
+    // Utan täckning söker vi bland dörrarna telefonen redan har. Annars går
+    // det inte att öppna en dörr alls när nätet är borta, och registrering
+    // offline är hela poängen med kön.
+    egna = lokalSok(fraga);
+  }
   if (fraga !== sokKord) return;               // en nyare sökning hann före
 
+  sokTraffar = egna;
   visaTraffar(egna, egna.length ? '' : 'Söker på kartan…');
 
   // Har vi själva adressen behöver ingen extern tjänst frågas alls.
@@ -635,7 +646,18 @@ async function sok(fraga) {
 
   const nyckel = (a) => (a.gata + ' ' + a.nummer).toLowerCase();
   const sedda = new Set(egna.map(nyckel));
-  visaTraffar(egna.concat(franKartan.filter((a) => !sedda.has(nyckel(a)))));
+  sokTraffar = egna.concat(franKartan.filter((a) => !sedda.has(nyckel(a))));
+  visaTraffar(sokTraffar);
+}
+
+/** Samma sökning, men mot dörrarna som redan ligger i telefonen. */
+function lokalSok(fraga) {
+  const ord = fraga.toLowerCase().trim();
+  return (S.adresser || [])
+    .filter((a) => ((a.gata || '') + ' ' + (a.nummer || '')).toLowerCase().includes(ord) ||
+      (a.full_adress || '').toLowerCase().includes(ord))
+    .slice(0, 25)
+    .map((a) => ({ ...a, vår: true }));
 }
 
 function visaTraffar(traffar, vantar) {

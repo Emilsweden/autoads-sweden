@@ -61,34 +61,18 @@
 
   <!-- ── KARTA ── -->
   <section class="vy" id="vy-karta">
-    <div class="kartverktyg">
-      <select id="omradeVal" class="valj"></select>
-      <button class="knapp-mork" id="manuellDorr">Manuell</button>
-      <button class="knapp-guld" id="nastaDorr">Nästa dörr</button>
-    </div>
     <div class="adressok">
       <input id="adressSok" type="search" placeholder="Sök adress, t.ex. Björkvägen 17" autocomplete="off"
              autocapitalize="off" spellcheck="false" />
       <div class="adressok-traffar" id="adressTraffar" hidden></div>
     </div>
-    <p class="gps-rad" id="gpsRad">GPS söker signal…</p>
     <p class="hus-rad" id="husRad" hidden></p>
-    <div class="kartbanner" id="kartBanner" hidden></div>
     <div id="karta"></div>
-    <p class="karttips">Numren är hus vi inte registrerat än — tryck på ett för att öppna dörren. Färgade punkter är redan bearbetade.</p>
-    <div class="teckenforklaring" id="teckenforklaring"></div>
   </section>
 
   <!-- ── LISTA ── -->
   <section class="vy" id="vy-lista" hidden>
-    <div class="flikar" id="listFlikar">
-      <button class="flik aktiv" data-lista="aterbesok">Återbesök</button>
-      <button class="flik" data-lista="ejbesokt">Ej besökta</button>
-      <button class="flik" data-lista="alla">Alla dörrar</button>
-    </div>
-    <div class="filterrad"><select id="lOmrade" class="valj"></select></div>
-    <input class="sok" id="sokDorr" type="search" placeholder="Sök adress…" />
-    <div class="listverktyg">
+    <div class="listverktyg" id="listVerktyg">
       <button class="knapp-guld" id="manuellDorr2">Manuell bokning</button>
       <button class="knapp-mork" id="anteckningarKnapp">Klistra in anteckningar</button>
     </div>
@@ -102,11 +86,6 @@
     <div id="bokadeInnehall" hidden></div>
     <div id="tiderInnehall" hidden></div>
     <div id="bokningsLista" hidden>
-      <div class="filterrad">
-        <input type="date" id="bokFran" class="valj" />
-        <input type="date" id="bokTill" class="valj" />
-        <select id="bokSaljare" class="valj"></select>
-      </div>
       <div id="bokInnehall"></div>
     </div>
   </section>

@@ -13,6 +13,8 @@ import { S, kan } from './state.js';
 let dag = idag();
 let data = null;
 let valdSaljare = '';
+let sparar = false;          // ett klick i taget — annars blir det dubbletter
+let vantande = null;         // tiderna som ska sparas när det pågående är klart
 
 export async function rita() {
   const ruta = $('tiderInnehall');
@@ -43,6 +45,7 @@ export async function rita() {
   const oppna = (data.tider[dag] || {})[valdSaljare] || [];
   const bokade = (data.bokat[dag] || {})[valdSaljare] || [];
   const rorbar = data.far_styra || (egen && egen === valdSaljare);
+  const mall = (data.mallar || {})[valdSaljare] || [];
 
   ruta.innerHTML = topp() +
     (egen ? '' : '<div class="filterrad"><select id="tSaljare" class="valj">' +
@@ -68,19 +71,23 @@ export async function rita() {
     }).join('') +
     '</div>' +
     (rorbar ? '<div class="listverktyg">' +
-      '<button class="knapp-mork" id="tKontor">Lägg in 08–17</button>' +
-      '<button class="knapp-mork" id="tInga">Töm dagen</button></div>' : '');
+      (mall.length
+        ? '<button class="knapp-guld" id="tMall">Mina tider (' + esc(mall.join(', ')) + ')</button>'
+        : '') +
+      '<button class="knapp-mork" id="tSparaMall">' +
+      (mall.length ? 'Ändra min mall' : 'Spara som min mall') + '</button>' +
+      '<button class="knapp-mork" id="tInga">Töm dagen</button></div>' : '') +
+    '<div class="sparstatus" id="tStatus" hidden></div>';
 
   kopplaTopp();
   if ($('tSaljare')) $('tSaljare').onchange = () => { valdSaljare = $('tSaljare').value; rita(); };
   ruta.querySelectorAll('[data-tid]').forEach((k) => {
-    k.onclick = () => vaxla(k.dataset.tid, oppna);
+    k.onclick = () => vaxla(k.dataset.tid);
   });
-  // En vanlig arbetsdag med ett tryck, i stället för nio.
-  if ($('tKontor')) {
-    $('tKontor').onclick = () => spara(
-      (data.mojliga_tider || []).filter((t) => t >= '08:00' && t <= '17:00' && t.endsWith(':00')));
-  }
+  // Besiktarens egna tider med ett tryck. Alla kör inte 08–17 — en tar tre
+  // tak om dagen och lägger 10, 13 och 17.
+  if ($('tMall')) $('tMall').onclick = () => spara([...new Set(nuvarandeTider().concat(mall))].sort());
+  if ($('tSparaMall')) $('tSparaMall').onclick = () => sparaMall(nuvarandeTider());
   if ($('tInga')) $('tInga').onclick = () => spara([]);
 }
 
@@ -96,20 +103,100 @@ function kopplaTopp() {
   $('tFram').onclick = () => { dag = plusDagar(1, dag); rita(); };
 }
 
-function vaxla(tid, oppna) {
-  const nya = oppna.includes(tid) ? oppna.filter((t) => t !== tid) : oppna.concat(tid).sort();
-  spara(nya);
+/**
+ * Läser av vad som står på skärmen just nu i stället för hur det såg ut när
+ * sidan ritades. Trycker någon på tre tider i snabb följd bygger de på
+ * varandra i stället för att skriva över varandra.
+ */
+function nuvarandeTider() {
+  return [...document.querySelectorAll('#tiderInnehall .tidruta')]
+    .filter((k) => k.classList.contains('ledig') || k.classList.contains('bokad'))
+    .map((k) => k.textContent.slice(0, 5))
+    .sort();
 }
 
-/** Hela dagens tider skickas på en gång; en tom lista tömmer dagen. */
+function vaxla(tid) {
+  const nu = nuvarandeTider();
+  spara(nu.includes(tid) ? nu.filter((t) => t !== tid) : nu.concat(tid).sort());
+}
+
+/**
+ * Hela dagens tider skickas på en gång; en tom lista tömmer dagen.
+ *
+ * Ett anrop i taget. Trycker någon flera gånger medan servern svarar läggs
+ * det sista önskade läget på kö och skickas när det pågående är klart — så
+ * blir det aldrig två anrop som skriver om varandra, och aldrig dubbletter.
+ */
 async function spara(tider) {
+  if (sparar) { vantande = tider; return; }
+  sparar = true;
+  status('Sparar…');
+  markera(tider);
+
   try {
-    await anrop('saljartider-spara', { saljare_id: valdSaljare, datum: dag, tider });
-    toast(tider.length ? 'Tiderna är sparade' : 'Dagen är tömd');
+    const svar = await anrop('saljartider-spara', { saljare_id: valdSaljare, datum: dag, tider });
+    // Serverns svar är facit, inte det vi trodde att vi skickade.
+    if (data && data.tider && data.tider[dag]) data.tider[dag][valdSaljare] = svar.tider || [];
+    status(tider.length ? 'Sparat ✓' : 'Dagen är tömd ✓', 2000);
+  } catch (e) {
+    status('Kunde inte spara: ' + e.message, 6000);
+    await rita();
+    sparar = false;
+    return;
+  }
+
+  sparar = false;
+  if (vantande) {
+    const nasta = vantande;
+    vantande = null;
+    await spara(nasta);
+    return;
+  }
+  await rita();
+}
+
+/** Sparar de inlagda tiderna som besiktarens egen mall. */
+async function sparaMall(tider) {
+  if (!tider.length) { status('Lägg in tiderna först, spara dem sedan som mall.', 5000); return; }
+  status('Sparar mallen…');
+  try {
+    await anrop('snabbtider-spara', { saljare_id: valdSaljare, tider });
+    status('Mallen är sparad ✓', 2500);
     await rita();
   } catch (e) {
-    toast(e.message);
+    status('Kunde inte spara mallen: ' + e.message, 6000);
   }
+}
+
+/* Rutorna svarar med en gång, innan servern hunnit. Blir det fel ritas
+   sidan om från serverns svar. */
+function markera(tider) {
+  const ruta = $('tiderInnehall');
+  if (!ruta) return;
+  ruta.querySelectorAll('.tidruta').forEach((k) => {
+    if (k.classList.contains('bokad')) return;
+    const pa = tider.includes(k.textContent.slice(0, 5));
+    k.classList.toggle('ledig', pa);
+    k.classList.toggle('stangd', !pa);
+    const etikett = k.querySelector('span');
+    if (etikett) etikett.textContent = pa ? 'Ledig' : '—';
+  });
+}
+
+let statusTimer = null;
+function status(text, doljEfter) {
+  const el = $('tStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.hidden = false;
+  clearTimeout(statusTimer);
+  if (doljEfter) statusTimer = setTimeout(() => { el.hidden = true; }, doljEfter);
+}
+
+/** Öppnar sidan på en bestämd besiktare, t.ex. från hans profil. */
+export function visaFor(id) {
+  valdSaljare = id;
+  data = null;
 }
 
 /** Vem sidan handlar om just nu, för rubriken. */

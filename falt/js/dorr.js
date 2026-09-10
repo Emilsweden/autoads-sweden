@@ -8,7 +8,7 @@ import {
   $, esc, toast, oppnaPanel, stangPanel, idag, plusDagar, visaDatum, visaTidpunkt,
   sedan, STATUS_TEXT, RESULTAT_TEXT, NEJ_ORSAKER,
 } from './ui.js';
-import { S, arRoll, dataAndrad } from './state.js';
+import { S, arRoll, kan, dataAndrad } from './state.js';
 import { delaAdress, vagbeskrivning, kartappNamn } from './geo.js';
 import { ledigaTider } from './kalender.js';
 
@@ -161,122 +161,151 @@ function visaNej() {
   $('nejAterkom').onclick = () => visaTidsval('aterkom');
 }
 
+/**
+ * Bokning vid dörren, i den ordning arbetet faktiskt går: först en dag som
+ * har lediga tider, sedan en tid, sedan vilken besiktare som tar den — och
+ * först därefter kundens uppgifter. Att fylla i namn och nummer och sedan
+ * upptäcka att ingen är ledig är fel väg runt.
+ */
 function visaBokning() {
-  const a = aktuell.adress;
-  const html =
-    '<h3>Bokad takbesiktning</h3>' +
-    '<div class="rad2">' +
-    '<div class="field"><label for="bFornamn">Förnamn</label><input id="bFornamn" type="text" autocomplete="given-name"></div>' +
-    '<div class="field"><label for="bEfternamn">Efternamn</label><input id="bEfternamn" type="text" autocomplete="family-name"></div>' +
-    '</div>' +
-    '<div class="field"><label for="bTelefon">Mobilnummer</label><input id="bTelefon" type="tel" inputmode="tel" placeholder="070-123 45 67"></div>' +
-    '<div class="field"><label for="bDatum">Datum</label><input id="bDatum" type="date" value="' + plusDagar(1) + '"></div>' +
-    '<div class="chips" id="bokChips">' +
-    ['Idag', 'Imorgon', 'Om 2 dgr', 'Om 1 vecka'].map((t, i) =>
-      '<button class="chip" data-d="' + [0, 1, 2, 7][i] + '">' + t + '</button>').join('') +
-    '</div>' +
-    '<h3>Ledig tid</h3><div id="bTider" class="chips tider">Hämtar tider…</div>' +
-    '<div id="bSaljarRad"></div>' +
-    '<div class="field" style="margin-top:14px"><label for="bKomm">Kommentar / takinformation</label>' +
-    '<textarea id="bKomm" placeholder="T.ex. tegeltak, ca 15 år, mossa på norrsidan"></textarea></div>' +
-    '<div class="err" id="bFel"></div>' +
-    '<div class="btn-rad"><button class="btn btn-ghost" id="bAvbryt">Tillbaka</button>' +
-    '<button class="btn btn-primary" id="bSpara">Spara bokning</button></div>';
+  const panel = oppnaPanel('dorr', huvudRubrik() +
+    '<h3>Bokad takbesiktning</h3><div id="bSteg"><div class="tom">Hämtar lediga dagar…</div></div>');
 
-  const panel = oppnaPanel('dorr', huvudRubrik() + html);
+  let valdDag = '';
   let valdTid = '';
   let valdSaljare = '';
+  let valdSaljarNamn = '';
+  let stege = false;
+  let dagar = [];
   let ledigaPer = {};
 
-  /**
-   * Tiderna hämtas från kalendern, så att två mötesbokare inte säljer in
-   * samma tid hos samma säljare. Är flera säljare lediga väljs en av dem —
-   * annars tar servern den som är ledig.
-   */
-  async function laddaTider() {
-    valdTid = '';
-    valdSaljare = '';
-    $('bSaljarRad').innerHTML = '';
-    const ruta = $('bTider');
-    ruta.textContent = 'Hämtar tider…';
+  /* Steg 1: dagarna som har en ledig tid. Inga tomma dagar att bläddra förbi. */
+  async function visaDagar() {
+    const ruta = $('bSteg');
     try {
-      const svar = await ledigaTider($('bDatum').value);
-      ledigaPer = svar.saljarePer || {};
-      if (!svar.tider.length) {
-        ruta.innerHTML = '<span class="sub">' +
-          (svar.saljare && svar.saljare.length
-            ? 'Ingen besiktare har någon ledig tid den dagen.'
-            : 'Ingen besiktare är upplagd än.') + '</span>';
-        return;
-      }
-      ruta.innerHTML = svar.tider.map((t) =>
-        '<button class="chip" data-tid="' + esc(t) + '">' + esc(t) + '</button>').join('');
-      ruta.querySelectorAll('[data-tid]').forEach((b) => {
-        b.onclick = () => {
-          valdTid = b.dataset.tid;
-          ruta.querySelectorAll('.chip').forEach((x) => x.classList.toggle('vald', x === b));
-          visaSaljarval();
-        };
-      });
+      dagar = (await anrop('lediga-dagar', {})).dagar || [];
     } catch (e) {
-      ruta.innerHTML = '<span class="sub">Kunde inte hämta tider: ' + esc(e.message) + '</span>';
-    }
-  }
-
-  /**
-   * Steget "Välj besiktare": alla som lagt in just den tiden och är lediga
-   * visas, och mötesbokaren pekar ut vem som ska ta mötet.
-   */
-  function visaSaljarval() {
-    const lediga = ledigaPer[valdTid] || [];
-    valdSaljare = lediga.length ? lediga[0].id : '';
-    if (!lediga.length) { $('bSaljarRad').innerHTML = ''; return; }
-    if (lediga.length === 1) {
-      $('bSaljarRad').innerHTML =
-        '<h3>Besiktare</h3><p class="sub">' + esc(lediga[0].namn) + ' är ledig ' +
-        esc(valdTid) + ' och tar mötet.</p>';
+      ruta.innerHTML = '<div class="tom">Kunde inte hämta lediga dagar: ' + esc(e.message) + '</div>';
       return;
     }
-    $('bSaljarRad').innerHTML = '<h3>Välj besiktare</h3>' +
-      '<div class="chips besiktarval">' +
-      lediga.map((s, i) => '<button class="chip' + (i === 0 ? ' vald' : '') +
-        '" data-bes="' + esc(s.id) + '">' + esc(s.namn) + ' – ledig</button>').join('') +
-      '</div>';
-    $('bSaljarRad').querySelectorAll('[data-bes]').forEach((b) => {
-      b.onclick = () => {
-        valdSaljare = b.dataset.bes;
-        $('bSaljarRad').querySelectorAll('.chip').forEach((x) => x.classList.toggle('vald', x === b));
+    if (!dagar.length) {
+      ruta.innerHTML = '<div class="tom">Ingen besiktare har någon ledig tid inlagd.<br>' +
+        'Tider läggs in under Bokningar → ' +
+        (kan('styr_tider') ? 'Besiktarnas tider' : 'Mina tider') + '.</div>';
+      return;
+    }
+
+    ruta.innerHTML = '<p class="sub">Välj en dag med lediga tider.</p>' +
+      '<div class="dagval">' + dagar.map((d) =>
+        '<button class="dagruta" data-dag="' + esc(d.datum) + '">' +
+        '<b>' + esc(visaDatum(d.datum)) + '</b>' +
+        '<span>' + d.lediga + ' ledig' + (d.lediga > 1 ? 'a' : '') + ' · ' +
+        esc(d.besiktare.join(', ')) + '</span></button>').join('') + '</div>';
+
+    ruta.querySelectorAll('[data-dag]').forEach((k) => {
+      k.onclick = () => { valdDag = k.dataset.dag; visaTider(); };
+    });
+  }
+
+  /* Steg 2 och 3: tiderna den dagen, och vem som har varje tid. */
+  async function visaTider() {
+    const ruta = $('bSteg');
+    ruta.innerHTML = '<div class="tom">Hämtar tider…</div>';
+    let svar;
+    try {
+      svar = await ledigaTider(valdDag);
+    } catch (e) {
+      ruta.innerHTML = '<div class="tom">Kunde inte hämta tiderna: ' + esc(e.message) + '</div>';
+      return;
+    }
+    ledigaPer = svar.saljarePer || {};
+
+    ruta.innerHTML =
+      '<button class="knapp-mork" id="bTillbakaDag">‹ Byt dag</button>' +
+      '<p class="sub" style="margin-top:10px">' + esc(visaDatum(valdDag)) + ' — välj tid och besiktare.</p>' +
+      (svar.tider.length
+        ? '<div class="tidval">' + svar.tider.map((t) =>
+          '<div class="tidval-block"><div class="tidval-tid">' + esc(t) + '</div>' +
+          (ledigaPer[t] || []).map((sa) =>
+            '<button class="tidval-bes" data-tid="' + esc(t) + '" data-bes="' + esc(sa.id) + '"' +
+            ' data-namn="' + esc(sa.namn) + '">' + esc(sa.namn) +
+            '<span>Ledig</span></button>').join('') + '</div>').join('') + '</div>'
+        : '<div class="tom">Alla tider den dagen är bokade.</div>');
+
+    $('bTillbakaDag').onclick = visaDagar;
+    ruta.querySelectorAll('[data-bes]').forEach((k) => {
+      k.onclick = () => {
+        valdTid = k.dataset.tid;
+        valdSaljare = k.dataset.bes;
+        valdSaljarNamn = k.dataset.namn;
+        visaKund();
       };
     });
   }
 
-  panel.querySelectorAll('#bokChips .chip').forEach((b) => {
-    b.onclick = () => { $('bDatum').value = plusDagar(+b.dataset.d); laddaTider(); };
-  });
-  $('bDatum').onchange = laddaTider;
-  laddaTider();
+  /* Steg 4: kundens uppgifter, allt på en sida. */
+  function visaKund() {
+    $('bSteg').innerHTML =
+      '<button class="knapp-mork" id="bTillbakaTid">‹ Byt tid</button>' +
+      '<div class="vald-tid">' + esc(visaDatum(valdDag)) + ' kl. ' + esc(valdTid) +
+      ' · ' + esc(valdSaljarNamn) + '</div>' +
+      '<div class="rad2">' +
+      '<div class="field"><label for="bFornamn">Förnamn</label>' +
+      '<input id="bFornamn" type="text" autocomplete="given-name"></div>' +
+      '<div class="field"><label for="bEfternamn">Efternamn</label>' +
+      '<input id="bEfternamn" type="text" autocomplete="family-name"></div>' +
+      '</div>' +
+      '<div class="field"><label for="bTelefon">Mobilnummer</label>' +
+      '<input id="bTelefon" type="tel" inputmode="tel" placeholder="070-123 45 67"></div>' +
+      '<div class="field"><label for="bAdress">Adress</label>' +
+      '<input id="bAdress" type="text" value="' + esc(adressText()) + '"></div>' +
+      '<button class="stegeval" id="bStege" type="button" aria-pressed="false">' +
+      '<span>🪜 Ta med stege</span><span class="stegeval-lage">Nej</span></button>' +
+      '<div class="field"><label for="bKomm">Kommentar / takinformation</label>' +
+      '<textarea id="bKomm" placeholder="T.ex. tegeltak, ca 15 år, mossa på norrsidan"></textarea></div>' +
+      '<div class="err" id="bFel"></div>' +
+      '<div class="btn-rad"><button class="btn btn-ghost" id="bAvbryt">Avbryt</button>' +
+      '<button class="btn btn-primary" id="bSpara">Spara bokning</button></div>';
 
-  $('bAvbryt').onclick = () => oppna(a.id);
-  $('bSpara').onclick = () => {
+    $('bTillbakaTid').onclick = visaTider;
+    $('bStege').onclick = () => {
+      stege = !stege;
+      $('bStege').setAttribute('aria-pressed', String(stege));
+      $('bStege').classList.toggle('pa', stege);
+      $('bStege').querySelector('.stegeval-lage').textContent = stege ? 'Ja' : 'Nej';
+    };
+    $('bAvbryt').onclick = () => oppna(aktuell.adress.id);
+    $('bSpara').onclick = spara;
+  }
+
+  function adressText() {
+    const a = aktuell.adress;
+    return [a.gata, a.nummer].filter(Boolean).join(' ') + (a.postort ? ', ' + a.postort : '');
+  }
+
+  function spara() {
     const fornamn = $('bFornamn').value.trim();
     const telefon = $('bTelefon').value.trim();
     if (!fornamn || !telefon) { $('bFel').textContent = 'Förnamn och mobilnummer krävs.'; return; }
-    if (!$('bDatum').value) { $('bFel').textContent = 'Välj datum för besiktningen.'; return; }
-    if (!valdTid) { $('bFel').textContent = 'Välj en ledig tid.'; return; }
-    if (!valdSaljare) { $('bFel').textContent = 'Välj vilken besiktare som ska ta mötet.'; return; }
+
     skicka('bokat', {
       fornamn,
       efternamn: $('bEfternamn').value.trim(),
       telefon,
-      datum: $('bDatum').value,
+      datum: valdDag,
       tid: valdTid,
-      saljare_id: valdSaljare || undefined,
+      saljare_id: valdSaljare,
+      stege,
       kommentar: $('bKomm').value.trim(),
     }, false, (meddelande) => {
       $('bFel').textContent = meddelande;
-      laddaTider();
+      // Någon hann före: tillbaka till tiderna, som nu visar det som gäller.
+      visaTider();
     });
-  };
+  }
+
+  visaDagar();
+  return panel;
 }
 
 /* ── Huvudvy ── */
@@ -338,6 +367,44 @@ function aktivBokning() {
 }
 
 /** Kunden bakom bokningen: uppgifter, kommentar och vad man gör härnäst. */
+/**
+ * Broschyr i brevlådan. Nästa som står vid dörren ska se att någon redan
+ * varit där, och vem — annars läggs det två i samma lucka.
+ */
+function broschyrHtml() {
+  const a = aktuell.adress;
+  if (aktuell.offline) return '';
+  return '<button class="stegeval broschyr' + (a.broschyr ? ' pa' : '') + '" id="dBroschyr"' +
+    ' type="button" aria-pressed="' + (a.broschyr ? 'true' : 'false') + '">' +
+    '<span>📄 Lämnat broschyr</span>' +
+    '<span class="stegeval-lage">' +
+    (a.broschyr
+      ? esc((a.broschyr_namn ? a.broschyr_namn + ' · ' : '') + (a.broschyr_tid ? sedan(a.broschyr_tid) : 'ja'))
+      : 'Nej') +
+    '</span></button>';
+}
+
+async function vaxlaBroschyr() {
+  const a = aktuell.adress;
+  const knapp = $('dBroschyr');
+  knapp.disabled = true;
+  try {
+    const svar = await anrop('adress-broschyr', { id: a.id, broschyr: !a.broschyr });
+    a.broschyr = svar.broschyr;
+    a.broschyr_namn = svar.broschyr_namn;
+    a.broschyr_tid = svar.broschyr_tid;
+    knapp.classList.toggle('pa', !!svar.broschyr);
+    knapp.setAttribute('aria-pressed', String(!!svar.broschyr));
+    knapp.querySelector('.stegeval-lage').textContent = svar.broschyr
+      ? (svar.broschyr_namn || 'Ja') : 'Nej';
+    toast(svar.broschyr ? 'Broschyr noterad ✓' : 'Broschyren är borttagen');
+  } catch (e) {
+    toast('Kunde inte spara: ' + e.message);
+  } finally {
+    knapp.disabled = false;
+  }
+}
+
 function kundkort() {
   const b = aktivBokning();
   if (!b) return '';
@@ -464,6 +531,7 @@ export async function oppna(adressId, direktBokning) {
     '<button class="r-nej" data-r="nej">NEJ</button>' +
     '<button class="r-aterkom" data-r="aterkom">ÅTERKOM</button>' +
     '</div>' +
+    broschyrHtml() +
     '<h3>Historik</h3>' + historikHtml() +
     '<div class="btn-rad">' +
     '<button class="btn btn-ghost" id="dVag">Vägbeskrivning</button>' +
@@ -482,6 +550,7 @@ export async function oppna(adressId, direktBokning) {
   });
   if ($('dAndra')) $('dAndra').onclick = visaAndraBokning;
   if ($('dRatta')) $('dRatta').onclick = visaRatta;
+  if ($('dBroschyr')) $('dBroschyr').onclick = vaxlaBroschyr;
   // Öppnar dörrens adress i telefonens kartapp för att gå eller köra dit.
   $('dVag').onclick = () => {
     toast('Öppnar ' + kartappNamn());
