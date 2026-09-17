@@ -2,8 +2,23 @@
 
 import { anrop } from './api.js';
 import { $, esc, toast, oppnaPanel, stangPanel, procent } from './ui.js';
-import { S, arRoll, dataAndrad } from './state.js';
+import { S, buss, arRoll, kan, dataAndrad } from './state.js';
 import { husnummerPaGata } from './geo.js';
+
+/** Rollernas namn i laget. Nycklarna är serverns; namnen är de vi säger. */
+const ROLLNAMN = {
+  saljare: 'Mötesbokare',
+  bokare_plus: 'Mötesbokare+',
+  besiktare: 'Besiktare',
+  saljadmin: 'Admin Besiktare',
+  teamleader: 'Teamleader',
+  admin: 'Admin',
+};
+const ROLLORDNING = ['saljare', 'bokare_plus', 'besiktare', 'saljadmin', 'teamleader', 'admin'];
+
+/** Rollerna Mötesbokare+ får lägga upp. Servern har samma lista. */
+const BOKARE_PLUS_ROLLER = ['saljare', 'bokare_plus', 'besiktare', 'saljadmin'];
+const mojligaRoller = () => (arRoll('admin') ? ROLLORDNING : BOKARE_PLUS_ROLLER);
 
 let flik = 'omraden';
 let omradesData = [];
@@ -42,8 +57,8 @@ export function tolkaAdresser(text, postort) {
 
 async function ladda() {
   const [o, a] = await Promise.all([
-    anrop('omraden'),
-    arRoll('teamleader') ? anrop('anvandare-lista') : Promise.resolve({ anvandare: [] }),
+    arRoll('teamleader') ? anrop('omraden') : Promise.resolve({ omraden: [] }),
+    kan('se_personal') ? anrop('anvandare-lista') : Promise.resolve({ anvandare: [] }),
   ]);
   omradesData = o.omraden || [];
   anvandarData = a.anvandare || [];
@@ -237,7 +252,7 @@ function tilldelaFormular(o) {
   const rita_ = () => {
     oppnaPanel('modal',
       '<h2>Tilldela ' + esc(o.namn) + '</h2>' +
-      '<p class="sub">Säljare som får se och jobba i området. Utan tilldelning ser alla området.</p>' +
+      '<p class="sub">Mötesbokare som får se och jobba i området. Utan tilldelning ser alla området.</p>' +
       '<div class="chips" style="margin:14px 0">' +
       saljare.map((s) => '<button class="chip' + (valda.includes(s.id) ? ' vald' : '') +
         '" data-s="' + esc(s.id) + '">' + esc(s.namn) + '</button>').join('') + '</div>' +
@@ -319,17 +334,94 @@ function importFormular(o) {
 
 /* ══ Användare ══ */
 
+/**
+ * Användarlistan. Administratören sköter alla konton; Mötesbokare+ ser laget
+ * men får bara lägga upp och ändra mötesbokare — servern tillåter inget
+ * annat, och listan visar bara det knappen faktiskt kan göra.
+ */
 function ritaAnvandare() {
-  const roller = { admin: 'Admin', teamleader: 'Teamleader', saljare: 'Säljare', besiktare: 'Besiktare' };
-  return '<div class="lista">' + anvandarData.map((a) =>
+  const roller = ROLLNAMN;
+  const andraAlla = arRoll('admin');
+  const farSkapa = kan('skapa_konton');
+  const farRora = (a) => andraAlla || (farSkapa && BOKARE_PLUS_ROLLER.includes(a.roll));
+
+  return (farSkapa && !andraAlla
+    ? '<p class="karttips">Du lägger upp och sköter lagets konton — mötesbokare, ' +
+      'besiktare, Admin Besiktare och Mötesbokare+. Administratörskonton sköts ' +
+      'av en administratör.</p>' : '') +
+    '<div class="lista">' + anvandarData.map((a) =>
     '<div class="kort ' + (a.aktiv ? 's-bokat' : 's-nej') + '">' +
     '<div class="kort-topp"><div>' +
     '<div class="adress">' + esc(a.namn) + '</div>' +
     '<div class="under">' + esc(a.epost) + (a.team ? ' · ' + esc(a.team) : '') + '</div>' +
     '</div><span class="märke m-' + (a.aktiv ? 'bokat' : 'nej') + '">' + esc(roller[a.roll] || a.roll) + '</span></div>' +
-    (arRoll('admin') ? '<div class="chips"><button class="chip" data-anv="' + esc(a.id) + '">Ändra</button></div>' : '') +
+    '<div class="chips">' +
+    '<button class="chip" data-statistik="' + esc(a.id) + '">Visa</button>' +
+    (farRora(a) ? '<button class="chip" data-anv="' + esc(a.id) + '">Ändra</button>' : '') +
+    (farRora(a) && a.id !== S.anvandare.id
+      ? '<button class="chip" data-bort="' + esc(a.id) + '">Ta bort</button>' : '') +
+    '</div>' +
     '</div>').join('') + '</div>' +
-    (arRoll('admin') ? '<div class="sektion"><button class="btn btn-primary" id="nyAnvandare">Ny användare</button></div>' : '');
+    (farSkapa
+      ? '<div class="sektion"><button class="btn btn-primary" id="nyAnvandare">Ny användare</button></div>' : '');
+}
+
+/**
+ * Kortet om en person: vad han har på gång, vad han gjort — och en väg
+ * rakt in i hans kalender.
+ */
+async function visaAnvandare(id) {
+  oppnaPanel('modal', '<h2>Hämtar…</h2>');
+  let data;
+  try {
+    data = await anrop('anvandare-statistik', { id });
+  } catch (e) {
+    oppnaPanel('modal', '<h2>Kunde inte hämta</h2><p class="sub">' + esc(e.message) + '</p>');
+    return;
+  }
+
+  const a = data.anvandare;
+  const st = data.statistik;
+  const besiktare = a.roll === 'besiktare' || a.roll === 'saljadmin';
+
+  oppnaPanel('modal',
+    '<h2>' + esc(a.namn) + '</h2>' +
+    '<p class="sub">' + esc(a.epost) + ' · ' + esc(a.rollnamn) + (a.team ? ' · ' + esc(a.team) : '') + '</p>' +
+    '<div class="kpi-rutnat" style="margin-top:14px">' +
+    '<div class="kpi"><b>' + st.kommande + '</b><small>Kommande</small></div>' +
+    '<div class="kpi"><b>' + st.genomforda + '</b><small>Genomförda</small></div>' +
+    (besiktare
+      ? '<div class="kpi"><b>' + st.lediga_tider + '</b><small>Inlagda tider</small></div>' +
+        '<div class="kpi"><b>' + esc(String(a.max_per_dag || 3)) + '</b><small>Möten per dag</small></div>'
+      : '<div class="kpi"><b>' + st.totalt + '</b><small>Totalt bokade</small></div>' +
+        '<div class="kpi"><b>' + st.avbokade + '</b><small>Avbokade</small></div>') +
+    '</div>' +
+    (besiktare && a.snabbtider
+      ? '<p class="karttips">Egen mall: ' + esc(a.snabbtider) + '</p>' : '') +
+    '<div class="btn-rad">' +
+    (besiktare ? '<button class="btn btn-primary" id="auKalender">Öppna kalendern</button>' : '') +
+    '<button class="btn btn-ghost" id="auStang">Stäng</button></div>');
+
+  $('auStang').onclick = () => stangPanel('modal');
+  if ($('auKalender')) {
+    $('auKalender').onclick = () => {
+      stangPanel('modal');
+      // Appen byter vy och tidsidan hämtar rätt person.
+      buss.dispatchEvent(new CustomEvent('oppna-tider', { detail: { id: a.id } }));
+    };
+  }
+}
+
+async function taBortAnvandare(a) {
+  if (!a) return;
+  if (!confirm('Ta bort ' + a.namn + ' helt? Bokningar och historik står kvar.')) return;
+  try {
+    await anrop('anvandare-ta-bort', { id: a.id });
+    toast(a.namn + ' är borttagen');
+    await rita();
+  } catch (e) {
+    toast('Kunde inte ta bort: ' + e.message);
+  }
 }
 
 function anvandarFormular(a) {
@@ -339,13 +431,22 @@ function anvandarFormular(a) {
     '<div class="field"><label for="aEpost">E-post</label><input id="aEpost" type="email" autocapitalize="off" value="' + esc(a ? a.epost : '') + '"></div>' +
     '<div class="rad2">' +
     '<div class="field"><label for="aRoll">Roll</label><select id="aRoll">' +
-    ['saljare', 'besiktare', 'teamleader', 'admin'].map((r) =>
+    mojligaRoller().map((r) =>
       '<option value="' + r + '"' + (a && a.roll === r ? ' selected' : '') + '>' +
-      ({ saljare: 'Säljare', besiktare: 'Besiktare', teamleader: 'Teamleader', admin: 'Admin' })[r] +
-      '</option>').join('') +
+      esc(ROLLNAMN[r]) + '</option>').join('') +
     '</select></div>' +
     '<div class="field"><label for="aTeam">Team</label><input id="aTeam" type="text" value="' + esc(a ? a.team || '' : '') + '"></div>' +
     '</div>' +
+    '<div class="rad2">' +
+    '<div class="field"><label for="aMax">Möten per dag</label>' +
+    '<input id="aMax" type="number" min="1" max="20" inputmode="numeric" value="' +
+    esc(String(a && a.max_per_dag ? a.max_per_dag : 3)) + '"></div>' +
+    '<div class="field"><label for="aMall">Egna tider (mall)</label>' +
+    '<input id="aMall" type="text" placeholder="10:00, 13:00, 17:00" value="' +
+    esc(a ? a.snabbtider || '' : '') + '"></div>' +
+    '</div>' +
+    '<p class="karttips">Möten per dag gäller besiktare — når de taket försvinner ' +
+    'deras återstående tider ur bokningen den dagen.</p>' +
     '<div class="field"><label for="aLosen">' + (a ? 'Nytt lösenord (lämna tomt för oförändrat)' : 'Lösenord') +
     '</label><input id="aLosen" type="text" autocomplete="new-password" placeholder="minst 8 tecken"></div>' +
     (a ? '<div class="field"><label><input type="checkbox" id="aAktiv" style="width:auto;margin-right:8px"' +
@@ -357,12 +458,16 @@ function anvandarFormular(a) {
   $('aAvbryt').onclick = () => stangPanel('modal');
   $('aSpara').onclick = async () => {
     try {
+      // Vilka roller som får sättas avgörs på servern — den här listan är
+      // bara det som visas.
       await anrop('anvandare-spara', {
         id: a ? a.id : undefined,
         namn: $('aNamn').value.trim(),
         epost: $('aEpost').value.trim(),
         roll: $('aRoll').value,
         team: $('aTeam').value.trim(),
+        max_per_dag: $('aMax').value || undefined,
+        snabbtider: $('aMall').value.split(',').map((t) => t.trim()).filter(Boolean),
         losenord: $('aLosen').value || undefined,
         aktiv: a ? $('aAktiv').checked : true,
       });
@@ -416,7 +521,17 @@ export async function rita() {
     return;
   }
 
-  $('vySub').textContent = omradesData.length + ' områden · ' + anvandarData.length + ' användare';
+  // Den som bara sköter konton har ingen anledning att se områden och regler.
+  const bara = !arRoll('teamleader');
+  if (bara) flik = 'anvandare';
+  $('adminFlikar').querySelectorAll('.flik').forEach((f) => {
+    f.hidden = bara && f.dataset.admin !== 'anvandare';
+    f.classList.toggle('aktiv', f.dataset.admin === flik);
+  });
+
+  $('vySub').textContent = bara
+    ? anvandarData.length + ' i laget'
+    : omradesData.length + ' områden · ' + anvandarData.length + ' användare';
   behallare.innerHTML = flik === 'omraden' ? ritaOmraden()
     : flik === 'anvandare' ? ritaAnvandare()
     : ritaRegler();
@@ -442,6 +557,12 @@ export async function rita() {
   if (nyAnv) nyAnv.onclick = () => anvandarFormular(null);
   behallare.querySelectorAll('[data-anv]').forEach((b) => {
     b.onclick = () => anvandarFormular(anvandarData.find((a) => a.id === b.dataset.anv));
+  });
+  behallare.querySelectorAll('[data-statistik]').forEach((b) => {
+    b.onclick = () => visaAnvandare(b.dataset.statistik);
+  });
+  behallare.querySelectorAll('[data-bort]').forEach((b) => {
+    b.onclick = () => taBortAnvandare(anvandarData.find((a) => a.id === b.dataset.bort));
   });
 
   const spara = $('sparaRegler');

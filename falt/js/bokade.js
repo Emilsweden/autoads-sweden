@@ -1,12 +1,13 @@
 /**
  * Bokade adresser — en gemensam sida för alla bokningar, oavsett vem som
- * bokade. Här ser säljare, teamledare och besiktare samma sak, skriver
- * kommentarer och lägger till bilder från telefonen.
+ * bokade. Vad var och en ser avgörs på servern: mötesbokaren sina bokningar,
+ * säljaren sina möten, Mötesbokare+ och Admin Säljare alla. Här skrivs
+ * kommentarer, återkoppling och bilder från telefonen.
  */
 
 import { anrop } from './api.js';
 import { $, esc, toast, oppnaPanel, stangPanel, visaDatum, visaTidpunkt, idag } from './ui.js';
-import { S, arRoll, dataAndrad } from './state.js';
+import { S, arRoll, kan, dataAndrad } from './state.js';
 
 /* Bilderna skalas ner innan de skickas: en telefonbild är flera megabyte,
    och det som behövs är att man ser taket. */
@@ -14,6 +15,7 @@ const BILD_MAX_KANT = 1400;
 const BILD_KVALITET = 0.72;
 
 let bokningar = [];
+let utfallstext = {};
 let filter = 'kommande';
 let oppen = null;      // id på den bokning som är utfälld
 
@@ -25,6 +27,7 @@ export async function rita() {
   try {
     const svar = await anrop('bokade-adresser', {});
     bokningar = svar.bokningar || [];
+    utfallstext = svar.utfall || utfallstext;
   } catch (e) {
     ruta.innerHTML = '<div class="tom">Kunde inte hämta bokningarna: ' + esc(e.message) + '</div>';
     return;
@@ -68,6 +71,7 @@ function ritaLista() {
   ruta.querySelectorAll('[data-genomford]').forEach((k) => {
     k.onclick = () => sattStatus(k.dataset.genomford, 'genomford');
   });
+  ruta.querySelectorAll('[data-ater]').forEach((k) => { k.onclick = () => skrivAterkoppling(k.dataset.ater); });
 }
 
 function kort(b) {
@@ -79,6 +83,8 @@ function kort(b) {
     '<span class="bokad-mitt"><b>' + esc(b.adress || '—') + '</b>' +
     '<span>' + esc(kund) + (b.postort ? ' · ' + esc(b.postort) : '') + '</span></span>' +
     '<span class="bokad-hoger">' +
+    (b.aterkoppling && b.aterkoppling.length
+      ? '<span class="bokad-antal">' + esc(b.aterkoppling[b.aterkoppling.length - 1].utfall_text) + '</span>' : '') +
     (b.kommentarer.length ? '<span class="bokad-antal">' + b.kommentarer.length + ' 💬</span>' : '') +
     (b.bilagor.length ? '<span class="bokad-antal">' + b.bilagor.length + ' 📷</span>' : '') +
     '<span class="märke m-' + (b.status === 'genomford' ? 'bokat' : 'aterkom') + '">' +
@@ -96,7 +102,8 @@ function detaljer(b) {
     rad('Telefon', b.telefon) +
     rad('Adress', [b.adress, b.postort].filter(Boolean).join(', ')) +
     rad('Tid', [visaDatum(b.datum), b.tid && 'kl. ' + b.tid].filter(Boolean).join(' ')) +
-    rad('Bokad av', b.saljare) +
+    rad('Bokad av', b.bokare) +
+    rad('Säljare', b.saljare) +
     rad('Område', b.omrade) +
     (b.kommentar ? rad('Från bokningen', b.kommentar) : '') +
     '</div>' +
@@ -106,11 +113,22 @@ function detaljer(b) {
       ? '<button class="btn btn-ghost" data-genomford="' + esc(b.id) + '">Markera genomförd</button>' : '') +
     '</div>' +
 
+    '<h3>Utfall</h3>' +
+    ((b.aterkoppling && b.aterkoppling.length)
+      ? '<div class="komm-lista">' + b.aterkoppling.map((a) =>
+        '<div class="komm utfall"><div class="komm-topp"><b>' + esc(a.utfall_text) + '</b>' +
+        (a.belopp ? ' · ' + esc(String(a.belopp)) + ' kr' : '') +
+        ' · ' + esc(a.forfattare || 'Okänd') + ' · ' + esc(visaTidpunkt(a.skapad)) + '</div>' +
+        esc(a.text || '') + '</div>').join('') + '</div>'
+      : '<p class="sub">Ingen återkoppling än.</p>') +
+    (kan('aterkoppla')
+      ? '<button class="btn btn-ghost" data-ater="' + esc(b.id) + '">Återkoppla på mötet</button>' : '') +
+
     '<h3>Kommentarer</h3>' +
     (b.kommentarer.length
       ? '<div class="komm-lista">' + b.kommentarer.map((k) =>
         '<div class="komm"><div class="komm-topp">' + esc(k.forfattare || 'Okänd') +
-        (k.roll === 'besiktare' ? ' · besiktare' : '') +
+        (k.roll === 'besiktare' ? ' · säljare' : '') +
         ' · ' + esc(visaTidpunkt(k.skapad)) + '</div>' + esc(k.text) + '</div>').join('') + '</div>'
       : '<p class="sub">Inga kommentarer än.</p>') +
     '<button class="btn btn-ghost" data-komm="' + esc(b.id) + '">Skriv kommentar</button>' +
@@ -154,6 +172,53 @@ function skrivKommentar(id) {
     } catch (e) {
       $('kSpara').textContent = 'Spara';
       $('kFel').textContent = e.message;
+    }
+  };
+}
+
+/* ── Återkoppling ── */
+
+/**
+ * Säljaren berättar hur mötet gick. Den som bokade får se det på sin
+ * bokning — det är hela poängen med att den hör ihop med bokningen.
+ */
+function skrivAterkoppling(id) {
+  const b = bokningar.find((x) => x.id === id);
+  const val = Object.entries(utfallstext).length
+    ? Object.entries(utfallstext)
+    : [['salt', 'Sålt'], ['ej_salt', 'Inte sålt'], ['uppfoljning', 'Uppföljning'], ['uteblev', 'Kunden uteblev']];
+
+  oppnaPanel('modal',
+    '<h2>Hur gick mötet?</h2><p class="sub">' + esc((b && b.adress) || '') +
+    (b && b.kund ? ' · ' + esc(b.kund) : '') + '</p>' +
+    '<div class="field" style="margin-top:14px"><label for="aUtfall">Utfall</label>' +
+    '<select id="aUtfall">' + val.map(([k, t]) =>
+      '<option value="' + esc(k) + '">' + esc(t) + '</option>').join('') + '</select></div>' +
+    '<div class="field"><label for="aBelopp">Ordervärde (kr, valfritt)</label>' +
+    '<input id="aBelopp" type="number" inputmode="numeric" placeholder="t.ex. 180000"></div>' +
+    '<div class="field"><label for="aText">Kommentar</label>' +
+    '<textarea id="aText" rows="4" placeholder="T.ex. tegeltak, vill ha offert på hela taket"></textarea></div>' +
+    '<div class="err" id="aFel"></div>' +
+    '<div class="btn-rad"><button class="btn btn-ghost" id="aAvbryt">Avbryt</button>' +
+    '<button class="btn btn-primary" id="aSpara">Spara</button></div>');
+
+  $('aAvbryt').onclick = () => stangPanel('modal');
+  $('aSpara').onclick = async () => {
+    $('aSpara').textContent = 'Sparar…';
+    try {
+      await anrop('aterkoppling-spara', {
+        bokning_id: id,
+        utfall: $('aUtfall').value,
+        belopp: $('aBelopp').value || undefined,
+        text: $('aText').value.trim(),
+      });
+      stangPanel('modal');
+      toast('Återkopplingen är sparad ✓');
+      await rita();
+      dataAndrad();
+    } catch (e) {
+      $('aSpara').textContent = 'Spara';
+      $('aFel').textContent = e.message;
     }
   };
 }
