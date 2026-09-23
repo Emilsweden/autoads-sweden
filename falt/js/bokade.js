@@ -8,6 +8,7 @@
 import { anrop } from './api.js';
 import { $, esc, toast, oppnaPanel, stangPanel, visaDatum, visaTidpunkt, idag } from './ui.js';
 import { S, arRoll, kan, dataAndrad } from './state.js';
+import { redigeraBokning } from './redigera.js';
 
 /* Bilderna skalas ner innan de skickas: en telefonbild är flera megabyte,
    och det som behövs är att man ser taket. */
@@ -72,6 +73,10 @@ function ritaLista() {
     k.onclick = () => sattStatus(k.dataset.genomford, 'genomford');
   });
   ruta.querySelectorAll('[data-ater]').forEach((k) => { k.onclick = () => skrivAterkoppling(k.dataset.ater); });
+  ruta.querySelectorAll('[data-redigera]').forEach((k) => {
+    const b = bokningar.find((x) => x.id === k.dataset.redigera);
+    k.onclick = () => redigeraBokning(b, { klar: () => { stangPanel('modal'); rita(); } });
+  });
 }
 
 function kort(b) {
@@ -109,6 +114,7 @@ function detaljer(b) {
     '</div>' +
     '<div class="btn-rad">' +
     (telefon ? '<a class="btn btn-primary" href="tel:' + esc(telefon) + '">Ring kund</a>' : '') +
+    (b.far_andra ? '<button class="btn btn-ghost" data-redigera="' + esc(b.id) + '">Redigera bokning</button>' : '') +
     (b.status !== 'genomford'
       ? '<button class="btn btn-ghost" data-genomford="' + esc(b.id) + '">Markera genomförd</button>' : '') +
     '</div>' +

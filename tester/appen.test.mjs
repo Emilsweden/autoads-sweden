@@ -24,7 +24,7 @@ async function hittaPlaywright() {
 const pw = await hittaPlaywright();
 
 describe('appen', { skip: !pw && 'Playwright saknas — installera med: npm i -g playwright && npx playwright install chromium' }, () => {
-  let s, webblasare, bokare, karl;
+  let s, webblasare, bokare, karl, plusBokare;
   const MANDAG = nasta(1);
 
   before(async () => {
@@ -32,6 +32,7 @@ describe('appen', { skip: !pw && 'Playwright saknas — installera med: npm i -g
     const sys = await nyttSystem(s);
     bokare = await sys.konto('Bea Bokare', 'saljare');
     karl = await sys.konto('Karl Besiktare', 'besiktare');
+    plusBokare = await sys.konto('Petra Plus', 'bokare_plus');
     await anrop(s.url, 'omrade-spara', { namn: 'Västerås', ort: 'Västerås' }, sys.admin.token);
     await anrop(s.url, 'saljartider-spara', { saljare_id: karl.id, datum: MANDAG, tider: ['10:00', '14:00'] }, sys.admin.token);
     webblasare = await pw.chromium.launch();
@@ -90,6 +91,29 @@ describe('appen', { skip: !pw && 'Playwright saknas — installera med: npm i -g
     assert.equal(rader.length, 1, 'bokningen sparades inte');
     assert.equal(rader[0].tid, '14:00');
     assert.equal(rader[0].saljare_id, karl.id);
+    assert.deepEqual(fel, []);
+    await sida.context().close();
+  });
+
+  it('Mötesbokare+ redigerar bokningen från Kommande: ny tid, samma bokning', async () => {
+    const [fore] = s.sql(`SELECT id, tid FROM bokningar WHERE fornamn = 'Johan'`);
+    assert.ok(fore, 'bokningen från förra testet saknas');
+    const { sida, fel } = await oppna(plusBokare.epost);
+    await sida.click('#botten button[data-vy="lista"]');
+    await sida.click(`[data-bok="${fore.id}"]`);
+    await sida.click('#bkRedigera');
+    await sida.waitForSelector('#rTider [data-tid="10:00"]', { timeout: 10000 });
+    await sida.fill('#rTelefon', '070-999 99 99');
+    await sida.click('#rTider [data-tid="10:00"]');
+    await sida.click('#rSpara');
+    await sida.waitForFunction(() => !document.querySelector('#modalOverlay.open'), null, { timeout: 10000 })
+      .catch(async (e) => { throw new Error(e.message + ' — ' + await sida.textContent('#rFel')); });
+
+    const efter = s.sql(`SELECT id, tid, telefon FROM bokningar WHERE fornamn = 'Johan'`);
+    assert.equal(efter.length, 1, 'en ombokning ska inte skapa en ny bokning');
+    assert.equal(efter[0].id, fore.id);
+    assert.equal(efter[0].tid, '10:00');
+    assert.equal(efter[0].telefon, '070-999 99 99');
     assert.deepEqual(fel, []);
     await sida.context().close();
   });

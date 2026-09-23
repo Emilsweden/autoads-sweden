@@ -9,6 +9,7 @@
 import { anrop } from './api.js';
 import { $, esc, idag, visaDatum, visaTidpunkt, oppnaPanel, stangPanel } from './ui.js';
 import { S, kan } from './state.js';
+import { redigeraBokning } from './redigera.js';
 
 let listTyp = 'aterbesok';
 let sok = '';
@@ -231,7 +232,10 @@ function visaBokning(id, lista) {
     fakta('Ta med stege', b.stege ? 'Ja' : 'Nej') +
     (b.kommentar ? fakta('Från bokningen', b.kommentar) : '') +
     '</div>' +
-    (telefon ? '<div class="btn-rad"><a class="btn btn-primary" href="tel:' + esc(telefon) + '">Ring kund</a></div>' : '') +
+    '<div class="btn-rad">' +
+    (telefon ? '<a class="btn btn-primary" href="tel:' + esc(telefon) + '">Ring kund</a>' : '') +
+    (b.far_andra ? '<button class="btn btn-ghost" id="bkRedigera">Redigera bokning</button>' : '') +
+    '</div>' +
 
     '<h3>Hur gick besiktningen?</h3>' +
     ((b.aterkoppling || []).length
@@ -246,6 +250,12 @@ function visaBokning(id, lista) {
     '<div class="btn-rad"><button class="btn btn-ghost" id="bkStang">Stäng</button></div>');
 
   $('bkStang').onclick = () => stangPanel('modal');
+  if ($('bkRedigera')) {
+    $('bkRedigera').onclick = () => redigeraBokning(b, {
+      klar: () => { stangPanel('modal'); (lista === kommande ? ritaLista : ritaBokningar)(); },
+      tillbaka: () => visaBokning(id, lista),
+    });
+  }
 }
 
 const fakta = (etikett, varde) => (varde

@@ -524,6 +524,7 @@ a.btn { display: grid; place-items: center; text-decoration: none; }
 }
 .btn-primary { background: var(--accent); color: #fff; }
 .btn-ghost { background: var(--bg-input); border: 1px solid var(--linje); color: var(--muted); }
+.btn-fara { background: var(--bg-input); border: 1px solid var(--accent); color: var(--accent); }
 .btn-rad { display: flex; gap: 10px; margin-top: 18px; }
 .btn-rad .btn-ghost { flex: 0 0 110px; }
 .err { color: var(--fel); font-size: 13px; margin: 8px 0; min-height: 18px; }

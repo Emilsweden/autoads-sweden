@@ -13,6 +13,7 @@
 import { anrop, ApiFel } from './api.js';
 import { $, esc, toast, oppnaPanel, stangPanel, idag, plusDagar, visaDatum } from './ui.js';
 import { S, kan, dataAndrad } from './state.js';
+import { redigeraBokning } from './redigera.js';
 
 /** Används tills servern svarat; det är serverns värde som gäller. */
 export const SLOT_MINUTER = 60;
@@ -200,8 +201,8 @@ function bokadRuta(tid, p) {
       (b.adress ? '<span>' + esc(b.adress) + '</span>' : '') +
       (b.telefon ? '<span>' + esc(b.telefon) + '</span>' : '') +
       '<span class="slot-saljare">Bokad av ' + esc(b.bokare || '—') + '</span>' +
-      (b.anvandare_id === S.anvandare.id || kan('allt_bokat')
-        ? '<button class="slot-avboka" data-avboka="' + esc(b.id) + '">Avboka</button>' : '') +
+      (b.far_andra
+        ? '<button class="slot-avboka" data-redigera="' + esc(b.id) + '">Redigera</button>' : '') +
       '</span>').join('') +
     '</span></div>';
 }
@@ -250,12 +251,13 @@ export function rita() {
   ruta.querySelectorAll('[data-boka]').forEach((k) => {
     k.onclick = () => visaBokningsformular(k.dataset.boka, k.dataset.saljare);
   });
-  ruta.querySelectorAll('[data-avboka]').forEach((k) => {
-    k.onclick = () => avboka(k.dataset.avboka);
+  ruta.querySelectorAll('[data-redigera]').forEach((k) => {
+    const b = bokningar.find((x) => x.id === k.dataset.redigera);
+    k.onclick = () => redigeraBokning(b, { klar: () => { stangPanel('modal'); hamta(); } });
   });
 }
 
-/* ── Boka och avboka ── */
+/* ── Boka ── */
 
 function visaBokningsformular(tid, saljareId) {
   // Besiktarna som lagt in just den tiden och inte redan är bokade på den.
@@ -341,19 +343,6 @@ function visaBokningsformular(tid, saljareId) {
       }
     }
   };
-}
-
-async function avboka(id) {
-  const b = bokningar.find((x) => x.id === id);
-  if (!confirm('Avboka ' + (b ? (b.kund || b.adress || 'tiden') : 'tiden') + '?')) return;
-  try {
-    await anrop('bokning-status', { id, status: 'avbokad' });
-    toast('Tiden är avbokad — rutan är ledig igen');
-    await hamta();
-    dataAndrad();
-  } catch (e) {
-    toast('Kunde inte avboka: ' + e.message);
-  }
 }
 
 /* ── Lediga tider för dörrpanelen ── */

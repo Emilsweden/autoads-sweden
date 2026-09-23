@@ -590,6 +590,30 @@ async function farRadera(env, anv, bokning) {
   return !omdome;
 }
 
+/**
+ * Vad den inloggade får göra med en bokning, som flaggor på raden. Appen
+ * visar knapparna efter dem — servern kontrollerar samma sak igen när
+ * knappen trycks. `harOmdome`: mötet har fått ett omdöme.
+ */
+function flaggor(anv, b, harOmdome) {
+  const egenBokare = far(anv, 'boka') && b.anvandare_id === anv.id;
+  const egenBesiktare = arBesiktare(anv) && (b.saljare_id === anv.id || !b.saljare_id);
+  return {
+    far_andra: far(anv, 'allt_bokat') || egenBokare || egenBesiktare,
+    far_byt_besiktare: farBytaBesiktare(anv, b),
+    far_avboka: b.status !== 'avbokad' && !arBesiktare(anv) && (far(anv, 'allt_bokat') || b.anvandare_id === anv.id),
+    far_radera: far(anv, 'radera') || (far(anv, 'radera_egna') && b.anvandare_id === anv.id && !harOmdome),
+  };
+}
+
+/** Id:n bland bokningarna som har fått ett omdöme. */
+async function medOmdome(env, idn) {
+  if (!idn.length) return new Set();
+  const p = idn.map((_, i) => '?' + (i + 1)).join(',');
+  return new Set((await alla(env,
+    `SELECT DISTINCT bokning_id FROM aterkoppling WHERE bokning_id IN (${p})`, ...idn)).map((r) => r.bokning_id));
+}
+
 async function kraverBokning(env, anv, bokning) {
   if (!(await farSeBokning(env, anv, bokning))) {
     throw new Fel('Bokningen tillhör någon annan', 403);
@@ -1132,11 +1156,17 @@ api['adress'] = async (env, request, body, anv) => {
      WHERE h.adress_id = ?1 ORDER BY h.skapad DESC LIMIT 100`, id);
 
   const bokningar = await alla(env,
-    `SELECT b.*, u.namn AS saljare FROM bokningar b
+    `SELECT b.*, u.namn AS bokare, sa.namn AS saljare FROM bokningar b
      LEFT JOIN anvandare u ON u.id = b.anvandare_id
+     LEFT JOIN anvandare sa ON sa.id = b.saljare_id
      WHERE b.adress_id = ?1 ORDER BY b.datum DESC, b.tid DESC LIMIT 50`, id);
+  const omdomen = await medOmdome(env, bokningar.map((b) => b.id));
 
-  return { adress: putsaAdress(adress), historik, bokningar };
+  return {
+    adress: putsaAdress(adress),
+    historik,
+    bokningar: bokningar.map((b) => ({ ...b, ...flaggor(anv, b, omdomen.has(b.id)) })),
+  };
 };
 
 /**
@@ -1621,6 +1651,7 @@ api['bokningar'] = async (env, request, body, anv) => {
     utfall: UTFALLSTEXT,
     bokningar: rader.map((b) => ({
       ...b,
+      ...flaggor(anv, b, aterkoppling.some((a) => a.bokning_id === b.id)),
       adress: b.gata ? b.gata + ' ' + b.nummer : '',
       kund: [b.fornamn, b.efternamn].filter(Boolean).join(' '),
       aterkoppling: aterkoppling.filter((a) => a.bokning_id === b.id)
@@ -1656,6 +1687,7 @@ api['kalender'] = async (env, request, body, anv) => {
 
   const perDag = {};
   rader.forEach((b) => { perDag[b.datum] = (perDag[b.datum] || 0) + 1; });
+  const omdomen = await medOmdome(env, rader.map((b) => b.id));
 
   // Tiderna som går att boka — inte allt som lagts in. En tid hos en
   // besiktare som redan är full, eller för nära ett annat möte, finns inte
@@ -1679,6 +1711,7 @@ api['kalender'] = async (env, request, body, anv) => {
     eget_schema: far(anv, 'eget_schema') ? anv.id : null,
     bokningar: rader.map((b) => ({
       ...b,
+      ...flaggor(anv, b, omdomen.has(b.id)),
       adress: b.gata ? b.gata + ' ' + b.nummer : '',
       kund: [b.fornamn, b.efternamn].filter(Boolean).join(' '),
       min: true,
@@ -1708,18 +1741,19 @@ api['lediga-besiktare'] = async (env, request, body, anv) => {
  * `utom` är en bokning som flyttas: dess egen tid står inte i vägen.
  */
 api['bokbara-tider'] = async (env, request, body, anv) => {
-  kraverFormaga(anv, 'se_tider');
+  // Besiktaren ser bara sina egna tider — han flyttar sina möten inom sin dag.
+  const saljareId = far(anv, 'se_tider') ? undefined : (kraverFormaga(anv, 'eget_schema'), anv.id);
   const utom = txt(body.utom, 40);
   const tid = klockslag(body.tid);
   if (tid) {
     const fran = datum(body.fran) || stockholmNu().datum;
     const till = datum(body.till) || plusDagar(fran, 60);
-    const lista = await bokbara(env, { fran, till, tid, utom });
+    const lista = await bokbara(env, { fran, till, tid, utom, saljareId });
     return { tid, dagar: grupperaBokbara(lista, 'datum') };
   }
   const dat = datum(body.datum);
   if (!dat) throw new Fel('Datum eller tid krävs');
-  const lista = await bokbara(env, { fran: dat, till: dat, utom });
+  const lista = await bokbara(env, { fran: dat, till: dat, utom, saljareId });
   return { datum: dat, tider: grupperaBokbara(lista, 'tid') };
 };
 
@@ -1969,6 +2003,7 @@ api['bokade-adresser'] = async (env, request, body, anv) => {
     far_aterkoppla: far(anv, 'aterkoppla'),
     bokningar: rader.map((b) => ({
       ...b,
+      ...flaggor(anv, b, aterkoppling.some((a) => a.bokning_id === b.id)),
       adress: b.gata ? b.gata + ' ' + b.nummer : '',
       kund: [b.fornamn, b.efternamn].filter(Boolean).join(' '),
       kommentarer: kommentarer.filter((k) => k.bokning_id === b.id),
