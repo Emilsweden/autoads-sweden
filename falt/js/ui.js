@@ -141,10 +141,11 @@ export const STATUS_TEXT = {
   ejbesokt: 'Ej besökt',
   bokat: 'Bokat',
   ejsvar: 'Inget svar',
-  aterkom: 'Återkom',
+  aterkom: 'Inget svar',     // Återkom finns inte längre som status
   nej: 'Nej',
 };
 
+/* Gamla besök i historiken behåller sin etikett. */
 export const RESULTAT_TEXT = {
   bokat: 'Bokat',
   ejsvar: 'Inget svar',
@@ -152,14 +153,15 @@ export const RESULTAT_TEXT = {
   aterkom: 'Återkom',
 };
 
-/* Samma palett som app.css: svart för det vunna, rött för det som kräver
-   en åtgärd, grått för resten. Används av kartans husmarkörer. */
+/* Tre utfall, tre färger som syns i solljus: grönt bokat, rött nej, gult
+   inget svar. Återkom finns inte längre; en gammal dörr som ännu står på
+   det ritas som inget svar. Samma palett som app.css. */
 export const STATUS_FARG = {
   ejbesokt: '#ffffff',
-  bokat: '#0d0d0d',
-  ejsvar: '#6b6b72',
-  aterkom: '#d42b1f',
-  nej: '#c2c2c6',
+  bokat: '#1e9e4a',
+  ejsvar: '#f2b705',
+  aterkom: '#f2b705',
+  nej: '#d42b1f',
   sparrad: '#6f6f75',
 };
 
@@ -167,9 +169,9 @@ export const STATUS_FARG = {
 export const STATUS_TEXTFARG = {
   ejbesokt: '#0d0d0d',
   bokat: '#ffffff',
-  ejsvar: '#ffffff',
-  aterkom: '#ffffff',
-  nej: '#5c5c60',
+  ejsvar: '#0d0d0d',
+  aterkom: '#0d0d0d',
+  nej: '#ffffff',
   sparrad: '#ffffff',
 };
 

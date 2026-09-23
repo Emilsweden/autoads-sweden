@@ -6,7 +6,7 @@
 import { anrop, ApiFel, laggIKo } from './api.js';
 import {
   $, esc, toast, oppnaPanel, stangPanel, idag, plusDagar, visaDatum, visaTidpunkt,
-  sedan, STATUS_TEXT, RESULTAT_TEXT, NEJ_ORSAKER,
+  sedan, STATUS_TEXT, RESULTAT_TEXT,
 } from './ui.js';
 import { S, arRoll, kan, dataAndrad } from './state.js';
 import { delaAdress, vagbeskrivning, kartappNamn } from './geo.js';
@@ -18,42 +18,6 @@ const HALVTIMMAR = Array.from({ length: 27 }, (_, i) =>
   String(7 + Math.floor(i / 2)).padStart(2, '0') + (i % 2 ? ':30' : ':00'));
 
 let aktuell = null;   // { adress, historik, bokningar }
-
-/* ── Tidsval ── */
-
-function kl(timmar, minuter = 0) {
-  return String(timmar).padStart(2, '0') + ':' + String(minuter).padStart(2, '0');
-}
-
-function omTvaTimmar() {
-  const d = new Date(Date.now() + 2 * 3600000);
-  return kl(d.getHours(), d.getMinutes() < 30 ? 0 : 30);
-}
-
-function nastaHelg() {
-  const d = new Date();
-  d.setDate(d.getDate() + ((6 - d.getDay() + 7) % 7 || 7));
-  return d.toISOString().slice(0, 10);
-}
-
-const TIDSVAL = {
-  ejsvar: [
-    { text: 'Senare idag', datum: () => idag(), tid: omTvaTimmar },
-    { text: 'Ikväll', datum: () => idag(), tid: () => '18:00' },
-    { text: 'Imorgon', datum: () => plusDagar(1), tid: () => '' },
-    { text: 'I helgen', datum: nastaHelg, tid: () => '' },
-    { text: 'Egen tid', eget: true },
-    { text: 'Ingen återkomst', ingen: true },
-  ],
-  aterkom: [
-    { text: 'Ikväll', datum: () => idag(), tid: () => '18:00' },
-    { text: 'Imorgon', datum: () => plusDagar(1), tid: () => '' },
-    { text: 'I helgen', datum: nastaHelg, tid: () => '' },
-    { text: 'Nästa vecka', datum: () => plusDagar(7), tid: () => '' },
-    { text: 'Om två veckor', datum: () => plusDagar(14), tid: () => '' },
-    { text: 'Egen tid', eget: true },
-  ],
-};
 
 /* ── Skicka registrering ── */
 
@@ -138,57 +102,6 @@ function visaSparrvarning(info, resultat, extra) {
 }
 
 /* ── Delflöden ── */
-
-function visaTidsval(resultat) {
-  const val = TIDSVAL[resultat];
-  const html =
-    '<h3>' + (resultat === 'ejsvar' ? 'När ska vi återkomma?' : 'När vill kunden att vi återkommer?') + '</h3>' +
-    '<div class="chips">' +
-    val.map((v, i) => '<button class="chip" data-i="' + i + '">' + esc(v.text) + '</button>').join('') +
-    '</div>' +
-    '<div id="egetTid" hidden><div class="rad2" style="margin-top:12px">' +
-    '<div class="field"><label for="eDatum">Datum</label><input id="eDatum" type="date" value="' + plusDagar(1) + '"></div>' +
-    '<div class="field"><label for="eTid">Tid</label><input id="eTid" type="time" step="900"></div></div>' +
-    '<button class="btn btn-primary" id="egetSpara">Spara</button></div>' +
-    '<div class="field" style="margin-top:16px"><label for="kommentar">Kommentar (frivillig)</label>' +
-    '<input id="kommentar" type="text" placeholder="T.ex. bara barn hemma"></div>';
-
-  const panel = oppnaPanel('dorr', huvudRubrik() + html);
-  panel.querySelectorAll('.chip').forEach((b) => {
-    b.onclick = () => {
-      const v = val[+b.dataset.i];
-      const kommentar = ($('kommentar').value || '').trim();
-      if (v.eget) {
-        $('egetTid').hidden = false;
-        $('egetSpara').onclick = () =>
-          skicka(resultat, { aterkom_datum: $('eDatum').value, aterkom_tid: $('eTid').value, kommentar });
-        return;
-      }
-      if (v.ingen) { skicka(resultat, { kommentar }); return; }
-      skicka(resultat, { aterkom_datum: v.datum(), aterkom_tid: v.tid(), kommentar });
-    };
-  });
-}
-
-function visaNej() {
-  const html =
-    '<h3>Anledning</h3><div class="chips">' +
-    NEJ_ORSAKER.map((o, i) => '<button class="chip" data-i="' + i + '">' + esc(o) + '</button>').join('') +
-    '</div>' +
-    '<div class="field" style="margin-top:16px"><label for="kommentar">Kommentar (frivillig)</label>' +
-    '<input id="kommentar" type="text" placeholder="Egen anteckning"></div>' +
-    '<button class="btn btn-ghost" id="nejAterkom" style="margin-top:6px">Kunden vill att vi återkommer senare</button>';
-
-  const panel = oppnaPanel('dorr', huvudRubrik() + html);
-  let vald = null;
-  panel.querySelectorAll('.chip').forEach((b) => {
-    b.onclick = () => {
-      vald = NEJ_ORSAKER[+b.dataset.i];
-      skicka('nej', { orsak: vald, kommentar: ($('kommentar').value || '').trim() });
-    };
-  });
-  $('nejAterkom').onclick = () => visaTidsval('aterkom');
-}
 
 /**
  * Bokning vid dörren, i den ordning arbetet faktiskt går: först en dag som
@@ -509,7 +422,10 @@ export async function oppna(adressId, direktBokning) {
   oppnaPanel('dorr', '<h2>Hämtar…</h2>');
   try {
     const data = await anrop('adress', { id: adressId });
-    aktuell = { adress: data.adress, historik: data.historik || [], bokningar: data.bokningar || [] };
+    aktuell = {
+      adress: data.adress, historik: data.historik || [], bokningar: data.bokningar || [],
+      far_radera: !!data.far_radera,
+    };
   } catch (e) {
     // Utan täckning används dörren som redan finns i telefonen, så att
     // säljaren kan registrera ändå — besöket hamnar då i kön.
@@ -525,9 +441,8 @@ export async function oppna(adressId, direktBokning) {
   const html = huvudRubrik() + kundkort() + statusruta() +
     '<div class="resultat">' +
     '<button class="r-bokat" data-r="bokat">BOKAT</button>' +
-    '<button class="r-ejsvar" data-r="ejsvar">INGET SVAR</button>' +
     '<button class="r-nej" data-r="nej">NEJ</button>' +
-    '<button class="r-aterkom" data-r="aterkom">ÅTERKOM</button>' +
+    '<button class="r-ejsvar" data-r="ejsvar">INGET SVAR</button>' +
     '</div>' +
     broschyrHtml() +
     '<h3>Historik</h3>' + historikHtml() +
@@ -535,19 +450,22 @@ export async function oppna(adressId, direktBokning) {
     '<button class="btn btn-ghost" id="dVag">Vägbeskrivning</button>' +
     (arRoll('teamleader') && !aktuell.offline
       ? '<button class="btn btn-ghost" id="dRatta">Rätta adressen</button>' : '') +
-    '</div>';
+    '</div>' +
+    (aktuell.far_radera && !aktuell.offline
+      ? '<button class="btn btn-fara" id="dRadera" style="margin-top:10px;width:100%">Radera dörren</button>' : '');
 
   const panel = oppnaPanel('dorr', html);
   panel.querySelectorAll('.resultat button').forEach((b) => {
     b.onclick = () => {
+      // Nej och Inget svar är ett tryck — inga följdfrågor vid dörren.
       const r = b.dataset.r;
       if (r === 'bokat') visaBokning();
-      else if (r === 'nej') visaNej();
-      else visaTidsval(r);
+      else skicka(r);
     };
   });
   if ($('dAndra')) $('dAndra').onclick = visaAndraBokning;
   if ($('dRatta')) $('dRatta').onclick = visaRatta;
+  if ($('dRadera')) $('dRadera').onclick = raderaDorr;
   if ($('dBroschyr')) $('dBroschyr').onclick = vaxlaBroschyr;
   // Öppnar dörrens adress i telefonens kartapp för att gå eller köra dit.
   $('dVag').onclick = () => {
@@ -556,6 +474,27 @@ export async function oppna(adressId, direktBokning) {
   };
 
   if (direktBokning) visaBokning();
+}
+
+/**
+ * Radera dörren — den försvinner från kartan. Har den historik står den kvar
+ * i statistiken, och skapas adressen igen kommer den tillbaka.
+ */
+async function raderaDorr() {
+  const a = aktuell.adress;
+  if (!confirm('Radera ' + a.adress + ' från kartan?')) return;
+  const knapp = $('dRadera');
+  knapp.disabled = true;
+  try {
+    await anrop('adress-ta-bort', { id: a.id });
+    S.adresser = S.adresser.filter((x) => x.id !== a.id);
+    toast(a.adress + ' är raderad');
+    stangPanel('dorr');
+    dataAndrad();
+  } catch (e) {
+    knapp.disabled = false;
+    toast('Kunde inte radera: ' + e.message);
+  }
 }
 
 /**

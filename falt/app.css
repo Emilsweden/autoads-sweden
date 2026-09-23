@@ -22,10 +22,10 @@
 
   /* Status: svart för det vunna, rött för det som kräver en åtgärd,
      grått för resten. Ingen färg utan innebörd. */
-  --st-bokat: #0d0d0d;       /* bokat möte — den starkaste markören */
-  --st-aterkom: #d42b1f;     /* återkom — kräver en åtgärd */
-  --st-ejsvar: #6b6b72;      /* inget svar */
-  --st-nej: #c2c2c6;         /* nej — nedtonat */
+  --st-bokat: #1e9e4a;       /* bokat möte — grönt */
+  --st-aterkom: #f2b705;     /* gamla Återkom räknas som inget svar */
+  --st-ejsvar: #f2b705;      /* inget svar — gult */
+  --st-nej: #d42b1f;         /* nej — rött */
   --st-ejbesokt: #6f6f75;    /* ej kontaktad */
   --st-sparrad: #6f6f75;     /* nyligen bearbetad */
   --fel: #c62222;            /* felmeddelanden */
@@ -222,10 +222,10 @@ button { cursor: pointer; border: none; background: none; }
   box-shadow: 0 1px 3px rgba(0,0,0,0.25);
 }
 .hus-nummer.okand { background: #fff; color: #0d0d0d; border: 2px solid #1a73e8; }
-.hus-nummer.s-bokat { background: #0d0d0d; color: #fff; border-color: #0d0d0d; }
-.hus-nummer.s-aterkom { background: var(--accent); color: #fff; border-color: var(--accent-mork); }
-.hus-nummer.s-ejsvar { background: #6b6b72; color: #fff; border-color: #55555b; }
-.hus-nummer.s-nej { background: #e6e6e9; color: #6f6f75; border-color: #c2c2c6; }
+.hus-nummer.s-bokat { background: #1e9e4a; color: #fff; border-color: #177a39; }
+.hus-nummer.s-aterkom,
+.hus-nummer.s-ejsvar { background: #f2b705; color: #0d0d0d; border-color: #c99700; }
+.hus-nummer.s-nej { background: #d42b1f; color: #fff; border-color: #a81f16; }
 .hus-nummer.sparrad { box-shadow: 0 0 0 2px rgba(212,43,31,0.4), 0 1px 3px rgba(0,0,0,0.25); }
 .hus-nummer:active { transform: scale(0.94); }
 
@@ -356,6 +356,7 @@ button { cursor: pointer; border: none; background: none; }
 .kort.s-ejsvar { border-left-color: var(--st-ejsvar); }
 .kort.s-aterkom { border-left-color: var(--st-aterkom); }
 .kort.s-nej { border-left-color: var(--st-nej); }
+.kort.idag-kort { border-left-color: var(--accent); }
 .kort-topp { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
 .kort .adress { font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; }
 .kort .under { font-size: 13px; color: var(--muted); margin-top: 3px; }
@@ -492,10 +493,9 @@ a.btn { display: grid; place-items: center; text-decoration: none; }
   padding: 26px 10px; border-radius: 14px; font-size: 16px; font-weight: 700;
   letter-spacing: 0.03em; border: 1px solid var(--linje); background: var(--bg-input); color: var(--text);
 }
-.resultat .r-bokat { background: #0d0d0d; border-color: #0d0d0d; color: #fff; }
-.resultat .r-ejsvar { background: #fff; border-color: rgba(0,0,0,0.18); color: var(--text); }
-.resultat .r-nej { background: #f4f4f5; border-color: rgba(0,0,0,0.12); color: var(--muted); }
-.resultat .r-aterkom { background: var(--accent-dim); border-color: var(--border); color: var(--accent); }
+.resultat .r-bokat { background: #1e9e4a; border-color: #177a39; color: #fff; grid-column: 1 / -1; }
+.resultat .r-ejsvar { background: #f2b705; border-color: #c99700; color: #0d0d0d; }
+.resultat .r-nej { background: #d42b1f; border-color: #a81f16; color: #fff; }
 .resultat button:active { filter: brightness(1.35); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
@@ -535,7 +535,7 @@ a.btn { display: grid; place-items: center; text-decoration: none; }
   background: var(--accent-dim); border: 1px solid var(--border); color: var(--accent-mork);
   font-size: 13.5px; line-height: 1.55;
 }
-.varning b { color: var(--st-aterkom); }
+.varning b { color: var(--accent-mork); }
 
 /* Historik */
 .historik { border-left: 2px solid var(--linje); margin: 10px 0 0 6px; padding-left: 14px; }

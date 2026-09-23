@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS adresser (
   nyckel          TEXT NOT NULL UNIQUE,
   lat             REAL,
   lon             REAL,
-  status          TEXT NOT NULL DEFAULT 'ejbesokt',  -- ejbesokt|bokat|ejsvar|aterkom|nej
+  status          TEXT NOT NULL DEFAULT 'ejbesokt',  -- ejbesokt|bokat|ejsvar|nej
   senast_tid      INTEGER,
   senast_av       TEXT,
   senast_resultat TEXT,
@@ -73,7 +73,9 @@ CREATE TABLE IF NOT EXISTS adresser (
   broschyr        INTEGER NOT NULL DEFAULT 0,   -- broschyr lämnad i brevlådan
   broschyr_av     TEXT,
   broschyr_tid    INTEGER,
-  skapad          INTEGER NOT NULL
+  skapad          INTEGER NOT NULL,
+  dold            INTEGER,                           -- 1 = raderad från kartan; historiken finns kvar
+  dold_av         TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_adr_omrade ON adresser(omrade_id);
 CREATE INDEX IF NOT EXISTS idx_adr_status ON adresser(status);
@@ -85,7 +87,7 @@ CREATE TABLE IF NOT EXISTS handelser (
   id            TEXT PRIMARY KEY,
   adress_id     TEXT NOT NULL,
   anvandare_id  TEXT NOT NULL,
-  resultat      TEXT NOT NULL,              -- bokat | ejsvar | nej | aterkom
+  resultat      TEXT NOT NULL,              -- bokat | ejsvar | nej (aterkom i gamla rader)
   orsak         TEXT,                       -- anledning vid NEJ
   oppnade       INTEGER NOT NULL DEFAULT 0, -- någon öppnade dörren
   positiv       INTEGER NOT NULL DEFAULT 0, -- positivt samtal

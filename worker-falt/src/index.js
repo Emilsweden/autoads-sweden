@@ -7,7 +7,13 @@
  * som "Authorization: Bearer <token>".
  */
 
-const RESULTAT = ['bokat', 'ejsvar', 'nej', 'aterkom'];
+/*
+ * Utfallen vid en dörr. Återkom finns inte längre: det som förut var
+ * Återkom är Inget svar. En äldre telefon, eller en post i kön, som skickar
+ * 'aterkom' får Inget svar — posten ska inte gå förlorad för det.
+ */
+const RESULTAT = ['bokat', 'ejsvar', 'nej'];
+const resultatUr = (v) => (v === 'aterkom' ? 'ejsvar' : RESULTAT.includes(v) ? v : null);
 
 /**
  * Rollerna, med nycklarna databasen alltid haft och namnen laget använder:
@@ -1274,7 +1280,7 @@ api['adresser'] = async (env, request, body, anv) => {
   const rader = await alla(env,
     `SELECT a.*, u.namn AS senast_namn FROM adresser a
      LEFT JOIN anvandare u ON u.id = a.senast_av
-     WHERE a.omrade_id IN (${platshallare})
+     WHERE a.omrade_id IN (${platshallare}) AND a.dold IS NULL
      ORDER BY a.gata, CAST(a.nummer AS INTEGER), a.nummer
      LIMIT 5000`,
     ...valda);
@@ -1338,6 +1344,7 @@ api['adress'] = async (env, request, body, anv) => {
     adress: putsaAdress(adress),
     historik,
     bokningar: bokningar.map((b) => ({ ...b, ...flaggor(anv, b, omdomen.has(b.id)) })),
+    far_radera: await farRaderaDorr(env, anv, id),
   };
 };
 
@@ -1348,7 +1355,7 @@ api['adress'] = async (env, request, body, anv) => {
 api['handelse'] = async (env, request, body, anv) => {
   kraverKnackare(anv);
   const adressId = txt(body.adress_id, 40);
-  const resultat = RESULTAT.includes(body.resultat) ? body.resultat : null;
+  const resultat = resultatUr(body.resultat);
   if (!adressId || !resultat) throw new Fel('Adress och resultat krävs');
 
   const adress = await adressJagFar(env, anv, adressId);
@@ -1399,9 +1406,7 @@ api['handelse'] = async (env, request, body, anv) => {
   const positiv = resultat === 'bokat' || resultat === 'aterkom' ? 1 : 0;
   const handelseId = uid();
 
-  const status = resultat === 'bokat' ? 'bokat'
-    : resultat === 'nej' ? 'nej'
-    : resultat === 'aterkom' ? 'aterkom' : 'ejsvar';
+  const status = resultat;
 
   /*
    * Bokning, besök och dörrens status skrivs i en transaktion. Bokningen
@@ -1549,6 +1554,11 @@ async function hittaEllerSkapaAdress(env, anv, body, { omradeId: betrott } = {})
     // Trycker säljaren på huset på kartan vet vi var den ligger och sparar det.
     const satt = [];
     const varden = [];
+    // En raderad dörr som skapas igen kommer tillbaka, med sin historik.
+    if (befintlig.dold) {
+      satt.push('dold=NULL', 'dold_av=NULL');
+      befintlig.dold = null;
+    }
     if (!befintlig.lat && body.lat !== undefined && body.lon !== undefined) {
       satt.push('lat=?' + (varden.push(nr(body.lat, null))), 'lon=?' + (varden.push(nr(body.lon, null))));
       befintlig.lat = nr(body.lat, null);
@@ -1755,24 +1765,57 @@ async function raknaOmDorr(env, adressId) {
   await kor(env,
     `UPDATE adresser SET status=?1, senast_tid=?2, senast_av=?3, senast_resultat=?4,
        sparrad_till=?5, aterkom_datum=?6, aterkom_tid=?7, antal_besok=?8 WHERE id=?9`,
-    senaste.resultat, senaste.skapad, senaste.anvandare_id, senaste.resultat,
+    resultatUr(senaste.resultat) || 'ejsvar', senaste.skapad, senaste.anvandare_id, senaste.resultat,
     sparrTill(senaste.resultat, senaste.aterkom_datum, inst, senaste.skapad),
     senaste.aterkom_datum, senaste.aterkom_tid, (antal && antal.n) || 0, adressId);
 }
 
-/** Tar bort en felaktig dörr. Dörrar med historik lämnas kvar. */
-api['adress-ta-bort'] = async (env, request, body, anv) => {
-  kraverKnackare(anv);
-  kraver(anv, 'teamleader');
-  const id = txt(body.id, 40);
-  const adress = await en(env, 'SELECT * FROM adresser WHERE id = ?1', id);
-  if (!adress) throw new Fel('Adressen finns inte', 404);
+/**
+ * Får den inloggade radera dörren? Mötesbokare+ alla; mötesbokaren dörrar
+ * där bara han själv har varit och ingen annan bokat.
+ */
+async function farRaderaDorr(env, anv, adressId) {
+  if (!far(anv, 'knacka')) return false;
+  if (far(anv, 'radera')) return true;
+  if (!far(anv, 'radera_egna')) return false;
+  const andras = await en(env,
+    `SELECT (SELECT COUNT(*) FROM handelser WHERE adress_id = ?1 AND anvandare_id <> ?2)
+          + (SELECT COUNT(*) FROM bokningar WHERE adress_id = ?1 AND anvandare_id <> ?2) AS n`,
+    adressId, anv.id);
+  return !nr(andras && andras.n);
+}
 
-  const besok = await en(env, 'SELECT COUNT(*) AS antal FROM handelser WHERE adress_id = ?1', id);
-  if (besok && besok.antal) {
-    throw new Fel('Dörren har ' + besok.antal + ' registrerade besök och tas därför inte bort', 409);
+/**
+ * Raderar en dörr från kartan — ett tryck på markören. En dörr utan besök
+ * tas bort helt. En dörr med historik döljs: den försvinner från kartan och
+ * listorna, men besöken står kvar i statistiken, och skapas samma adress
+ * igen kommer dörren tillbaka med sin historik. En dörr med ett kommande
+ * möte raderas inte — mötet är en riktig kund.
+ */
+api['adress-ta-bort'] = async (env, request, body, anv) => {
+  const id = txt(body.id, 40);
+  if (!(await farRaderaDorr(env, anv, id))) {
+    throw new Fel(far(anv, 'radera_egna')
+      ? 'Någon annan har varit vid dörren — bara Mötesbokare+ kan radera den'
+      : 'Bara mötesbokare kan radera dörrar', 403);
   }
-  await kor(env, 'DELETE FROM adresser WHERE id = ?1', id);
+  const adress = await adressJagFar(env, anv, id);
+
+  const mote = await en(env,
+    `SELECT COUNT(*) AS n FROM bokningar WHERE adress_id = ?1 AND status = 'bokad' AND datum >= ?2`,
+    id, stockholmNu().datum);
+  if (nr(mote && mote.n)) throw new Fel('Dörren har ett kommande möte — radera eller avboka bokningen först', 409);
+
+  const besok = await en(env,
+    `SELECT (SELECT COUNT(*) FROM handelser WHERE adress_id = ?1)
+          + (SELECT COUNT(*) FROM bokningar WHERE adress_id = ?1) AS n`, id);
+  if (nr(besok && besok.n)) {
+    await kor(env, 'UPDATE adresser SET dold = 1, dold_av = ?2 WHERE id = ?1', id, anv.id);
+  } else {
+    await kor(env, 'DELETE FROM adresser WHERE id = ?1', id);
+  }
+  await nyhet(env, 'andring', anv.namn + ' raderade dörren ' + adress.gata + ' ' + adress.nummer +
+    (adress.postort ? ', ' + adress.postort : ''), { anvandare_id: anv.id });
   return { borttagen: true };
 };
 
@@ -1786,7 +1829,7 @@ api['aterbesok'] = async (env, request, body, anv) => {
   const rader = await alla(env,
     `SELECT a.*, u.namn AS senast_namn FROM adresser a
      LEFT JOIN anvandare u ON u.id = a.senast_av
-     WHERE a.omrade_id IN (${p}) AND a.status IN ('aterkom','ejsvar')
+     WHERE a.omrade_id IN (${p}) AND a.status IN ('aterkom','ejsvar') AND a.dold IS NULL
      ORDER BY COALESCE(a.aterkom_datum, '9999-12-31'), a.aterkom_tid
      LIMIT 500`, ...synliga);
   return { adresser: rader.map(putsaAdress) };
@@ -1805,7 +1848,7 @@ api['nasta-dorr'] = async (env, request, body, anv) => {
   const kandidater = await alla(env,
     `SELECT a.*, u.namn AS senast_namn FROM adresser a
      LEFT JOIN anvandare u ON u.id = a.senast_av
-     WHERE a.omrade_id IN (${p}) AND a.sparrad_till <= ${nu}
+     WHERE a.omrade_id IN (${p}) AND a.sparrad_till <= ${nu} AND a.dold IS NULL
        AND (a.status = 'ejbesokt' OR (a.status IN ('aterkom','ejsvar') AND a.aterkom_datum <= ?${valda.length + 1}))
      LIMIT 2000`,
     ...valda, new Date(nu).toISOString().slice(0, 10));
@@ -2372,7 +2415,7 @@ api['adress-sok'] = async (env, request, body, anv) => {
   const rader = await alla(env,
     `SELECT a.*, u.namn AS senast_namn FROM adresser a
      LEFT JOIN anvandare u ON u.id = a.senast_av
-     WHERE a.omrade_id IN (${platshallare})
+     WHERE a.omrade_id IN (${platshallare}) AND a.dold IS NULL
        AND (a.gata LIKE ?${n + 1}
             OR (a.gata LIKE ?${n + 2} AND a.nummer = ?${n + 3})
             OR (?${n + 4} <> '' AND a.postnummer = ?${n + 4}))

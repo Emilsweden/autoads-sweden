@@ -135,7 +135,9 @@ jobs:
             "aterkoppling|blev_jobb INTEGER" \
             "aterkoppling|vad_hande TEXT" \
             "anvandare|nyheter_sedda INTEGER" \
-            "anvandare|nyheter_rensade INTEGER"
+            "anvandare|nyheter_rensade INTEGER" \
+            "adresser|dold INTEGER" \
+            "adresser|dold_av TEXT"
           do
             tabell="${kolumn%%|*}"
             rest="${kolumn#*|}"
@@ -196,6 +198,11 @@ jobs:
               arbetstid_till = MAX('18:00', COALESCE((SELECT MAX(tid) FROM saljartider t
                 WHERE t.saljare_id = anvandare.id AND t.ledig = 1 AND t.datum >= date('now')), '18:00'))
             WHERE roll = 'besiktare' AND arbetstid_fran IS NULL;"
+
+          # Återkom finns inte längre. Dörrarna som står på Återkom blir
+          # Inget svar; besöken i historiken behåller sin etikett.
+          npx wrangler d1 execute autoads-falt --remote --yes --command \
+            "UPDATE adresser SET status = 'ejsvar' WHERE status = 'aterkom';"
 
       # Admin Besiktare går inte längre att boka. Hans kommande möten rörs
       # inte — de är riktiga kundbokningar — men de ska flyttas till en

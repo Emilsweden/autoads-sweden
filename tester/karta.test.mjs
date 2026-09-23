@@ -42,13 +42,14 @@ const MOTORER = [{ namn: 'maplibre' }];
 
 for (const motor of MOTORER) {
   describe(`kartan (${motor.namn})`, { skip: !pw && 'Playwright saknas' }, () => {
-    let s, webblasare, bokare, chef;
+    let s, webblasare, bokare, chef, plusBokare;
 
     before(async () => {
       s = await starta(motor.config || {});
       const sys = await nyttSystem(s);
       chef = sys.admin;
       bokare = await sys.konto('Bea Bokare', 'saljare');
+      plusBokare = await sys.konto('Petra Plus', 'bokare_plus');
       const omr = (await anrop(s.url, 'omrade-spara', { namn: 'Västerås', ort: 'Västerås' }, chef.token)).id;
       await anrop(s.url, 'adresser-importera', { omrade_id: omr, adresser: DORRAR }, chef.token);
       webblasare = await pw.chromium.launch();
@@ -124,6 +125,33 @@ for (const motor of MOTORER) {
       await sida.mouse.click(p.x, p.y);
       await sida.waitForSelector('#dorrPanel .resultat', { timeout: 8000 });
       assert.match(await sida.textContent('#dorrPanel h2'), /Storgatan 12/);
+      assert.deepEqual(fel, []);
+      await sida.context().close();
+    });
+
+    it('NEJ är ett tryck, och Mötesbokare+ raderar dörren från markören', async () => {
+      const { sida, fel } = await oppna(plusBokare.epost);
+      // Storgatan 12; 14 behövs orörd av adressökningen längre ned.
+      const d = DORRAR[0];
+      await flyg(sida, d.lon, d.lat, 18);
+      let p = await sidpunkt(sida, d.lon, d.lat);
+      await sida.mouse.click(p.x, p.y);
+      await sida.waitForSelector('#dorrPanel .resultat', { timeout: 8000 });
+      assert.deepEqual(await sida.$$eval('#dorrPanel .resultat button', (n) => n.map((b) => b.dataset.r)),
+        ['bokat', 'nej', 'ejsvar']);
+      await sida.click('#dorrPanel [data-r="nej"]');
+      await sida.waitForFunction(() => !document.querySelector('#dorrOverlay.open'), null, { timeout: 8000 });
+      const [rad] = s.sql(`SELECT status FROM adresser WHERE gata = 'Storgatan' AND nummer = '12'`);
+      assert.equal(rad.status, 'nej');
+      assert.equal(s.sql(`SELECT orsak FROM handelser WHERE resultat = 'nej'`)[0].orsak, null);
+
+      p = await sidpunkt(sida, d.lon, d.lat);
+      await sida.mouse.click(p.x, p.y);
+      await sida.waitForSelector('#dRadera', { timeout: 8000 });
+      sida.once('dialog', (dl) => dl.accept());
+      await sida.click('#dRadera');
+      await sida.waitForFunction(() => !document.querySelector('#dorrOverlay.open'), null, { timeout: 8000 });
+      assert.equal(s.sql(`SELECT dold FROM adresser WHERE gata = 'Storgatan' AND nummer = '12'`)[0].dold, 1);
       assert.deepEqual(fel, []);
       await sida.context().close();
     });

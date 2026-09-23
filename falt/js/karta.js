@@ -91,8 +91,8 @@ function koppla(m) {
   const teckenruta = $('teckenforklaring');
   if (teckenruta) teckenruta.innerHTML =
     '<span><i style="background:#fff;border:2px solid #1a73e8"></i>Ej registrerat (husnummer)</span>' +
-    [['ejbesokt', 'Ej besökt'], ['bokat', 'Bokad'], ['ejsvar', 'Inget svar'],
-      ['aterkom', 'Återkom'], ['nej', 'Nej'], ['sparrad', 'Nyligen besökt'],
+    [['ejbesokt', 'Ej besökt'], ['bokat', 'Bokad'], ['nej', 'Nej'], ['ejsvar', 'Inget svar'],
+      ['sparrad', 'Nyligen besökt'],
     ].map(([k, t]) => '<span><i style="background:' + STATUS_FARG[k] +
       ';border:1px solid ' + (k === 'ejbesokt' ? '#0d0d0d' : 'rgba(0,0,0,0.15)') + '"></i>' + t + '</span>').join('');
 }

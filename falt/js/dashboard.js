@@ -13,10 +13,20 @@ const KOLUMNER = [
   { nyckel: 'hitrate', text: 'Hit rate' },
   { nyckel: 'dorrar', text: 'Dörrar' },
   { nyckel: 'genomforda', text: 'Genomförda' },
-  { nyckel: 'aterkom', text: 'Återkom' },
   { nyckel: 'nej', text: 'Nej' },
   { nyckel: 'ejsvar', text: 'Inget svar' },
 ];
+
+/**
+ * Återkom finns inte längre — gamla besök med det utfallet räknas som
+ * Inget svar, så att siffrorna går ihop med dörrarna på kartan.
+ */
+function slaIhopAterkom(data) {
+  const ihop = (r) => { if (r) { r.ejsvar = (r.ejsvar || 0) + (r.aterkom || 0); r.aterkom = 0; } };
+  ihop(data.kpi);
+  (data.leaderboard || []).forEach(ihop);
+  return data;
+}
 
 /** Översätter periodvalet till ett datumintervall. */
 export function period() {
@@ -75,7 +85,6 @@ function kpiKort(kpi, mal, aktiva, dagar) {
     '<div class="kpi"><b>' + kpi.aktiva_saljare + '</b><small>Aktiva säljare</small></div>' +
     '<div class="kpi"><b>' + kpi.nej + '</b><small>Nej</small></div>' +
     '<div class="kpi"><b>' + kpi.ejsvar + '</b><small>Inget svar</small></div>' +
-    '<div class="kpi"><b>' + kpi.aterkom + '</b><small>Återkom</small></div>' +
     '<div class="kpi"><b>' + kpi.genomforda + '</b><small>Genomförda möten</small></div>' +
     '</div>';
 }
@@ -120,7 +129,7 @@ function leaderboard(lb, mal) {
     '</div>' +
     '<div class="panelkort rullbar"><table class="tabell"><thead><tr>' +
     '<th></th><th>Säljare</th><th>Dörrar</th><th>Bokade</th><th>Hit rate</th>' +
-    '<th>Nej</th><th>Inget svar</th><th>Återkom</th><th>Genomf.</th>' +
+    '<th>Nej</th><th>Inget svar</th><th>Genomf.</th>' +
     (mal.dorrar ? '<th>Mål</th>' : '') +
     '</tr></thead><tbody>' +
     sorterad.map((s, i) => {
@@ -131,7 +140,7 @@ function leaderboard(lb, mal) {
         '<td class="namn">' + esc(s.namn) + '</td>' +
         '<td>' + s.dorrar + '</td><td><b>' + s.bokade + '</b></td>' +
         '<td>' + s.hitrate + ' %</td>' +
-        '<td>' + s.nej + '</td><td>' + s.ejsvar + '</td><td>' + s.aterkom + '</td>' +
+        '<td>' + s.nej + '</td><td>' + s.ejsvar + '</td>' +
         '<td>' + s.genomforda + '</td>' +
         (mal.dorrar ? '<td class="' + klass + '">' + malP + ' %</td>' : '') +
         '</tr>';
@@ -250,7 +259,7 @@ function visaJamforelse() {
   const rader = [
     ['Dörrar', 'dorrar'], ['Öppnade', 'oppnade'], ['Positiva', 'positiva'],
     ['Bokade', 'bokade'], ['Hit rate', 'hitrate'], ['Nej', 'nej'],
-    ['Inget svar', 'ejsvar'], ['Återkom', 'aterkom'], ['Genomförda', 'genomforda'],
+    ['Inget svar', 'ejsvar'], ['Genomförda', 'genomforda'],
   ];
 
   oppnaPanel('modal',
@@ -289,13 +298,13 @@ export async function rita() {
   const p = period();
   let data, forra = null;
   try {
-    data = await anrop('dashboard', { ...p, omrade_id: $('dOmrade').value || undefined });
+    data = slaIhopAterkom(await anrop('dashboard', { ...p, omrade_id: $('dOmrade').value || undefined }));
     if ($('dPeriod').value === 'vecka') {
       const f = await anrop('dashboard', {
         fran: plusDagar(-7, veckostart()), till: plusDagar(-1, veckostart()),
         omrade_id: $('dOmrade').value || undefined,
       });
-      forra = f.leaderboard;
+      forra = slaIhopAterkom(f).leaderboard;
     }
   } catch (e) {
     behallare.innerHTML = '<div class="tom">Kunde inte hämta statistiken: ' + esc(e.message) + '</div>';

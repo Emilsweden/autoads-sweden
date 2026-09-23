@@ -82,7 +82,7 @@ export async function ritaLista() {
 
 function kortHtml(b) {
   const idagNu = b.datum === idag();
-  return '<button class="kort bokrad' + (idagNu ? ' s-aterkom' : '') + '" data-bok="' + esc(b.id) + '">' +
+  return '<button class="kort bokrad' + (idagNu ? ' idag-kort' : '') + '" data-bok="' + esc(b.id) + '">' +
     '<div class="kort-topp"><div>' +
     '<div class="adress">' + esc(visaDatum(b.datum) || '—') + ' kl. ' + esc(b.tid || '—') + '</div>' +
     '<div class="under">' + esc(b.adress || 'Adress saknas') +
