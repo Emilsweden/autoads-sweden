@@ -57,13 +57,29 @@ function fargUttryck(tabell, standard) {
 }
 
 const DORRAR = 'dorrar';
+const KARTDATA = 'openmaptiles';   // källan i kartstilen som bär gator och hus
+
+/*
+ * Upphovsrätten för kartan. Den sätts på kontrollen och inte på källan i
+ * stilen: MapLibre visar en källas text först när källan laddats, och utan
+ * täckning blev rutan då tom.
+ */
+const KARTRATT =
+  '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> ' +
+  '<a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">&copy; OpenMapTiles</a> ' +
+  'Data från <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
 
 /* ══ OpenStreetMap-kartan (MapLibre) ══ */
 
 /**
- * Renderas med MapLibre (WebGL) i stället för vanliga kartrutor: det ger
- * vridning med två fingrar, lutning och steglös zoom. Returnerar null om
- * biblioteket inte finns (helt utan täckning första gången appen öppnas).
+ * Renderas med MapLibre (WebGL): vridning med två fingrar, lutning, steglös
+ * zoom och hus i 3D när man lutar kartan. Kartbilden är OpenStreetMaps data
+ * i OpenFreeMaps stil Liberty — gratis, utan konto och utan nyckel.
+ *
+ * Stilen ligger i appen (falt/kartstil/liberty.json), inte hos OpenFreeMap.
+ * Då startar kartan även utan täckning: kartbilden blir tom, men dörrarna
+ * syns och går att trycka på. Returnerar null om biblioteket inte finns
+ * (helt utan täckning första gången appen öppnas).
  */
 function skapaMapLibre(behallare, start) {
   if (typeof maplibregl === 'undefined') return null;
@@ -72,22 +88,10 @@ function skapaMapLibre(behallare, start) {
     container: behallare,
     center: [start.lon, start.lat],
     zoom: start.zoom,
-    maxZoom: 21,          // kartrutorna slutar på 19, resten är förstoring
+    maxZoom: 21,          // kartdatan slutar på 14, resten ritas upp skarpt ur den
     maxPitch: 70,
-    attributionControl: { compact: true },
-    style: {
-      version: 8,
-      sources: {
-        osm: {
-          type: 'raster',
-          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-          tileSize: 256,
-          maxzoom: 19,
-          attribution: '&copy; OpenStreetMap',
-        },
-      },
-      layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
-    },
+    attributionControl: { compact: true, customAttribution: KARTRATT },
+    style: new URL('kartstil/liberty.json', location.href).href,
   });
 
   // Vridning och lutning med två fingrar, och en kompass som ställer tillbaka.
@@ -186,11 +190,11 @@ function skapaMapLibre(behallare, start) {
     vidKartbildFel(fn) {
       let fel = false;
       karta.on('error', (e) => {
-        if (!e || e.sourceId !== 'osm' || fel) return;
+        if (!e || e.sourceId !== KARTDATA || fel) return;
         fel = true; fn(true);
       });
       karta.on('data', (e) => {
-        if (!fel || !e || e.sourceId !== 'osm' || !e.isSourceLoaded) return;
+        if (!fel || !e || e.sourceId !== KARTDATA || !e.isSourceLoaded) return;
         fel = false; fn(false);
       });
     },

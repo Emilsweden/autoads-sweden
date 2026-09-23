@@ -186,6 +186,25 @@ for (const motor of MOTORER) {
       await sida.context().close();
     });
 
+    it('kartan ritas med OpenFreeMaps stil, som ligger i appen själv', async (t) => {
+      if (motor.namn !== 'maplibre') return t.skip('gäller OpenStreetMap-kartan');
+      const { sida, fel } = await oppna(bokare.epost);
+      const stil = await sida.evaluate(() => {
+        const s = window.__karta.getStyle();
+        return { kalla: s.sources.openmaptiles && s.sources.openmaptiles.url, lager: s.layers.map((l) => l.id) };
+      });
+      assert.equal(stil.kalla, 'https://tiles.openfreemap.org/planet');
+      assert.ok(stil.lager.includes('husnummer'), 'husnumren saknas i stilen');
+      // Dörrarna ligger överst — annars skyms de av husen i 3D.
+      assert.equal(stil.lager.at(-1), 'dorrar');
+      // Upphovsrätten ska synas alltid, även när kartdatan inte gick att hämta.
+      const ratt = await sida.textContent('.maplibregl-ctrl-attrib');
+      assert.match(ratt, /OpenStreetMap/);
+      assert.match(ratt, /OpenFreeMap/);
+      assert.deepEqual(fel, []);
+      await sida.context().close();
+    });
+
     it('adressökningen hittar våra dörrar även utan nät till servern', async () => {
       const { sida, fel } = await oppna(bokare.epost);
       await sida.route('**/api/adress-sok', (r) => r.abort());
@@ -212,5 +231,12 @@ describe('appen utan nät', () => {
       .filter((f) => f !== 'js/kartmotor-google.js');
     const saknas = statiska.filter((f) => !skal.has(f));
     assert.deepEqual(saknas, [], 'saknas i SKAL i falt/sw.js: ' + saknas.join(', '));
+  });
+
+  it('kartstilen finns i service workerns lista', async () => {
+    // Utan stilen startar inte kartan alls utan nät — inte ens dörrpunkterna.
+    const { readFileSync } = await import('node:fs');
+    const sw = readFileSync(new URL('../falt/sw.js', import.meta.url), 'utf8');
+    assert.match(sw, /'\.\/kartstil\/liberty\.json'/);
   });
 });

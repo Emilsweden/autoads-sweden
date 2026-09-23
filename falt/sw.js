@@ -1,10 +1,10 @@
 /* Service worker för fältsystemet — appen ska gå att öppna även med dålig täckning. */
-const CACHE = 'falt-v22';
+const CACHE = 'falt-v23';
 const SKAL = [
   './', './index.html', './app.css', './manifest.webmanifest', './icon.svg', './icon-maskable.svg',
   './config.js', './logotyp.svg', './js/app.js', './js/api.js', './js/ui.js', './js/state.js',
   './js/dorr.js', './js/karta.js', './js/kartmotor.js', './js/geo.js', './js/anteckningar.js', './js/kalender.js', './js/bokade.js', './js/tider.js', './js/flode.js', './js/listor.js', './js/dashboard.js', './js/admin.js',
-  './maplibre/maplibre-gl.js', './maplibre/maplibre-gl.css',
+  './maplibre/maplibre-gl.js', './maplibre/maplibre-gl.css', './kartstil/liberty.json',
 ];
 
 self.addEventListener('install', (e) => {
