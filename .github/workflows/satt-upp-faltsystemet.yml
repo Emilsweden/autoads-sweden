@@ -120,7 +120,13 @@ jobs:
             "adresser|broschyr_av TEXT" \
             "adresser|broschyr_tid INTEGER" \
             "anvandare|max_per_dag INTEGER NOT NULL DEFAULT 3" \
-            "anvandare|snabbtider TEXT"
+            "anvandare|snabbtider TEXT" \
+            "anvandare|arbetstid_fran TEXT" \
+            "anvandare|arbetstid_till TEXT" \
+            "saljartider|orsak TEXT" \
+            "bokningar|lagenhet TEXT" \
+            "bokningar|andrad INTEGER" \
+            "bokningar|andrad_av TEXT"
           do
             tabell="${kolumn%%|*}"
             rest="${kolumn#*|}"
@@ -162,6 +168,37 @@ jobs:
           echo "::warning::Skyddet mot dubbelbokning kunde inte läggas på — de här tiderna har fler än en bokning på samma säljare:"
           npx wrangler d1 execute autoads-falt --remote --command "$fraga" --yes || true
           echo "::warning::Avboka eller flytta den ena i appen (Bokningar → dagen) och kör jobbet igen."
+
+      # Arbetstiden är ny, och utan den gäller 09–18. En besiktare som redan
+      # lagt in tider utanför det får en arbetstid som täcker dem, så att
+      # inga av hans tider försvinner. Rör bara konton utan arbetstid, så
+      # att steget kan köras hur många gånger som helst.
+      - name: Flytta över gamla data
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute autoads-falt --remote --yes --command "
+            UPDATE anvandare SET
+              arbetstid_fran = MIN('09:00', COALESCE((SELECT MIN(tid) FROM saljartider t
+                WHERE t.saljare_id = anvandare.id AND t.ledig = 1 AND t.datum >= date('now')), '09:00')),
+              arbetstid_till = MAX('18:00', COALESCE((SELECT MAX(tid) FROM saljartider t
+                WHERE t.saljare_id = anvandare.id AND t.ledig = 1 AND t.datum >= date('now')), '18:00'))
+            WHERE roll = 'besiktare' AND arbetstid_fran IS NULL;"
+
+      # Admin Besiktare går inte längre att boka. Hans kommande möten rörs
+      # inte — de är riktiga kundbokningar — men de ska flyttas till en
+      # besiktare i appen. Det här steget säger bara till.
+      - name: Möten hos Admin Besiktare
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          npx wrangler d1 execute autoads-falt --remote --yes --command "
+            SELECT a.namn || ': ' || COUNT(*) || ' kommande möten' AS att_flytta
+            FROM bokningar b JOIN anvandare a ON a.id = b.saljare_id
+            WHERE a.roll <> 'besiktare' AND b.status <> 'avbokad' AND b.datum >= date('now')
+            GROUP BY a.id;" | tee /tmp/admin-moten.txt
+          if grep -q "kommande möten" /tmp/admin-moten.txt; then
+            echo "::warning::Det finns kommande möten hos konton som inte längre går att boka (se ovan). Flytta dem till en besiktare under Bokningar → Redigera bokning."
+          fi
 
       - name: Publicera workern
         id: publicera

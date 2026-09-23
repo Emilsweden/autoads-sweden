@@ -62,7 +62,8 @@ export async function rita() {
       : 'Du kan se tiderna men inte ändra dem.') +
     '</p>' +
     '<div class="tidrutnat">' +
-    (data.mojliga_tider || []).map((t) => {
+    // Bara halvtimmarna inom besiktarens arbetstid — resten går inte att lägga in.
+    ((lag.find((s) => s.id === valdSaljare) || {}).mojliga_tider || data.mojliga_tider || []).map((t) => {
       const bokad = bokade.includes(t);
       const oppen = oppna.includes(t);
       return '<button class="tidruta' + (bokad ? ' bokad' : oppen ? ' ledig' : ' stangd') + '"' +

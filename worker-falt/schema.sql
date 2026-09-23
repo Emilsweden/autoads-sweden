@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS anvandare (
   team      TEXT,
   max_per_dag INTEGER NOT NULL DEFAULT 3,   -- besiktarens tak för bokningar per dag
   snabbtider  TEXT,                         -- egen mall, t.ex. "10:00,13:00,17:00"
+  arbetstid_fran TEXT,                      -- besiktarens arbetstid; NULL = 09:00
+  arbetstid_till TEXT,                      -- NULL = 18:00, sista tiden som går att boka
   hash      TEXT NOT NULL,
   salt      TEXT NOT NULL,
   aktiv     INTEGER NOT NULL DEFAULT 1,
@@ -111,6 +113,9 @@ CREATE TABLE IF NOT EXISTS bokningar (
   stege        INTEGER NOT NULL DEFAULT 0,     -- ta med stege
   kommentar    TEXT,
   status       TEXT NOT NULL DEFAULT 'bokad',  -- bokad | genomford | avbokad
+  lagenhet     TEXT,                           -- lägenhetsnummer, när det finns
+  andrad       INTEGER,                        -- senaste ändringen, ms
+  andrad_av    TEXT,
   skapad       INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_bok_datum ON bokningar(datum);
@@ -128,18 +133,19 @@ CREATE INDEX IF NOT EXISTS idx_bok_anv ON bokningar(anvandare_id);
                           sitt möte samma timme; samma säljare kan inte.
                           Gamla bokningar utan säljare står utanför indexet. */
 
-/* ── Säljarnas tider ──
-   Regeln: har en säljare ingen rad alls för ett datum är hela standarddagen
-   (08–20, mån–fre) ledig. Finns rader för datumet gäller bara de med
-   ledig = 1. Så en säljare som inte rört sin kalender är ledig som förut,
-   och den som lägger in sina tider får exakt de tiderna.                  */
+/* ── Besiktarnas tider ──
+   En rad per tid besiktaren har lagt in (ledig = 1) eller som blockerats
+   (ledig = 0, med en orsak). En dag utan rader har inga tider alls. Det som
+   går att boka är de inlagda tiderna inom arbetstiden, utan blockering,
+   minst tre timmar från hans andra möten och tills han har fullt.        */
 
 CREATE TABLE IF NOT EXISTS saljartider (
   id         TEXT PRIMARY KEY,
   saljare_id TEXT NOT NULL,
   datum      TEXT NOT NULL,
   tid        TEXT NOT NULL,
-  ledig      INTEGER NOT NULL DEFAULT 1,
+  ledig      INTEGER NOT NULL DEFAULT 1,     -- 1 inlagd, 0 blockerad
+  orsak      TEXT,                           -- varför tiden är blockerad
   satt_av    TEXT,
   skapad     INTEGER NOT NULL
 );

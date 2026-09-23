@@ -8,7 +8,7 @@
 export const STANDARD_SERVER = 'https://autoads-falt.emilgrigoryan29.workers.dev';
 
 /** Visas på inloggningsskärmen, så att det syns vilken version en telefon kör. */
-export const VERSION = '2026-09-10.1';
+export const VERSION = '2026-09-23.1';
 
 /**
  * Googles karta. Fylls i av uppsättningen från GitHub-hemligheterna

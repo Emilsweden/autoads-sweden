@@ -56,3 +56,17 @@ export function plus(datum, n) {
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
+
+/**
+ * Lägger in tider direkt i databasen, förbi alla regler. För att ställa upp
+ * lägen servern själv inte skulle släppa igenom — tider utanför arbetstiden,
+ * eller en tid som redan passerat.
+ */
+export function tiderIDatabasen(s, saljareId, datum, tider, ledig = 1) {
+  for (const tid of tider) {
+    s.db.prepare(
+      `INSERT OR REPLACE INTO saljartider (id, saljare_id, datum, tid, ledig, skapad)
+       VALUES (?, ?, ?, ?, ?, 0)`,
+    ).run(`t-${saljareId}-${datum}-${tid}`, saljareId, datum, tid, ledig);
+  }
+}

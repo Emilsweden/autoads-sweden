@@ -41,8 +41,16 @@ export const EFTER_SCHEMAT = [
 
 /**
  * D1:s gränssnitt ovanpå node:sqlite. Bara det workern använder:
- * prepare().bind().all() / .first() / .run().
+ * prepare().bind().all() / .first() / .run(), och batch().
  */
+/**
+ * D1 ligger över nätet: varje fråga är en väntan, och under den hinner andra
+ * förfrågningar köra. Utan den här turen körde testservern varje förfrågan
+ * klart innan nästa började, och ett test av två samtidiga bokningar prövade
+ * aldrig att de faktiskt krockade.
+ */
+const tur = () => new Promise((klar) => setImmediate(klar));
+
 function d1(db) {
   const varde = (v, i, sql) => {
     // D1 vägrar undefined. Gör samma sak här, så att ett glömt fält syns i
@@ -56,16 +64,38 @@ function d1(db) {
       const bunden = (args) => {
         const stmt = db.prepare(sql);
         const p = args.map((v, i) => varde(v, i, sql));
+        // batch() kör satserna direkt efter varandra utan await emellan —
+        // precis som D1, där ingen annan förfrågan kommer in mitt i en batch.
+        const kor = () => {
+          if (stmt.columns().length) return { results: stmt.all(...p), success: true, meta: { changes: 0 } };
+          const r = stmt.run(...p);
+          return { results: [], success: true, meta: { changes: r.changes, last_row_id: Number(r.lastInsertRowid) } };
+        };
         return {
-          async all() { return { results: stmt.all(...p), success: true, meta: {} }; },
-          async first() { return stmt.get(...p) ?? null; },
+          _kor: kor,
+          async all() { await tur(); return { results: stmt.all(...p), success: true, meta: {} }; },
+          async first() { await tur(); return stmt.get(...p) ?? null; },
           async run() {
+            await tur();
             const r = stmt.run(...p);
             return { success: true, meta: { changes: r.changes, last_row_id: Number(r.lastInsertRowid) } };
           },
         };
       };
       return { bind: (...args) => bunden(args), ...bunden([]) };
+    },
+    /** Alla eller inga: går en sats fel rullas hela batchen tillbaka, som i D1. */
+    async batch(satser) {
+      await tur();
+      db.exec('BEGIN');
+      try {
+        const ut = satser.map((s) => s._kor());
+        db.exec('COMMIT');
+        return ut;
+      } catch (e) {
+        db.exec('ROLLBACK');
+        throw e;
+      }
     },
   };
 }

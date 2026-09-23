@@ -44,7 +44,7 @@ describe('bokningar', () => {
   });
 
   it('bara dagar med en ledig tid erbjuds', async () => {
-    await tider(karl, MANDAG, ['09:00', '10:00']);
+    await tider(karl, MANDAG, ['09:00', '13:00']);
     const r = await anrop(s.url, 'lediga-dagar', { fran: MANDAG, till: plus(MANDAG, 6) }, bokare.token);
     assert.equal(r.kod, 200);
     assert.deepEqual(r.dagar.map((d) => d.datum), [MANDAG]);
@@ -70,18 +70,18 @@ describe('bokningar', () => {
   });
 
   it('när flera besiktare är lediga gissar servern inte', async () => {
-    await tider(susanne, MANDAG, ['10:00']);
-    const r = await boka(bokare, { datum: MANDAG, tid: '10:00' });
+    await tider(susanne, MANDAG, ['13:00']);
+    const r = await boka(bokare, { datum: MANDAG, tid: '13:00' });
     assert.equal(r.kod, 409);
     assert.match(r.fel, /Välj vilken besiktare/);
   });
 
   it('Susanne tar två möten om dagen, sedan är hon full', async () => {
-    await tider(susanne, TISDAG, ['08:00', '10:00', '13:00', '15:00']);
-    for (const tid of ['08:00', '10:00']) {
+    await tider(susanne, TISDAG, ['09:00', '12:00', '15:00', '18:00']);
+    for (const tid of ['09:00', '12:00']) {
       assert.equal((await boka(bokare, { datum: TISDAG, tid, saljare_id: susanne.id })).kod, 200);
     }
-    const tredje = await boka(bokare, { datum: TISDAG, tid: '13:00', saljare_id: susanne.id });
+    const tredje = await boka(bokare, { datum: TISDAG, tid: '15:00', saljare_id: susanne.id });
     assert.equal(tredje.kod, 409);
     assert.match(tredje.fel, /fullt/);
     // Och hon erbjuds inte längre den dagen.
@@ -90,26 +90,26 @@ describe('bokningar', () => {
   });
 
   it('övriga besiktare tar tre, inte fyra', async () => {
-    await tider(karl, TISDAG, ['08:00', '10:00', '13:00', '15:00']);
-    for (const tid of ['08:00', '10:00', '13:00']) {
+    await tider(karl, TISDAG, ['09:00', '12:00', '15:00', '18:00']);
+    for (const tid of ['09:00', '12:00', '15:00']) {
       assert.equal((await boka(bokare, { datum: TISDAG, tid, saljare_id: karl.id })).kod, 200);
     }
-    const fjarde = await boka(bokare, { datum: TISDAG, tid: '15:00', saljare_id: karl.id });
+    const fjarde = await boka(bokare, { datum: TISDAG, tid: '18:00', saljare_id: karl.id });
     assert.equal(fjarde.kod, 409);
     assert.match(fjarde.fel, /fullt/);
   });
 
-  it('Admin Besiktare går att boka — av Mötesbokare+ och av vanlig mötesbokare', async () => {
-    await anrop(s.url, 'saljartider-spara', { saljare_id: alma.id, datum: MANDAG, tider: ['13:00', '15:00'] }, alma.token);
+  it('Admin Besiktare går inte att boka — han styr besiktarna men åker inte ut själv', async () => {
+    const egna = await anrop(s.url, 'saljartider-spara', { saljare_id: alma.id, datum: MANDAG, tider: ['13:00'] }, alma.token);
+    assert.notEqual(egna.kod, 200);
     const avPlus = await boka(plusBokare, { datum: MANDAG, tid: '13:00', saljare_id: alma.id });
-    const avBokare = await boka(bokare, { datum: MANDAG, tid: '15:00', saljare_id: alma.id });
-    assert.equal(avPlus.kod, 200, avPlus.fel);
-    assert.equal(avBokare.kod, 200, avBokare.fel);
+    assert.notEqual(avPlus.kod, 200);
+    assert.equal(s.sql('SELECT COUNT(*) AS n FROM bokningar WHERE saljare_id = ?', alma.id)[0].n, 0);
   });
 
   it('bokningen mejlas till besiktaren som fick den, och bara till honom', async () => {
     const fore = s.brevlada.length;
-    await tider(karl, MANDAG, ['09:00', '10:00', '16:00']);
+    await tider(karl, MANDAG, ['09:00', '13:00', '16:00']);
     const r = await boka(bokare, {
       datum: MANDAG, tid: '16:00', saljare_id: karl.id, fornamn: 'Eva', efternamn: 'Ek', adress: 'Mejlgatan 7, Västerås',
     });

@@ -18,7 +18,14 @@ const ROLLORDNING = ['saljare', 'bokare_plus', 'besiktare', 'saljadmin', 'teamle
 
 /** Rollerna Mötesbokare+ får lägga upp. Servern har samma lista. */
 const BOKARE_PLUS_ROLLER = ['saljare', 'bokare_plus', 'besiktare', 'saljadmin'];
-const mojligaRoller = () => (arRoll('admin') ? ROLLORDNING : BOKARE_PLUS_ROLLER);
+/* Admin Besiktare lägger bara upp besiktare. Servern avgör; listan visar
+   bara det som går igenom. */
+const mojligaRoller = () => (arRoll('admin') ? ROLLORDNING
+  : kan('skapa_konton') ? BOKARE_PLUS_ROLLER : ['besiktare']);
+
+/** Halvtimmarna en arbetstid kan börja och sluta på. */
+const HALVTIMMAR = Array.from({ length: 33 }, (_, i) =>
+  String(6 + Math.floor(i / 2)).padStart(2, '0') + (i % 2 ? ':30' : ':00'));
 
 let flik = 'omraden';
 let omradesData = [];
@@ -342,13 +349,17 @@ function importFormular(o) {
 function ritaAnvandare() {
   const roller = ROLLNAMN;
   const andraAlla = arRoll('admin');
-  const farSkapa = kan('skapa_konton');
-  const farRora = (a) => andraAlla || (farSkapa && BOKARE_PLUS_ROLLER.includes(a.roll));
+  const farSkapa = kan('skapa_konton') || kan('skapa_besiktare');
+  const farRora = (a) => andraAlla ||
+    (kan('skapa_konton') ? BOKARE_PLUS_ROLLER.includes(a.roll) : kan('skapa_besiktare') && a.roll === 'besiktare');
+  const farTaBort = (a) => farRora(a) && (andraAlla || kan('skapa_konton'));
 
   return (farSkapa && !andraAlla
-    ? '<p class="karttips">Du lägger upp och sköter lagets konton — mötesbokare, ' +
-      'besiktare, Admin Besiktare och Mötesbokare+. Administratörskonton sköts ' +
-      'av en administratör.</p>' : '') +
+    ? '<p class="karttips">' + (kan('skapa_konton')
+      ? 'Du lägger upp och sköter lagets konton — mötesbokare, besiktare, ' +
+        'Admin Besiktare och Mötesbokare+. Administratörskonton sköts av en administratör.'
+      : 'Du lägger upp och sköter besiktarnas konton — arbetstid, möten per dag och mall. ' +
+        'Övriga konton sköts av Mötesbokare+.') + '</p>' : '') +
     '<div class="lista">' + anvandarData.map((a) =>
     '<div class="kort ' + (a.aktiv ? 's-bokat' : 's-nej') + '">' +
     '<div class="kort-topp"><div>' +
@@ -358,7 +369,7 @@ function ritaAnvandare() {
     '<div class="chips">' +
     '<button class="chip" data-statistik="' + esc(a.id) + '">Visa</button>' +
     (farRora(a) ? '<button class="chip" data-anv="' + esc(a.id) + '">Ändra</button>' : '') +
-    (farRora(a) && a.id !== S.anvandare.id
+    (farTaBort(a) && a.id !== S.anvandare.id
       ? '<button class="chip" data-bort="' + esc(a.id) + '">Ta bort</button>' : '') +
     '</div>' +
     '</div>').join('') + '</div>' +
@@ -382,7 +393,7 @@ async function visaAnvandare(id) {
 
   const a = data.anvandare;
   const st = data.statistik;
-  const besiktare = a.roll === 'besiktare' || a.roll === 'saljadmin';
+  const besiktare = a.roll === 'besiktare';
 
   oppnaPanel('modal',
     '<h2>' + esc(a.namn) + '</h2>' +
@@ -396,8 +407,10 @@ async function visaAnvandare(id) {
       : '<div class="kpi"><b>' + st.totalt + '</b><small>Totalt bokade</small></div>' +
         '<div class="kpi"><b>' + st.avbokade + '</b><small>Avbokade</small></div>') +
     '</div>' +
-    (besiktare && a.snabbtider
-      ? '<p class="karttips">Egen mall: ' + esc(a.snabbtider) + '</p>' : '') +
+    (besiktare
+      ? '<p class="karttips">Arbetstid ' + esc(a.arbetstid_fran || '09:00') + '–' +
+        esc(a.arbetstid_till || '18:00') + (a.snabbtider ? ' · Egen mall: ' + esc(a.snabbtider) : '') + '</p>'
+      : '') +
     '<div class="btn-rad">' +
     (besiktare ? '<button class="btn btn-primary" id="auKalender">Öppna kalendern</button>' : '') +
     '<button class="btn btn-ghost" id="auStang">Stäng</button></div>');
@@ -445,8 +458,16 @@ function anvandarFormular(a) {
     '<input id="aMall" type="text" placeholder="10:00, 13:00, 17:00" value="' +
     esc(a ? a.snabbtider || '' : '') + '"></div>' +
     '</div>' +
-    '<p class="karttips">Möten per dag gäller besiktare — når de taket försvinner ' +
-    'deras återstående tider ur bokningen den dagen.</p>' +
+    '<div class="rad2" id="aArbetstid">' +
+    '<div class="field"><label for="aFran">Arbetstid från</label><select id="aFran">' +
+    HALVTIMMAR.map((h) => '<option' + (h === ((a && a.arbetstid_fran) || '09:00') ? ' selected' : '') +
+      '>' + h + '</option>').join('') + '</select></div>' +
+    '<div class="field"><label for="aTill">till</label><select id="aTill">' +
+    HALVTIMMAR.map((h) => '<option' + (h === ((a && a.arbetstid_till) || '18:00') ? ' selected' : '') +
+      '>' + h + '</option>').join('') + '</select></div>' +
+    '</div>' +
+    '<p class="karttips">Gäller besiktare. Bara tider inom arbetstiden går att lägga in ' +
+    'och boka, och når besiktaren sitt tak försvinner resten av dagens tider ur bokningen.</p>' +
     '<div class="field"><label for="aLosen">' + (a ? 'Nytt lösenord (lämna tomt för oförändrat)' : 'Lösenord') +
     '</label><input id="aLosen" type="text" autocomplete="new-password" placeholder="minst 8 tecken"></div>' +
     (a ? '<div class="field"><label><input type="checkbox" id="aAktiv" style="width:auto;margin-right:8px"' +
@@ -454,6 +475,11 @@ function anvandarFormular(a) {
     '<div class="err" id="aFel"></div>' +
     '<div class="btn-rad"><button class="btn btn-ghost" id="aAvbryt">Avbryt</button>' +
     '<button class="btn btn-primary" id="aSpara">Spara</button></div>');
+
+  // Arbetstiden hör till besiktare; för andra roller döljs den.
+  const visaArbetstid = () => { $('aArbetstid').hidden = $('aRoll').value !== 'besiktare'; };
+  $('aRoll').onchange = visaArbetstid;
+  visaArbetstid();
 
   $('aAvbryt').onclick = () => stangPanel('modal');
   $('aSpara').onclick = async () => {
@@ -467,6 +493,8 @@ function anvandarFormular(a) {
         roll: $('aRoll').value,
         team: $('aTeam').value.trim(),
         max_per_dag: $('aMax').value || undefined,
+        arbetstid_fran: $('aRoll').value === 'besiktare' ? $('aFran').value : undefined,
+        arbetstid_till: $('aRoll').value === 'besiktare' ? $('aTill').value : undefined,
         snabbtider: $('aMall').value.split(',').map((t) => t.trim()).filter(Boolean),
         losenord: $('aLosen').value || undefined,
         aktiv: a ? $('aAktiv').checked : true,
