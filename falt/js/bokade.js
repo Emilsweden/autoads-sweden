@@ -18,6 +18,7 @@ const BILD_KVALITET = 0.72;
 let bokningar = [];
 let utfallstext = {};
 let filter = 'kommande';
+let filterValt = false;   // har användaren själv valt flik? Annars visas det som väntar först
 let oppen = null;      // id på den bokning som är utfälld
 
 export async function rita() {
@@ -55,6 +56,7 @@ function ritaLista() {
   // Möten som väntar på omdöme får en egen flik först — det är det som ska göras.
   const vantar = bokningar.filter((b) => b.lamna_omdome).length;
   if (filter === 'omdome' && !vantar) filter = 'kommande';
+  if (vantar && !filterValt) filter = 'omdome';
   ruta.innerHTML = '<div class="flikar" id="bokadeFlikar">' +
     (vantar ? [['omdome', 'Lämna omdöme (' + vantar + ')']] : [])
       .concat([['kommande', 'Kommande'], ['genomforda', 'Genomförda'], ['alla', 'Alla']])
@@ -66,7 +68,7 @@ function ritaLista() {
       : '<div class="tom">Inga bokningar här.</div>');
 
   ruta.querySelectorAll('[data-filter]').forEach((k) => {
-    k.onclick = () => { filter = k.dataset.filter; ritaLista(); };
+    k.onclick = () => { filter = k.dataset.filter; filterValt = true; ritaLista(); };
   });
   ruta.querySelectorAll('[data-oppna]').forEach((k) => {
     k.onclick = () => { oppen = oppen === k.dataset.oppna ? null : k.dataset.oppna; ritaLista(); };
