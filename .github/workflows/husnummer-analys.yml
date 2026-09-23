@@ -1,0 +1,120 @@
+# Husnummer — var finns de, och var saknas de?
+#
+# Läser bara från öppna källor och skriver resultatet i körningens
+# sammanfattning. Ändrar ingenting i databasen eller appen.
+#
+# Körs av sig själv när den här filen ändras på arbetsgrenen, eller för hand
+# under Actions.
+
+name: Husnummer — analys
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/door-knock-sales-app-1oegem]
+    paths: [.github/workflows/husnummer-analys.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  analys:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: OpenStreetMap — adresser och hus per kommun
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          fraga() {   # $1 = Overpass-fråga; skriver antalet
+            curl -sS --max-time 180 -A "villatak-analys/1 (github actions)" \
+              --data-urlencode "data=$1" https://overpass-api.de/api/interpreter \
+              | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["elements"][0]["tags"]["total"])' \
+              || echo "fel"
+          }
+          HUS='^(house|detached|semidetached_house|terrace|residential|farm|bungalow|villa)$'
+          {
+            echo "## OpenStreetMap"
+            echo
+            echo "| Kommun | Adresspunkter | Bostadshus | Bostadshus med adress på huset |"
+            echo "|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for k in "Örebro kommun" "Västerås kommun" "Kumla kommun" "Hallsbergs kommun" "Karlskoga kommun" "Lindesbergs kommun"; do
+            A="[out:json][timeout:170];area[\"name\"=\"$k\"][\"admin_level\"=\"7\"]->.a;"
+            adr=$(fraga "${A}nwr[\"addr:housenumber\"](area.a);out count;")
+            hus=$(fraga "${A}way[\"building\"~\"$HUS\"](area.a);out count;")
+            med=$(fraga "${A}way[\"building\"~\"$HUS\"][\"addr:housenumber\"](area.a);out count;")
+            echo "| $k | $adr | $hus | $med |" | tee -a "$GITHUB_STEP_SUMMARY"
+            sleep 5   # Overpass är gratis — var snäll mot den
+          done
+
+      - name: OpenStreetMap — stickprov i Örebro, hus utan adress i närheten
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          # Några villaområden i Örebro: hur många villor har ingen adresspunkt
+          # inom 30 meter? Det är dem säljaren står framför utan nummer.
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json, math, urllib.parse, urllib.request, time
+          omraden = {
+            'Adolfsberg':   (59.232, 15.205, 59.246, 15.235),
+            'Almby':        (59.255, 15.245, 59.268, 15.275),
+            'Rynninge':     (59.262, 15.255, 59.275, 15.285),
+            'Lillån':       (59.290, 15.205, 59.305, 15.235),
+            'Västerås Hammarby (jämförelse)': (59.590, 16.585, 59.600, 16.610),
+          }
+          HUS = '^(house|detached|semidetached_house|terrace|residential|villa|bungalow)$'
+          def overpass(q):
+              data = urllib.parse.urlencode({'data': q}).encode()
+              req = urllib.request.Request('https://overpass-api.de/api/interpreter', data,
+                                          headers={'User-Agent': 'villatak-analys/1 (github actions)'})
+              return json.load(urllib.request.urlopen(req, timeout=180))
+          def m(a, b):
+              dy = (a[0]-b[0]) * 111320; dx = (a[1]-b[1]) * 111320 * math.cos(math.radians(a[0]))
+              return math.hypot(dx, dy)
+          print('\n## Stickprov: villor utan husnummer inom 30 m\n')
+          print('| Område | Villor | Utan nummer | Andel utan |')
+          print('|---|---|---|---|')
+          for namn, (s, w, n, e) in omraden.items():
+              bb = f'{s},{w},{n},{e}'
+              try:
+                  d = overpass(f'[out:json][timeout:120];(way["building"~"{HUS}"]({bb}););out center;'
+                               f'(nwr["addr:housenumber"]({bb}););out center;')
+              except Exception as ex:
+                  print(f'| {namn} | fel: {ex} | | |'); continue
+              hus, adr = [], []
+              for el in d['elements']:
+                  c = (el.get('lat') or el.get('center', {}).get('lat'), el.get('lon') or el.get('center', {}).get('lon'))
+                  if not c[0]: continue
+                  t = el.get('tags', {})
+                  if 'addr:housenumber' in t: adr.append(c)
+                  if 'building' in t and 'addr:housenumber' not in t: hus.append(c)
+              utan = sum(1 for h in hus if not any(m(h, a) < 30 for a in adr))
+              tot = len(hus) + sum(1 for el in d['elements'] if 'building' in el.get('tags', {}) and 'addr:housenumber' in el.get('tags', {}))
+              print(f'| {namn} | {tot} | {utan} | {round(100*utan/max(tot,1))} % |')
+              time.sleep(5)
+          PY
+
+      - name: Öppna adresskällor som inte kräver konto
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          prova() {   # $1 = namn, $2 = adress
+            kod=$(curl -sS -o /tmp/svar -w '%{http_code}' --max-time 40 -L -A "villatak-analys/1" "$2" 2>/dev/null || echo "000")
+            echo "- **$1** — HTTP $kod — \`$2\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "=== $1 ($kod) $2"; head -c 1500 /tmp/svar 2>/dev/null; echo
+          }
+          echo -e "\n## Källor\n" >> "$GITHUB_STEP_SUMMARY"
+          # Sveriges dataportal: dataset om adresser, t.ex. kommunernas egna.
+          prova "Dataportalen — adresser" "https://registrera.oppnadata.se/store/search?type=solr&query=public:true+AND+title:*adress*&limit=40"
+          prova "Dataportalen — Örebro" "https://registrera.oppnadata.se/store/search?type=solr&query=public:true+AND+title:*Örebro*&limit=40"
+          # Lantmäteriets sida om öppna data: är adresserna öppna, och hur hämtas de?
+          prova "Lantmäteriet öppna data" "https://www.lantmateriet.se/sv/geodata/vara-produkter/oppna-data/"
+          grep -io '[^<>]\{0,160\}adress[^<>]\{0,160\}' /tmp/svar | head -20 || true
+          prova "Lantmäteriet produktlista" "https://www.lantmateriet.se/sv/geodata/vara-produkter/produktlista/"
+          grep -io '[^<>]\{0,120\}belägenhetsadress[^<>]\{0,160\}' /tmp/svar | head -20 || true
+          # OpenAddresses: finns Sverige?
+          prova "OpenAddresses — Sverige" "https://batch.openaddresses.io/api/data?source=se"
+          # Overture Maps: adresstemat och vilka länder det täcker.
+          prova "Overture — adresser" "https://docs.overturemaps.org/guides/addresses/"
+          grep -io '[^<>]\{0,100\}\(Sweden\|SE\b\)[^<>]\{0,100\}' /tmp/svar | head -10 || true
