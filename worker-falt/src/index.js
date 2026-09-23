@@ -575,9 +575,12 @@ async function farAndraBokning(env, anv, bokning) {
   return false;
 }
 
-/** Att flytta ett möte till en annan besiktare. Besiktaren gör det inte själv. */
-const farBytaBesiktare = (anv, bokning) =>
-  far(anv, 'byt_besiktare') || (far(anv, 'boka') && bokning.anvandare_id === anv.id);
+/**
+ * Att flytta ett möte till en annan besiktare är Mötesbokare+ och Admin
+ * Besiktares sak. Mötesbokaren flyttar sin bokning i tid hos samma besiktare;
+ * besiktaren flyttar inte sina möten till någon annan.
+ */
+const farBytaBesiktare = (anv) => far(anv, 'byt_besiktare');
 
 /**
  * Radera en bokning helt. Mötesbokare+ allt; en mötesbokare det han själv
@@ -600,7 +603,7 @@ function flaggor(anv, b, harOmdome) {
   const egenBesiktare = arBesiktare(anv) && (b.saljare_id === anv.id || !b.saljare_id);
   return {
     far_andra: far(anv, 'allt_bokat') || egenBokare || egenBesiktare,
-    far_byt_besiktare: farBytaBesiktare(anv, b),
+    far_byt_besiktare: farBytaBesiktare(anv),
     far_avboka: b.status !== 'avbokad' && !arBesiktare(anv) && (far(anv, 'allt_bokat') || b.anvandare_id === anv.id),
     far_radera: far(anv, 'radera') || (far(anv, 'radera_egna') && b.anvandare_id === anv.id && !harOmdome),
   };
@@ -1881,7 +1884,7 @@ api['bokning-andra'] = async (env, request, body, anv) => {
   const dat = body.datum === undefined ? bokning.datum : datum(body.datum);
   const tid = body.tid === undefined ? bokning.tid : klockslag(body.tid);
   let saljare = body.saljare_id === undefined ? bokning.saljare_id : (txt(body.saljare_id, 40) || null);
-  if (saljare !== bokning.saljare_id && !farBytaBesiktare(anv, bokning)) {
+  if (saljare !== bokning.saljare_id && !farBytaBesiktare(anv)) {
     throw new Fel('Du kan inte flytta mötet till en annan besiktare', 403);
   }
   const flyttad = dat !== bokning.datum || tid !== bokning.tid || saljare !== bokning.saljare_id;

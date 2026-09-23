@@ -149,6 +149,14 @@ describe('rollerna', () => {
       assert.equal((await anrop(s.url, 'bokning-andra', { id: ollesBokning, fornamn: 'Kapad' }, bea.token)).kod, 403);
     });
 
+    it('byter inte besiktare — det gör Mötesbokare+ och Admin Besiktare', async () => {
+      const r = await anrop(s.url, 'bokning-andra', { id: beasBokning, saljare_id: nils.id, tid: '12:00' }, bea.token);
+      assert.equal(r.kod, 403);
+      assert.equal(s.sql('SELECT saljare_id FROM bokningar WHERE id = ?', beasBokning)[0].saljare_id, karl.id);
+      const lista = await anrop(s.url, 'bokningar', { fran: DAG, till: DAG }, bea.token);
+      assert.equal(lista.bokningar.find((b) => b.id === beasBokning).far_byt_besiktare, false);
+    });
+
     it('raderar sin egen bokning men inte någon annans', async () => {
       const egen = (await boka(bea, { datum: DAG, tid: '15:00', saljare_id: karl.id, fornamn: 'Raderas' })).bokning.id;
       assert.equal((await anrop(s.url, 'bokning-ta-bort', { id: ollesBokning }, bea.token)).kod, 403);

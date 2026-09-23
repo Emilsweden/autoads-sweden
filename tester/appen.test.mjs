@@ -24,7 +24,7 @@ async function hittaPlaywright() {
 const pw = await hittaPlaywright();
 
 describe('appen', { skip: !pw && 'Playwright saknas — installera med: npm i -g playwright && npx playwright install chromium' }, () => {
-  let s, webblasare, bokare, karl, plusBokare;
+  let s, webblasare, bokare, karl, plusBokare, alma;
   const MANDAG = nasta(1);
 
   before(async () => {
@@ -33,6 +33,7 @@ describe('appen', { skip: !pw && 'Playwright saknas — installera med: npm i -g
     bokare = await sys.konto('Bea Bokare', 'saljare');
     karl = await sys.konto('Karl Besiktare', 'besiktare');
     plusBokare = await sys.konto('Petra Plus', 'bokare_plus');
+    alma = await sys.konto('Alma Admin', 'saljadmin');
     await anrop(s.url, 'omrade-spara', { namn: 'Västerås', ort: 'Västerås' }, sys.admin.token);
     await anrop(s.url, 'saljartider-spara', { saljare_id: karl.id, datum: MANDAG, tider: ['10:00', '14:00'] }, sys.admin.token);
     webblasare = await pw.chromium.launch();
@@ -116,5 +117,41 @@ describe('appen', { skip: !pw && 'Playwright saknas — installera med: npm i -g
     assert.equal(efter[0].telefon, '070-999 99 99');
     assert.deepEqual(fel, []);
     await sida.context().close();
+  });
+
+  it('Admin Besiktare blockerar en tid i schemats månadskalender, och besiktaren lägger till en', async () => {
+    const vandTillDagen = async (sida) => {
+      await sida.waitForSelector('.mkal', { timeout: 10000 });
+      if (!(await sida.$(`.mkal-dag[data-dag="${MANDAG}"]`))) await sida.click('#tFram');
+      await sida.click(`.mkal-dag[data-dag="${MANDAG}"]`);
+    };
+
+    const admin = await oppna(alma.epost);
+    await admin.sida.click('#botten button[data-vy="bokningar"]');
+    await admin.sida.click('#bokFlikar [data-bok="tider"]');
+    await vandTillDagen(admin.sida);
+    await admin.sida.click('[data-lage="blockera"]');
+    await admin.sida.fill('#tOrsak', 'Tandläkare');
+    await admin.sida.click('.tidruta[data-tid="12:00"]');
+    await admin.sida.waitForFunction(() => document.querySelector('.tidruta[data-tid="12:00"]')?.classList.contains('blockerad'));
+    await admin.sida.waitForSelector('#tStatus:not([hidden])');
+    await admin.sida.waitForFunction(() => /Sparat/.test(document.querySelector('#tStatus')?.textContent || ''));
+    const block = s.sql(`SELECT ledig, orsak FROM saljartider WHERE saljare_id = ? AND datum = ? AND tid = '12:00'`, karl.id, MANDAG);
+    assert.deepEqual(block.map((r) => ({ ...r })), [{ ledig: 0, orsak: 'Tandläkare' }]);
+    assert.deepEqual(admin.fel, []);
+    await admin.sida.context().close();
+
+    // Besiktaren i sitt eget schema: ett tryck på en tom tid lägger in den.
+    const bes = await oppna(karl.epost);
+    await bes.sida.click('#botten button[data-vy="bokningar"]');
+    await bes.sida.click('#bokFlikar [data-bok="tider"]');
+    await vandTillDagen(bes.sida);
+    assert.equal(await bes.sida.$('#tSaljare'), null, 'besiktaren ska inte kunna välja någon annan');
+    await bes.sida.click('.tidruta[data-tid="16:00"]');
+    await bes.sida.waitForFunction(() => /Sparat/.test(document.querySelector('#tStatus')?.textContent || ''));
+    const ny = s.sql(`SELECT ledig FROM saljartider WHERE saljare_id = ? AND datum = ? AND tid = '16:00'`, karl.id, MANDAG);
+    assert.equal(ny.length && ny[0].ledig, 1);
+    assert.deepEqual(bes.fel, []);
+    await bes.sida.context().close();
   });
 });
