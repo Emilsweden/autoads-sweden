@@ -92,7 +92,8 @@ CREATE TABLE IF NOT EXISTS handelser (
   kommentar     TEXT,
   lat           REAL,
   lon           REAL,
-  skapad        INTEGER NOT NULL
+  skapad        INTEGER NOT NULL,
+  klient_id     TEXT                        -- telefonens id för registreringen; samma id sparas en gång
 );
 CREATE INDEX IF NOT EXISTS idx_h_adress ON handelser(adress_id);
 CREATE INDEX IF NOT EXISTS idx_h_anv_tid ON handelser(anvandare_id, skapad);
@@ -248,6 +249,16 @@ INSERT OR IGNORE INTO platser (id, namn, kommun, lat, lon, radie_km, skapad) VAL
   ('plats-koping', 'Köping', 'Köping', 59.5140, 15.9926, 20, 0),
   ('plats-orebro', 'Örebro', 'Örebro', 59.2753, 15.2134, 30, 0),
   ('plats-stockholm', 'Stockholm', 'Stockholm', 59.3293, 18.0686, 40, 0);
+
+/* ── Senaste ändringen ──
+   En enda rad som skrivs efter varje anrop som ändrar något. Pulsen läser
+   den, så att en ändring eller en borttagning — som inte lämnar någon ny
+   rad efter sig — också syns hos de andra.                               */
+CREATE TABLE IF NOT EXISTS andringar (
+  id     INTEGER PRIMARY KEY CHECK (id = 1),
+  senast INTEGER NOT NULL
+);
+INSERT OR IGNORE INTO andringar (id, senast) VALUES (1, 0);
 
 /* ── Säljarnas position ── */
 

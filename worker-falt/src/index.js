@@ -1332,7 +1332,15 @@ api['handelse'] = async (env, request, body, anv) => {
 
   const adress = await adressJagFar(env, anv, adressId);
 
-  const nu = Date.now();
+  // Samma registrering två gånger — ett dubbeltryck, eller kön som skickar
+  // om efter ett svar som aldrig kom fram — ger samma svar, inte två besök.
+  const klientId = txt(body.klient_id, 64);
+  const tidigare = await tidigareRegistrering(env, klientId);
+  if (tidigare) return tidigare;
+
+  // Ett besök ur kön sparas med tiden det gjordes, inom en vecka bakåt —
+  // en telefon med fel klocka ska inte kunna skriva om historien.
+  const nu = tidpunktFranKo(body.ko_tid);
   const inst = await installningar(env);
 
   // Spärrad dörr kräver ett aktivt godkännande från säljaren.
@@ -1355,7 +1363,14 @@ api['handelse'] = async (env, request, body, anv) => {
   if (resultat === 'bokat') {
     if (bokTid && bokDatum) kontrolleraSlot(bokDatum, bokTid);
     // Bara en besiktare som jobbar där huset ligger.
-    bokSaljare = await valjSaljare(env, body.saljare_id, bokDatum, bokTid, null, await platserForAdress(env, adress));
+    try {
+      bokSaljare = await valjSaljare(env, body.saljare_id, bokDatum, bokTid, null, await platserForAdress(env, adress));
+    } catch (e) {
+      // Nekad för att samma registrering just tog tiden: då är den redan sparad.
+      const hann = e instanceof Fel && e.status === 409 && await tidigareRegistrering(env, klientId);
+      if (hann) return hann;
+      throw e;
+    }
   }
 
   const aterkomDatum = datum(body.aterkom_datum);
@@ -1392,12 +1407,12 @@ api['handelse'] = async (env, request, body, anv) => {
   const bokningFinns = '(?1 IS NULL OR EXISTS (SELECT 1 FROM bokningar WHERE id = ?1))';
   satser.push(sats(env,
     `INSERT INTO handelser
-       (id,adress_id,anvandare_id,resultat,orsak,oppnade,positiv,aterkom_datum,aterkom_tid,kommentar,lat,lon,skapad)
-     SELECT ?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14 WHERE ${bokningFinns}`,
+       (id,adress_id,anvandare_id,resultat,orsak,oppnade,positiv,aterkom_datum,aterkom_tid,kommentar,lat,lon,skapad,klient_id)
+     SELECT ?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15 WHERE ${bokningFinns}`,
     bokningId, handelseId, adressId, anv.id, resultat, txt(body.orsak, 80), oppnade, positiv,
     aterkomDatum, klockslag(body.aterkom_tid), txt(body.kommentar, 1000),
     body.lat === undefined ? null : nr(body.lat, null),
-    body.lon === undefined ? null : nr(body.lon, null), nu));
+    body.lon === undefined ? null : nr(body.lon, null), nu, klientId || null));
   satser.push(sats(env,
     `UPDATE adresser SET status=?2, senast_tid=?3, senast_av=?4, senast_resultat=?5,
        sparrad_till=?6, aterkom_datum=?7, aterkom_tid=?8, antal_besok=antal_besok+1
@@ -1409,11 +1424,17 @@ api['handelse'] = async (env, request, body, anv) => {
   try {
     resultatet = await iSamma(env, satser);
   } catch (e) {
-    if (arKrock(e)) throw new Fel(TIDEN_TAGEN, 409);
-    throw e;
+    if (!arKrock(e)) throw e;
+    // Krocken kan vara samma registrering som hann före med samma klient-id.
+    const hann = await tidigareRegistrering(env, klientId);
+    if (hann) return hann;
+    throw new Fel(TIDEN_TAGEN, 409);
   }
-  // Någon annan hann före mellan kontrollen och skrivningen.
+  // Någon annan hann före mellan kontrollen och skrivningen — eller samma
+  // registrering, som då redan är sparad.
   if (bokningId && !andradeRader(resultatet[0])) {
+    const hann = await tidigareRegistrering(env, klientId);
+    if (hann) return hann;
     throw await varforInteBokbar(env, bokSaljare, bokDatum, bokTid);
   }
 
@@ -1458,6 +1479,24 @@ api['handelse'] = async (env, request, body, anv) => {
 
   return { handelse_id: handelseId, bokning, status };
 };
+
+/** Svaret en registrering fick, om den redan sparats med samma klient-id. */
+async function tidigareRegistrering(env, klientId) {
+  if (!klientId) return null;
+  const h = await en(env, 'SELECT id, adress_id FROM handelser WHERE klient_id = ?1', klientId);
+  if (!h) return null;
+  const b = await en(env, 'SELECT id, saljare_id FROM bokningar WHERE handelse_id = ?1', h.id);
+  const a = await en(env, 'SELECT status FROM adresser WHERE id = ?1', h.adress_id);
+  return { handelse_id: h.id, bokning: b ? { id: b.id, saljare_id: b.saljare_id } : null,
+    status: a && a.status, redan_sparad: true };
+}
+
+/** Tiden ett köat besök gjordes, högst en vecka bakåt och aldrig framåt. */
+function tidpunktFranKo(koTid) {
+  const nu = Date.now();
+  const t = nr(koTid, 0);
+  return t ? Math.min(nu, Math.max(nu - 7 * DAG, Math.round(t))) : nu;
+}
 
 /**
  * Skapar en adress på plats när säljaren står vid en dörr som inte finns i
@@ -2723,6 +2762,7 @@ api['puls'] = async (env, request, body, anv) => {
        UNION ALL SELECT MAX(skapad) FROM saljartider
        UNION ALL SELECT MAX(skapad) FROM aterkoppling
        UNION ALL SELECT MAX(skapad) FROM kommentarer
+       UNION ALL SELECT senast FROM andringar
      )`);
   return { senast: nr(rad && rad.senast, 0), tid: Date.now() };
 };
@@ -3057,6 +3097,20 @@ api['installera'] = async (env, request, body) => {
 
 const OSKYDDADE = ['logga-in', 'logga-ut', 'installera'];
 
+/*
+ * Anrop som bara läser, eller som inte ändrar något någon annan ser. Alla
+ * andra slår an pulsen när de lyckas. Listan är det som inte ska göra det
+ * — glöms ett nytt läsande anrop här hämtar telefonerna om i onödan, vilket
+ * är bättre än att en ändring aldrig syns.
+ */
+const LASANDE = new Set([
+  'logga-in', 'logga-ut', 'jag', 'byt-losenord', 'puls', 'position', 'positioner',
+  'nyheter', 'nyhet-dolj', 'nyhet-visa', 'adresser', 'adress', 'adress-sok', 'nasta-dorr',
+  'aterbesok', 'omraden', 'bokningar', 'bokade-adresser', 'kalender', 'lediga-besiktare',
+  'lediga-dagar', 'bokbara-tider', 'saljartider', 'aterkoppling', 'bilaga', 'platser',
+  'anvandare-lista', 'anvandare-statistik', 'dashboard', 'saljare-trend',
+]);
+
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
@@ -3081,6 +3135,11 @@ export default {
       const body = (await request.json().catch(() => ({}))) || {};
       const anv = OSKYDDADE.includes(namn) ? null : await anvandareFranToken(env, request, body);
       const data = await fn(env, request, body || {}, anv);
+      if (!LASANDE.has(namn)) {
+        // Pulsen får aldrig fälla ett anrop som redan lyckats.
+        await kor(env, 'UPDATE andringar SET senast = ?1 WHERE id = 1', Date.now())
+          .catch((e) => console.log('Pulsen kunde inte uppdateras: ' + e.message));
+      }
       return svar(request, { ok: true, ...data });
     } catch (err) {
       if (err instanceof Fel) return svar(request, { ok: false, fel: err.message }, err.status);

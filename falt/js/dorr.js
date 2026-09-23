@@ -13,6 +13,10 @@ import { delaAdress, vagbeskrivning, kartappNamn } from './geo.js';
 import { ledigaTider } from './kalender.js';
 import { redigeraBokning } from './redigera.js';
 
+/** Halvtimmarna en kund kan önska, för "tiden först". */
+const HALVTIMMAR = Array.from({ length: 27 }, (_, i) =>
+  String(7 + Math.floor(i / 2)).padStart(2, '0') + (i % 2 ? ':30' : ':00'));
+
 let aktuell = null;   // { adress, historik, bokningar }
 
 /* ── Tidsval ── */
@@ -53,14 +57,36 @@ const TIDSVAL = {
 
 /* ── Skicka registrering ── */
 
+/*
+ * Ett tryck i taget. Ett andra tryck medan det första skickas gör ingenting,
+ * och varje registrering bär ett eget id — kommer den ändå fram två gånger,
+ * från kön eller ett nät som hackar, sparar servern den en gång.
+ */
+let skickar = false;
+const nyttKlientId = () => (crypto.randomUUID ? crypto.randomUUID()
+  : Date.now().toString(36) + Math.random().toString(36).slice(2));
+
 async function skicka(resultat, extra = {}, bekrafta = false, vidTidskrock = null) {
+  if (skickar) return;
+  skickar = true;
+  try {
+    await skickaEn(resultat, extra, bekrafta, vidTidskrock);
+  } finally {
+    skickar = false;
+  }
+}
+
+async function skickaEn(resultat, extra, bekrafta, vidTidskrock) {
   const data = {
     adress_id: aktuell.adress.id,
     resultat,
     ...extra,
     ...(S.position ? { lat: S.position.lat, lon: S.position.lon } : {}),
     ...(bekrafta ? { bekrafta: true } : {}),
+    klient_id: nyttKlientId(),
   };
+  const knapp = $('bSpara');
+  if (knapp) { knapp.disabled = true; knapp.textContent = 'Sparar…'; }
 
   try {
     await anrop('handelse', data);
@@ -86,6 +112,8 @@ async function skicka(resultat, extra = {}, bekrafta = false, vidTidskrock = nul
       return;
     }
     toast('Kunde inte spara: ' + e.message);
+  } finally {
+    if (knapp && knapp.isConnected) { knapp.disabled = false; knapp.textContent = 'Spara bokning'; }
   }
 }
 
@@ -197,7 +225,13 @@ function visaBokning() {
       return;
     }
 
-    ruta.innerHTML = '<p class="sub">Välj en dag med lediga tider.</p>' +
+    ruta.innerHTML =
+      // Kunden vet ofta vilken tid som passar innan dagen: "efter fem".
+      '<div class="field tidforst"><label for="bTidForst">Passar en viss tid?</label>' +
+      '<select id="bTidForst" class="valj"><option value="">Välj tid först…</option>' +
+      HALVTIMMAR.map((h) => '<option>' + h + '</option>').join('') + '</select></div>' +
+      '<div id="bTidForstSvar"></div>' +
+      '<p class="sub">Eller välj en dag med lediga tider.</p>' +
       '<div class="dagval">' + dagar.map((d) =>
         '<button class="dagruta" data-dag="' + esc(d.datum) + '">' +
         '<b>' + esc(visaDatum(d.datum)) + '</b>' +
@@ -206,6 +240,40 @@ function visaBokning() {
 
     ruta.querySelectorAll('[data-dag]').forEach((k) => {
       k.onclick = () => { valdDag = k.dataset.dag; visaTider(); };
+    });
+    $('bTidForst').onchange = () => visaDagarForTid($('bTidForst').value);
+  }
+
+  /* Tiden först: dagarna de närmaste två månaderna då någon kan ta just den
+     tiden, och vem. Servern räknar — samma regler som allt annat. */
+  async function visaDagarForTid(tid) {
+    const ut = $('bTidForstSvar');
+    if (!tid) { ut.innerHTML = ''; return; }
+    ut.innerHTML = '<div class="tom">Söker…</div>';
+    let svar;
+    try {
+      svar = await anrop('bokbara-tider', { tid, adress_id: aktuell.adress.id });
+    } catch (e) {
+      ut.innerHTML = '<div class="tom">Kunde inte söka: ' + esc(e.message) + '</div>';
+      return;
+    }
+    if (!svar.dagar.length) {
+      ut.innerHTML = '<div class="tom">Ingen besiktare kan ta ' + esc(tid) + ' de närmaste två månaderna.</div>';
+      return;
+    }
+    ut.innerHTML = '<div class="tidval">' + svar.dagar.map((d) =>
+      '<div class="tidval-block"><div class="tidval-tid">' + esc(visaDatum(d.datum)) + ' kl. ' + esc(tid) + '</div>' +
+      d.besiktare.map((b) => '<button class="tidval-bes" data-forst-dag="' + esc(d.datum) + '" data-bes="' +
+        esc(b.id) + '" data-namn="' + esc(b.namn) + '">' + esc(b.namn) + '<span>Ledig</span></button>').join('') +
+      '</div>').join('') + '</div>';
+    ut.querySelectorAll('[data-forst-dag]').forEach((k) => {
+      k.onclick = () => {
+        valdDag = k.dataset.forstDag;
+        valdTid = tid;
+        valdSaljare = k.dataset.bes;
+        valdSaljarNamn = k.dataset.namn;
+        visaKund();
+      };
     });
   }
 

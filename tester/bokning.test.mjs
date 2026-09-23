@@ -150,11 +150,23 @@ describe('bokningar', () => {
 });
 
 describe('uppsättningen och testservern', () => {
-  it('lägger på samma skydd mot dubbelbokning', () => {
+  it('lägger på samma index — också skyddet mot dubbelbokning', () => {
     const workflow = readFileSync(new URL('../.github/workflows/satt-upp-faltsystemet.yml', import.meta.url), 'utf8');
     const utanMellanrum = (t) => t.replace(/\s+/g, ' ').trim();
-    const unikt = utanMellanrum(EFTER_SCHEMAT.find((x) => x.includes('idx_bok_saljarslot')));
-    assert.ok(utanMellanrum(workflow).includes(unikt.replace(/;$/, '')),
-      'Indexet i tester/server.mjs och i .github/workflows/satt-upp-faltsystemet.yml har glidit isär');
+    for (const sql of EFTER_SCHEMAT) {
+      assert.ok(utanMellanrum(workflow).includes(utanMellanrum(sql).replace(/;$/, '')),
+        'Finns i tester/server.mjs men inte i .github/workflows/satt-upp-faltsystemet.yml: ' + sql);
+    }
+  });
+
+  it('varje ny kolumn i schemat läggs också på gamla databaser', () => {
+    const workflow = readFileSync(new URL('../.github/workflows/satt-upp-faltsystemet.yml', import.meta.url), 'utf8');
+    const schema = readFileSync(new URL('../worker-falt/schema.sql', import.meta.url), 'utf8');
+    for (const [tabell, kolumn] of [['anvandare', 'arbetstid_fran'], ['anvandare', 'arbetstid_till'],
+      ['saljartider', 'orsak'], ['bokningar', 'lagenhet'], ['bokningar', 'andrad'], ['bokningar', 'andrad_av'],
+      ['adresser', 'kommun'], ['handelser', 'klient_id']]) {
+      assert.match(schema, new RegExp('\\b' + kolumn + '\\s+(TEXT|INTEGER|REAL)'), kolumn + ' saknas i schema.sql');
+      assert.ok(workflow.includes('"' + tabell + '|' + kolumn + ' '), kolumn + ' läggs inte på gamla tabeller');
+    }
   });
 });

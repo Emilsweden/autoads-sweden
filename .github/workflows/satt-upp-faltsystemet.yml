@@ -127,7 +127,8 @@ jobs:
             "bokningar|lagenhet TEXT" \
             "bokningar|andrad INTEGER" \
             "bokningar|andrad_av TEXT" \
-            "adresser|kommun TEXT"
+            "adresser|kommun TEXT" \
+            "handelser|klient_id TEXT"
           do
             tabell="${kolumn%%|*}"
             rest="${kolumn#*|}"
@@ -141,6 +142,10 @@ jobs:
           # kolumnen skulle saknas när filen kördes.
           npx wrangler d1 execute autoads-falt --remote --yes \
             --command "CREATE INDEX IF NOT EXISTS idx_bok_saljare ON bokningar(saljare_id, datum);"
+
+          # Samma registrering från telefonen sparas bara en gång.
+          npx wrangler d1 execute autoads-falt --remote --yes \
+            --command "CREATE UNIQUE INDEX IF NOT EXISTS idx_h_klient ON handelser(klient_id) WHERE klient_id IS NOT NULL;"
 
           # Det gamla indexet gällde datum + tid för hela laget och skulle nu
           # hindra två säljare från att ha var sitt möte samma timme.

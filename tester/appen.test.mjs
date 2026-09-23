@@ -154,4 +154,26 @@ describe('appen', { skip: !pw && 'Playwright saknas — installera med: npm i -g
     assert.deepEqual(bes.fel, []);
     await bes.sida.context().close();
   });
+
+  it('tiden först: mötesbokaren väljer 14:00 och får dagarna och besiktaren som kan', async () => {
+    const { sida, fel } = await oppna(bokare.epost);
+    await sida.click('#botten button[data-vy="lista"]');
+    await sida.click('#manuellDorr2');
+    await sida.fill('#mGata', 'Tidsvägen');
+    await sida.fill('#mNummer', '4b');
+    await sida.fill('#mPostort', 'Västerås');
+    await sida.click('#mNasta');
+    await sida.waitForSelector('#bTidForst', { timeout: 10000 });
+    await sida.selectOption('#bTidForst', '14:00');
+    await sida.click(`[data-forst-dag="${MANDAG}"][data-bes="${karl.id}"]`);
+    await sida.fill('#bFornamn', 'Tidfors');
+    await sida.fill('#bTelefon', '070-444 44 44');
+    await sida.click('#bSpara');
+    await sida.waitForFunction(() => !document.querySelector('#bSpara'), null, { timeout: 10000 }).catch(() => {});
+    const [rad] = s.sql(`SELECT b.datum, b.tid, b.saljare_id, a.nummer FROM bokningar b
+      JOIN adresser a ON a.id = b.adress_id WHERE b.fornamn = 'Tidfors'`);
+    assert.deepEqual({ ...rad }, { datum: MANDAG, tid: '14:00', saljare_id: karl.id, nummer: '4B' });
+    assert.deepEqual(fel, []);
+    await sida.context().close();
+  });
 });

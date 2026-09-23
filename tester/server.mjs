@@ -34,6 +34,7 @@ const APPEN = join(ROT, 'falt');
  */
 export const EFTER_SCHEMAT = [
   'CREATE INDEX IF NOT EXISTS idx_bok_saljare ON bokningar(saljare_id, datum);',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_h_klient ON handelser(klient_id) WHERE klient_id IS NOT NULL;',
   'DROP INDEX IF EXISTS idx_bok_slot;',
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_bok_saljarslot ON bokningar(datum, tid, saljare_id)
                  WHERE tid IS NOT NULL AND tid <> '' AND saljare_id IS NOT NULL AND status <> 'avbokad';`,

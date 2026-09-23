@@ -786,6 +786,8 @@ a.btn { display: grid; place-items: center; text-decoration: none; }
 /* ── Bokning i steg: dag → tid → besiktare → kund ── */
 
 .dagval { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.tidforst { margin: 4px 0 8px; }
+.tidforst .valj { width: 100%; padding: 12px; font-size: 16px; }
 .dagruta {
   display: flex; flex-direction: column; gap: 2px;
   width: 100%; padding: 12px 14px;
