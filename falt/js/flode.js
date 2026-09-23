@@ -69,7 +69,10 @@ export async function rita() {
 
   // Det som visats är sett. Nästa gång vyn öppnas står det under Sedda.
   const nyast = nyheter.reduce((m, n) => Math.max(m, n.skapad), 0);
-  if (nyast > (svar.sedda_till || 0)) anrop('nyheter-sedda', { till: nyast }).catch(() => {});
+  if (nyast > (svar.sedda_till || 0)) {
+    anrop('nyheter-sedda', { till: nyast })
+      .catch((e) => console.warn('Kunde inte markera nyheterna som sedda: ' + e.message));
+  }
 }
 
 /** Den här veckan, förra veckan och äldre — var för sig. */

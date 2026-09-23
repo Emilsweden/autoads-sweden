@@ -414,9 +414,16 @@ async function platserForAdress(env, adress) {
  * är känt om en ny — ort, kommun, läge. Används för att bara visa de
  * besiktare som jobbar där.
  */
-async function platserUrAnrop(env, body) {
+async function platserUrAnrop(env, body, anv) {
   const id = txt(body.adress_id, 40);
-  if (id) return platserForAdress(env, await en(env, 'SELECT postort, kommun, lat, lon FROM adresser WHERE id = ?1', id));
+  if (id) {
+    // Besiktaren ser bara sina egna tider ändå; orten behövs inte.
+    if (arBesiktare(anv)) return null;
+    // Bara dörrar man själv får se — annars blir svaret ett sätt att ta
+    // reda på var en dörr i någon annans område ligger.
+    if (!far(anv, 'allt_bokat')) await adressJagFar(env, anv, id);
+    return platserForAdress(env, await en(env, 'SELECT postort, kommun, lat, lon FROM adresser WHERE id = ?1', id));
+  }
   if (body.postort || body.kommun || (body.lat !== undefined && body.lon !== undefined)) {
     return platserForAdress(env, { postort: txt(body.postort, 80), kommun: txt(body.kommun, 80), lat: body.lat, lon: body.lon });
   }
@@ -555,6 +562,18 @@ const arKrock = (e) => /UNIQUE|constraint/i.test(String((e && e.message) || e));
  * saljare_id säljaren det rör — tillsammans avgör de vem som får se raden.
  */
 async function nyhet(env, typ, text, extra = {}) {
+  // En nyhet berättar om något som redan sparats. Går den inte att skriva
+  // ska det som hänt ändå räknas som gjort — annars tror den som tryckte
+  // att det misslyckades och gör om det.
+  try {
+    return await skrivNyhet(env, typ, text, extra);
+  } catch (e) {
+    console.error('Nyheten kunde inte skrivas (' + typ + '): ' + (e && e.message));
+    return null;
+  }
+}
+
+async function skrivNyhet(env, typ, text, extra) {
   const nu = Date.now();
 
   // Lägger en besiktare in fyra tider på en kvart är det en sak som hänt,
@@ -1052,6 +1071,9 @@ api['anvandare-spara'] = async (env, request, body, anv) => {
         throw new Fel('Besiktaren har ' + kommande.n + ' kommande möten — flytta dem först', 409);
       }
     }
+    // Orterna först: går de inte att spara är inget sparat, i stället för
+    // ett konto som sparades utan dem medan felet säger motsatsen.
+    if (roll === 'besiktare') await sattOrter(env, body.id, body.platser);
     await kor(env,
       `UPDATE anvandare SET namn=?1, epost=?2, roll=?3, team=?4, aktiv=?5,
          max_per_dag=COALESCE(?7, max_per_dag), snabbtider=COALESCE(?8, snabbtider),
@@ -1067,7 +1089,6 @@ api['anvandare-spara'] = async (env, request, body, anv) => {
         await hasha(String(body.losenord), salt), salt, body.id);
       await kor(env, 'DELETE FROM sessioner WHERE anvandare_id = ?1', body.id);
     }
-    if (roll === 'besiktare') await sattOrter(env, body.id, body.platser);
     await nyhet(env, 'konto', anv.namn + ' ändrade kontot ' + namn +
       ' (' + (ROLLNAMN[roll] || roll) + ')', { anvandare_id: anv.id });
     return { id: body.id };
@@ -1080,12 +1101,12 @@ api['anvandare-spara'] = async (env, request, body, anv) => {
   }
   const salt = hex(crypto.getRandomValues(new Uint8Array(16)));
   const id = uid();
+  if (roll === 'besiktare') await sattOrter(env, id, body.platser);
   await kor(env,
     `INSERT INTO anvandare (id,namn,epost,roll,team,hash,salt,aktiv,skapad,max_per_dag,arbetstid_fran,arbetstid_till)
      VALUES (?1,?2,?3,?4,?5,?6,?7,1,?8,?9,?10,?11)`,
     id, namn, epost, roll, txt(body.team, 60), await hasha(losenord, salt), salt, Date.now(),
     maxPerDag || MAX_PER_DAG, ram ? ram.fran : null, ram ? ram.till : null);
-  if (roll === 'besiktare') await sattOrter(env, id, body.platser);
   await nyhet(env, 'konto', anv.namn + ' lade upp ' + namn +
     ' som ' + (ROLLNAMN[roll] || roll), { anvandare_id: anv.id });
   return { id };
@@ -1363,7 +1384,7 @@ api['handelse'] = async (env, request, body, anv) => {
   // Samma registrering två gånger — ett dubbeltryck, eller kön som skickar
   // om efter ett svar som aldrig kom fram — ger samma svar, inte två besök.
   const klientId = txt(body.klient_id, 64);
-  const tidigare = await tidigareRegistrering(env, klientId);
+  const tidigare = await tidigareRegistrering(env, klientId, anv.id);
   if (tidigare) return tidigare;
 
   // Ett besök ur kön sparas med tiden det gjordes, inom en vecka bakåt —
@@ -1395,7 +1416,7 @@ api['handelse'] = async (env, request, body, anv) => {
       bokSaljare = await valjSaljare(env, body.saljare_id, bokDatum, bokTid, null, await platserForAdress(env, adress));
     } catch (e) {
       // Nekad för att samma registrering just tog tiden: då är den redan sparad.
-      const hann = e instanceof Fel && e.status === 409 && await tidigareRegistrering(env, klientId);
+      const hann = e instanceof Fel && e.status === 409 && await tidigareRegistrering(env, klientId, anv.id);
       if (hann) return hann;
       throw e;
     }
@@ -1452,14 +1473,14 @@ api['handelse'] = async (env, request, body, anv) => {
   } catch (e) {
     if (!arKrock(e)) throw e;
     // Krocken kan vara samma registrering som hann före med samma klient-id.
-    const hann = await tidigareRegistrering(env, klientId);
+    const hann = await tidigareRegistrering(env, klientId, anv.id);
     if (hann) return hann;
-    throw new Fel(TIDEN_TAGEN, 409);
+    throw new Fel(bokningId ? TIDEN_TAGEN : 'Registreringen är redan sparad', 409);
   }
   // Någon annan hann före mellan kontrollen och skrivningen — eller samma
   // registrering, som då redan är sparad.
   if (bokningId && !andradeRader(resultatet[0])) {
-    const hann = await tidigareRegistrering(env, klientId);
+    const hann = await tidigareRegistrering(env, klientId, anv.id);
     if (hann) return hann;
     throw await varforInteBokbar(env, bokSaljare, bokDatum, bokTid);
   }
@@ -1506,10 +1527,15 @@ api['handelse'] = async (env, request, body, anv) => {
   return { handelse_id: handelseId, bokning, status };
 };
 
-/** Svaret en registrering fick, om den redan sparats med samma klient-id. */
-async function tidigareRegistrering(env, klientId) {
+/**
+ * Svaret en registrering fick, om den redan sparats med samma klient-id —
+ * och av samma person. Någon annans registrering lämnas aldrig ut, även om
+ * id:t skulle vara känt.
+ */
+async function tidigareRegistrering(env, klientId, anvId) {
   if (!klientId) return null;
-  const h = await en(env, 'SELECT id, adress_id FROM handelser WHERE klient_id = ?1', klientId);
+  const h = await en(env, 'SELECT id, adress_id FROM handelser WHERE klient_id = ?1 AND anvandare_id = ?2',
+    klientId, anvId);
   if (!h) return null;
   const b = await en(env, 'SELECT id, saljare_id FROM bokningar WHERE handelse_id = ?1', h.id);
   const a = await en(env, 'SELECT status FROM adresser WHERE id = ?1', h.adress_id);
@@ -1794,12 +1820,12 @@ async function farRaderaDorr(env, anv, adressId) {
  */
 api['adress-ta-bort'] = async (env, request, body, anv) => {
   const id = txt(body.id, 40);
-  if (!(await farRaderaDorr(env, anv, id))) {
-    throw new Fel(far(anv, 'radera_egna')
-      ? 'Någon annan har varit vid dörren — bara Mötesbokare+ kan radera den'
-      : 'Bara mötesbokare kan radera dörrar', 403);
-  }
+  if (!far(anv, 'radera') && !far(anv, 'radera_egna')) throw new Fel('Bara mötesbokare kan radera dörrar', 403);
+  // Områdeskontrollen först: om en dörr utanför ens områden säger svaret ingenting.
   const adress = await adressJagFar(env, anv, id);
+  if (!(await farRaderaDorr(env, anv, id))) {
+    throw new Fel('Någon annan har varit vid dörren — bara Mötesbokare+ kan radera den', 403);
+  }
 
   const mote = await en(env,
     `SELECT COUNT(*) AS n FROM bokningar WHERE adress_id = ?1 AND status = 'bokad' AND datum >= ?2`,
@@ -1956,7 +1982,7 @@ api['kalender'] = async (env, request, body, anv) => {
   // besiktare som redan är full, eller för nära ett annat möte, finns inte
   // här; den syns i besiktarens schema, inte i bokningskalendern.
   let fria = far(anv, 'se_tider') || arBesiktare(anv)
-    ? await bokbara(env, { fran, till, platsIdn: await platserUrAnrop(env, body) }) : [];
+    ? await bokbara(env, { fran, till, platsIdn: await platserUrAnrop(env, body, anv) }) : [];
   if (!far(anv, 'se_tider')) fria = fria.filter((f) => f.saljare_id === anv.id);
   const ledigaPerDag = {};
   fria.forEach((f) => { ledigaPerDag[f.datum] = (ledigaPerDag[f.datum] || 0) + 1; });
@@ -1993,7 +2019,7 @@ api['lediga-besiktare'] = async (env, request, body, anv) => {
   const tid = klockslag(body.tid);
   if (!dat || !tid) throw new Fel('Datum och tid krävs');
   const lediga = await bokbara(env, {
-    fran: dat, till: dat, tid, utom: txt(body.utom, 40), platsIdn: await platserUrAnrop(env, body),
+    fran: dat, till: dat, tid, utom: txt(body.utom, 40), platsIdn: await platserUrAnrop(env, body, anv),
   });
   return { besiktare: lediga.map((s) => ({ id: s.saljare_id, namn: s.namn })) };
 };
@@ -2010,7 +2036,7 @@ api['bokbara-tider'] = async (env, request, body, anv) => {
   // Besiktaren ser bara sina egna tider — han flyttar sina möten inom sin dag.
   const saljareId = far(anv, 'se_tider') ? undefined : (kraverFormaga(anv, 'eget_schema'), anv.id);
   const utom = txt(body.utom, 40);
-  const platsIdn = await platserUrAnrop(env, body);
+  const platsIdn = await platserUrAnrop(env, body, anv);
   const tid = klockslag(body.tid);
   if (tid) {
     const fran = datum(body.fran) || stockholmNu().datum;
@@ -2077,7 +2103,7 @@ api['kalender-boka'] = async (env, request, body, anv) => {
   // efter sig.
   const platsIdn = await platserUrAnrop(env, {
     adress_id: body.adress_id, postort, kommun: body.kommun, lat: body.lat, lon: body.lon,
-  });
+  }, anv);
   const saljare = await valjSaljare(env, body.saljare_id, dat, tid, null, platsIdn);
 
   // Mötesbokaren bokningen tillhör: den som bokar, eller den en Mötesbokare+
@@ -2215,12 +2241,18 @@ api['bokning-andra'] = async (env, request, body, anv) => {
 
   // Besöket som blev bokningen följer med till rätt dörr, och båda dörrarnas
   // status räknas om från sin historik.
+  // Bokningen är redan flyttad; misslyckas det här loggas det i stället för
+  // att den som sparade får ett fel för något som faktiskt gick igenom.
   if (adressId !== bokning.adress_id) {
-    if (bokning.handelse_id) {
-      await kor(env, 'UPDATE handelser SET adress_id = ?1 WHERE id = ?2', adressId, bokning.handelse_id);
+    try {
+      if (bokning.handelse_id) {
+        await kor(env, 'UPDATE handelser SET adress_id = ?1 WHERE id = ?2', adressId, bokning.handelse_id);
+      }
+      await raknaOmDorr(env, bokning.adress_id);
+      await raknaOmDorr(env, adressId);
+    } catch (e) {
+      console.error('Bokning ' + id + ' flyttad, men dörrarna kunde inte räknas om: ' + (e && e.message));
     }
-    await raknaOmDorr(env, bokning.adress_id);
-    await raknaOmDorr(env, adressId);
   }
 
   const uppdaterad = await en(env,
@@ -2921,7 +2953,7 @@ api['lediga-dagar'] = async (env, request, body, anv) => {
   kraverFormaga(anv, 'se_tider');
   const fran = datum(body.fran) || stockholmNu().datum;
   const till = datum(body.till) || plusDagar(fran, 120);
-  const lista = await bokbara(env, { fran, till, utom: txt(body.utom, 40), platsIdn: await platserUrAnrop(env, body) });
+  const lista = await bokbara(env, { fran, till, utom: txt(body.utom, 40), platsIdn: await platserUrAnrop(env, body, anv) });
 
   const perDag = new Map();
   for (const l of lista) {
@@ -3280,7 +3312,7 @@ export default {
       if (!LASANDE.has(namn)) {
         // Pulsen får aldrig fälla ett anrop som redan lyckats.
         await kor(env, 'UPDATE andringar SET senast = ?1 WHERE id = 1', Date.now())
-          .catch((e) => console.log('Pulsen kunde inte uppdateras: ' + e.message));
+          .catch((e) => console.error('Pulsen kunde inte uppdateras efter ' + namn + ': ' + e.message));
       }
       return svar(request, { ok: true, ...data });
     } catch (err) {

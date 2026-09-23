@@ -113,4 +113,22 @@ describe('behörigheter', () => {
     assert.equal(s.sql('SELECT COUNT(*) AS n FROM nyheter WHERE id = ?', nyhet.id)[0].n, 1,
       'nyheten raderades ur databasen');
   });
+
+  it('ett klient-id ger bara tillbaka ens egen registrering', async () => {
+    const [egen] = s.sql(`SELECT id FROM adresser WHERE gata = 'Bgatan'`);
+    const bosseny = await loggaIn(s, bosse.epost, 'nyttlosen123');
+    const r = await anrop(s.url, 'handelse', { adress_id: egen.id, resultat: 'nej', klient_id: 'hemligt-id-1', bekrafta: true }, bosseny.token);
+    assert.equal(r.kod, 200, r.fel);
+    const a = (await anrop(s.url, 'adress-ny', { gata: 'Agatan', nummer: '1', postort: 'Örebro', omrade_id: omrA }, anna.token)).adress;
+    const kapad = await anrop(s.url, 'handelse', { adress_id: a.id, resultat: 'nej', klient_id: 'hemligt-id-1', bekrafta: true }, anna.token);
+    assert.notEqual(kapad.handelse_id, r.handelse_id, 'någon annans registrering lämnades ut');
+  });
+
+  it('ortfiltret läser inte dörrar utanför ens områden, och radera säger inget om dem', async () => {
+    const r = await anrop(s.url, 'bokbara-tider', { datum: nasta(3), adress_id: bgatan }, anna.token);
+    assert.equal(r.kod, 403);
+    const radera = await anrop(s.url, 'adress-ta-bort', { id: bgatan }, anna.token);
+    assert.equal(radera.kod, 403);
+    assert.match(radera.fel, /utanför dina områden/);
+  });
 });

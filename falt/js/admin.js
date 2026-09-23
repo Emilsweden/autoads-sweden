@@ -508,6 +508,8 @@ function anvandarFormular(a) {
     try {
       const lage = await sokOrt(namn).catch(() => null);
       const svar = await anrop('plats-spara', { namn, lat: lage ? lage.lat : undefined, lon: lage ? lage.lon : undefined });
+      // Utan läge hittas orten bara på namn — säg det hellre än att tiga.
+      if (!lage) toast(namn + ' sparades utan läge: adresser utan ortnamn kopplas inte dit');
       platsLista = platsLista.concat(svar.plats).sort((x, y) => x.namn.localeCompare(y.namn, 'sv'));
       valdaOrter.add(svar.plats.id);
       $('aNyOrt').value = '';

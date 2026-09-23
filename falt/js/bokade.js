@@ -299,20 +299,23 @@ function lamnaOmdome(id) {
         belopp: val.genomford && val.blev_jobb && $('oBelopp').value ? $('oBelopp').value : undefined,
         text: $('oText').value.trim(),
       });
-      toast('Omdömet är sparat ✓');
-      dataAndrad();
-      await rita();
-      // Kunden bokade om: direkt vidare till en ny tid på samma bokning.
-      const flytta = val.genomford === false && val.orsak === 'ombokad' && b.far_andra;
-      if (flytta) {
-        redigeraBokning(bokningar.find((x) => x.id === id) || b, { klar: () => { stangPanel('modal'); rita(); } });
-      } else {
-        stangPanel('modal');
-      }
     } catch (e) {
       knapp.disabled = false;
       knapp.textContent = 'Spara omdöme';
       $('oFel').textContent = e.message;
+      return;
+    }
+    // Sparat. Det som följer får inte se ut som att sparandet misslyckades —
+    // då skulle samma omdöme skickas en gång till.
+    toast('Omdömet är sparat ✓');
+    dataAndrad();
+    await rita().catch(() => {});
+    // Kunden bokade om: direkt vidare till en ny tid på samma bokning.
+    const flytta = val.genomford === false && val.orsak === 'ombokad' && b.far_andra;
+    if (flytta) {
+      redigeraBokning(bokningar.find((x) => x.id === id) || b, { klar: () => { stangPanel('modal'); rita(); } });
+    } else {
+      stangPanel('modal');
     }
   };
   if ($('oFlytta')) $('oFlytta').onclick = () => $('oSpara').click();

@@ -12,7 +12,7 @@
  */
 
 import { anrop } from './api.js';
-import { $, esc, idag, plusDagar, visaDatum } from './ui.js';
+import { $, esc, toast, idag, plusDagar, visaDatum } from './ui.js';
 
 const MANADER = ['januari', 'februari', 'mars', 'april', 'maj', 'juni',
   'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
@@ -245,7 +245,10 @@ function skicka(andring, tider, klartText) {
       });
       status(klartText || 'Sparat ✓', 1800);
     } catch (e) {
+      // Som toast också: har man hunnit gå tillbaka till månaden finns inte
+      // statusraden, och felet får inte försvinna tyst.
       status('Kunde inte spara: ' + e.message, 6000);
+      toast('Kunde inte spara ' + tider.join(', ') + ': ' + e.message);
     }
   });
   // När kön är tom hämtas månaden om, så att "Ledig" också betyder bokningsbar.
