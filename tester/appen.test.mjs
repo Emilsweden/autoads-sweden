@@ -176,4 +176,36 @@ describe('appen', { skip: !pw && 'Playwright saknas — installera med: npm i -g
     assert.deepEqual(fel, []);
     await sida.context().close();
   });
+
+  it('besiktaren lämnar omdöme när mötet har varit: Ja, blev det jobb Ja', async () => {
+    // Ett möte i förrgår: bokat framåt och flyttat bakåt i databasen.
+    const dag = nasta(3);
+    await anrop(s.url, 'saljartider-spara', { saljare_id: karl.id, datum: dag, tider: ['11:00'] }, plusBokare.token);
+    const bok = await anrop(s.url, 'kalender-boka', {
+      datum: dag, tid: '11:00', saljare_id: karl.id, fornamn: 'Omdömet', telefon: '070', adress: 'Omdömesgatan 5, Västerås',
+    }, bokare.token);
+    assert.equal(bok.kod, 200, bok.fel);
+    const forrgar = new Date(Date.now() - 2 * 86400e3).toISOString().slice(0, 10);
+    s.db.prepare('UPDATE bokningar SET datum = ? WHERE id = ?').run(forrgar, bok.bokning.id);
+
+    const { sida, fel } = await oppna(karl.epost);
+    await sida.click('#botten button[data-vy="bokningar"]');
+    await sida.click('#bokFlikar [data-bok="bokade"]');
+    await sida.click('[data-filter="omdome"]');
+    await sida.click(`[data-oppna="${bok.bokning.id}"]`);
+    await sida.click('.omdome-knapp');
+    await sida.click('[data-jn="genomford"] [data-v="1"]');
+    await sida.fill('#oVad', 'Gick upp på taket');
+    await sida.click('[data-jn="intresserad"] [data-v="1"]');
+    await sida.click('[data-jn="blev_jobb"] [data-v="1"]');
+    await sida.fill('#oBelopp', '185000');
+    await sida.click('#oSpara');
+    await sida.waitForFunction(() => !document.querySelector('#modalOverlay.open'), null, { timeout: 10000 });
+
+    const [a] = s.sql('SELECT genomford, blev_jobb, intresserad, vad_hande, belopp FROM aterkoppling WHERE bokning_id = ?', bok.bokning.id);
+    assert.deepEqual({ ...a }, { genomford: 1, blev_jobb: 1, intresserad: 1, vad_hande: 'Gick upp på taket', belopp: 185000 });
+    assert.equal(s.sql('SELECT status FROM bokningar WHERE id = ?', bok.bokning.id)[0].status, 'genomford');
+    assert.deepEqual(fel, []);
+    await sida.context().close();
+  });
 });

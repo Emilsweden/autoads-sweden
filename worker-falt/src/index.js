@@ -267,13 +267,23 @@ const arbetstid = (a) => ({
 /** Minuter mellan två mötens starttider hos samma besiktare. */
 const MELLANRUM = 180;
 
-/** Datum och klockslag just nu i Sverige — där mötena äger rum. */
-function stockholmNu(nu = Date.now()) {
-  const d = Object.fromEntries(new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-  }).formatToParts(new Date(nu)).map((p) => [p.type, p.value]));
-  return { datum: d.year + '-' + d.month + '-' + d.day, tid: d.hour + ':' + d.minute };
+/**
+ * Datum och klockslag just nu i Sverige — där mötena äger rum. Minuten är
+ * upplösningen, så svaret sparas minuten ut: en lista med femhundra
+ * bokningar ska inte räkna om tidszonen femhundra gånger.
+ */
+const SVENSK_TID = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
+let senasteMinut = { minut: -1, nu: null };
+function stockholmNu(ms = Date.now()) {
+  const minut = Math.floor(ms / 60000);
+  if (senasteMinut.minut === minut) return senasteMinut.nu;
+  const d = Object.fromEntries(SVENSK_TID.formatToParts(new Date(ms)).map((p) => [p.type, p.value]));
+  const nu = { datum: d.year + '-' + d.month + '-' + d.day, tid: d.hour + ':' + d.minute };
+  senasteMinut = { minut, nu };
+  return nu;
 }
 
 /**
@@ -675,10 +685,13 @@ async function farRadera(env, anv, bokning) {
  * visar knapparna efter dem — servern kontrollerar samma sak igen när
  * knappen trycks. `harOmdome`: mötet har fått ett omdöme.
  */
-function flaggor(anv, b, harOmdome) {
+function flaggor(anv, b, harOmdome, nu) {
   const egenBokare = far(anv, 'boka') && b.anvandare_id === anv.id;
   const egenBesiktare = arBesiktare(anv) && (b.saljare_id === anv.id || !b.saljare_id);
+  const farOmdome = far(anv, 'aterkoppla_alla') || (far(anv, 'aterkoppla') && egenBesiktare);
   return {
+    far_omdome: farOmdome,
+    lamna_omdome: farOmdome && vantarPaOmdome(b, nu),
     far_andra: far(anv, 'allt_bokat') || egenBokare || egenBesiktare,
     far_byt_besiktare: farBytaBesiktare(anv),
     far_avboka: b.status !== 'avbokad' && !arBesiktare(anv) && (far(anv, 'allt_bokat') || b.anvandare_id === anv.id),
@@ -1851,7 +1864,7 @@ api['bokningar'] = async (env, request, body, anv) => {
       adress: b.gata ? b.gata + ' ' + b.nummer : '',
       kund: [b.fornamn, b.efternamn].filter(Boolean).join(' '),
       aterkoppling: aterkoppling.filter((a) => a.bokning_id === b.id)
-        .map((a) => ({ ...a, utfall_text: UTFALLSTEXT[a.utfall] || a.utfall })),
+        .map((a) => ({ ...a, utfall_text: utfallText(a) })),
     })),
   };
 };
@@ -2140,6 +2153,12 @@ api['bokning-andra'] = async (env, request, body, anv) => {
   // Någon hann ta tiden mellan kontrollen och skrivningen.
   if (!andradeRader(res)) throw await varforInteBokbar(env, saljare, dat, tid, id);
 
+  // "Kunden ringde och bokade om": ett möte som inte blev av och nu fått en
+  // ny tid är bokat igen.
+  if (flyttad && dat && tid && bokning.status === 'ej_genomford') {
+    await kor(env, "UPDATE bokningar SET status = 'bokad' WHERE id = ?1", id);
+  }
+
   // Besöket som blev bokningen följer med till rätt dörr, och båda dörrarnas
   // status räknas om från sin historik.
   if (adressId !== bokning.adress_id) {
@@ -2222,7 +2241,7 @@ api['bokade-adresser'] = async (env, request, body, anv) => {
       kommentarer: kommentarer.filter((k) => k.bokning_id === b.id),
       bilagor: bilagor.filter((f) => f.bokning_id === b.id),
       aterkoppling: aterkoppling.filter((a) => a.bokning_id === b.id)
-        .map((a) => ({ ...a, utfall_text: UTFALLSTEXT[a.utfall] || a.utfall })),
+        .map((a) => ({ ...a, utfall_text: utfallText(a) })),
     })),
   };
 };
@@ -2597,10 +2616,33 @@ api['snabbtider-spara'] = async (env, request, body, anv) => {
 
 /* ── Återkoppling på ett möte ── */
 
-const UTFALL = ['salt', 'ej_salt', 'uppfoljning', 'uteblev'];
+const UTFALL = ['salt', 'ej_salt', 'uppfoljning', 'uteblev', 'ej_genomford'];
 const UTFALLSTEXT = {
   salt: 'Sålt', ej_salt: 'Inte sålt', uppfoljning: 'Uppföljning', uteblev: 'Kunden uteblev',
+  ej_genomford: 'Genomfördes inte',
 };
+
+/** Varför ett möte inte blev av — svaret på "Genomfördes bokningen? Nej". */
+const EJ_GENOMFORD = {
+  ingen_hemma: 'Ingen hemma',
+  avbokade: 'Kunden avbokade',
+  ombokad: 'Kunden ringde och bokade om',
+  annat: 'Annat',
+};
+
+/** Texten för ett omdöme: utfallet, eller varför mötet inte blev av. */
+const utfallText = (a) => (a.orsak && EJ_GENOMFORD[a.orsak]
+  ? 'Genomfördes inte — ' + EJ_GENOMFORD[a.orsak]
+  : UTFALLSTEXT[a.utfall] || a.utfall);
+
+/**
+ * Mötet har börjat och väntar på ett omdöme. Ingen behöver markera något
+ * först: när starttiden passerat är det dags.
+ */
+function vantarPaOmdome(b, nu = stockholmNu()) {
+  if (b.status !== 'bokad' || !b.datum) return false;
+  return b.datum < nu.datum || (b.datum === nu.datum && (b.tid || '00:00') <= nu.tid);
+}
 
 /**
  * Säljaren skriver hur mötet gick. Återkopplingen hör till bokningen, så den
@@ -2608,40 +2650,66 @@ const UTFALLSTEXT = {
  */
 api['aterkoppling-spara'] = async (env, request, body, anv) => {
   const bokningId = txt(body.bokning_id, 40);
-  const utfall = UTFALL.includes(body.utfall) ? body.utfall : null;
-  if (!bokningId || !utfall) throw new Fel('Bokning och utfall krävs');
+  if (!bokningId) throw new Fel('Bokning krävs');
+
+  // "Genomfördes bokningen?" Ja eller nej avgör resten. Äldre appar skickar
+  // bara ett utfall; det fungerar som förut.
+  let utfall, orsak = null, genomford = null, status = null;
+  if (body.genomford !== undefined) {
+    genomford = body.genomford ? 1 : 0;
+    if (genomford) {
+      utfall = body.blev_jobb ? 'salt' : body.intresserad ? 'uppfoljning' : 'ej_salt';
+      status = 'genomford';
+    } else {
+      orsak = Object.prototype.hasOwnProperty.call(EJ_GENOMFORD, body.orsak) ? body.orsak : null;
+      if (!orsak) throw new Fel('Välj varför mötet inte blev av');
+      utfall = orsak === 'ingen_hemma' ? 'uteblev' : 'ej_genomford';
+      status = 'ej_genomford';
+    }
+  } else {
+    utfall = UTFALL.includes(body.utfall) ? body.utfall : null;
+    if (!utfall) throw new Fel('Bokning och utfall krävs');
+    status = utfall === 'uteblev' ? 'ej_genomford' : 'genomford';
+  }
 
   const bokning = await en(env,
     `SELECT b.*, ad.gata, ad.nummer FROM bokningar b
      LEFT JOIN adresser ad ON ad.id = b.adress_id WHERE b.id = ?1`, bokningId);
   if (!bokning) throw new Fel('Bokningen finns inte', 404);
 
-  // Den som körde mötet återkopplar. Admin Besiktare och Mötesbokare+ får
+  // Den som körde mötet lämnar omdöme. Admin Besiktare och Mötesbokare+ får
   // göra det på alla möten — och rätta det som skrivits.
   const min = far(anv, 'aterkoppla') && (bokning.saljare_id === anv.id ||
     (arBesiktare(anv) && !bokning.saljare_id && (await saljarlista(env)).length === 1));
   if (!min) kraverFormaga(anv, 'aterkoppla_alla');
 
+  const ja = (v) => (v === undefined || v === null || v === '' ? null : v ? 1 : 0);
   const id = uid();
   const nu = Date.now();
+  // Varje omdöme är en ny rad. Det senaste gäller; de tidigare står kvar
+  // så att det syns vad som ändrats.
   await kor(env,
-    `INSERT INTO aterkoppling (id,bokning_id,anvandare_id,utfall,belopp,text,skapad)
-     VALUES (?1,?2,?3,?4,?5,?6,?7)`,
+    `INSERT INTO aterkoppling (id,bokning_id,anvandare_id,utfall,belopp,text,skapad,
+       genomford,orsak,intresserad,blev_jobb,vad_hande)
+     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)`,
     id, bokningId, anv.id, utfall,
     body.belopp === undefined || body.belopp === '' ? null : Math.round(nr(body.belopp, 0)),
-    txt(body.text, 2000), nu);
+    txt(body.text, 2000), nu, genomford, orsak,
+    genomford === 1 ? ja(body.intresserad) : null, genomford === 1 ? ja(body.blev_jobb) : null,
+    genomford === 1 ? txt(body.vad_hande, 2000) : null);
 
-  // Mötet är kört, alltså är det genomfört.
-  if (bokning.status === 'bokad') {
-    await kor(env, "UPDATE bokningar SET status = 'genomford' WHERE id = ?1", bokningId);
+  // Ett avbokat möte förblir avbokat; annars säger omdömet hur det gick.
+  if (bokning.status !== 'avbokad') {
+    await kor(env, 'UPDATE bokningar SET status = ?1 WHERE id = ?2', status, bokningId);
   }
 
+  const rad = { utfall, orsak };
   await nyhet(env, 'aterkoppling',
-    anv.namn + ' återkopplade på ' + kortAdress(bokning) + ': ' + UTFALLSTEXT[utfall],
+    anv.namn + ' lämnade omdöme på ' + kortAdress(bokning) + ': ' + utfallText(rad),
     { bokning_id: bokningId, saljare_id: bokning.saljare_id || anv.id, anvandare_id: anv.id });
 
-  return { aterkoppling: { id, bokning_id: bokningId, utfall, text: txt(body.text, 2000),
-    forfattare: anv.namn, skapad: nu } };
+  return { aterkoppling: { id, bokning_id: bokningId, utfall, orsak, utfall_text: utfallText(rad),
+    text: txt(body.text, 2000), forfattare: anv.namn, skapad: nu } };
 };
 
 /**
@@ -2678,7 +2746,7 @@ api['aterkoppling'] = async (env, request, body, anv) => {
       ...a,
       adress: a.gata ? a.gata + ' ' + a.nummer : '',
       kund: [a.fornamn, a.efternamn].filter(Boolean).join(' '),
-      utfall_text: UTFALLSTEXT[a.utfall] || a.utfall,
+      utfall_text: utfallText(a),
     })),
   };
 };

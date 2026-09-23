@@ -38,6 +38,7 @@ export async function rita() {
 
 function urval() {
   const nu = idag();
+  if (filter === 'omdome') return bokningar.filter((b) => b.lamna_omdome);
   if (filter === 'kommande') return bokningar.filter((b) => (b.datum || '9999') >= nu && b.status === 'bokad');
   if (filter === 'genomforda') return bokningar.filter((b) => b.status === 'genomford');
   return bokningar;
@@ -51,8 +52,12 @@ function ritaLista() {
     $('vySub').textContent = bokningar.length + ' bokade adresser';
   }
 
+  // Möten som väntar på omdöme får en egen flik först — det är det som ska göras.
+  const vantar = bokningar.filter((b) => b.lamna_omdome).length;
+  if (filter === 'omdome' && !vantar) filter = 'kommande';
   ruta.innerHTML = '<div class="flikar" id="bokadeFlikar">' +
-    [['kommande', 'Kommande'], ['genomforda', 'Genomförda'], ['alla', 'Alla']]
+    (vantar ? [['omdome', 'Lämna omdöme (' + vantar + ')']] : [])
+      .concat([['kommande', 'Kommande'], ['genomforda', 'Genomförda'], ['alla', 'Alla']])
       .map(([k, t]) => '<button class="flik' + (filter === k ? ' aktiv' : '') +
         '" data-filter="' + k + '">' + t + '</button>').join('') +
     '</div>' +
@@ -69,10 +74,7 @@ function ritaLista() {
   ruta.querySelectorAll('[data-komm]').forEach((k) => { k.onclick = () => skrivKommentar(k.dataset.komm); });
   ruta.querySelectorAll('[data-bild]').forEach((k) => { k.onclick = () => valjBild(k.dataset.bild); });
   ruta.querySelectorAll('[data-visa]').forEach((k) => { k.onclick = () => visaBild(k.dataset.visa); });
-  ruta.querySelectorAll('[data-genomford]').forEach((k) => {
-    k.onclick = () => sattStatus(k.dataset.genomford, 'genomford');
-  });
-  ruta.querySelectorAll('[data-ater]').forEach((k) => { k.onclick = () => skrivAterkoppling(k.dataset.ater); });
+  ruta.querySelectorAll('[data-ater]').forEach((k) => { k.onclick = () => lamnaOmdome(k.dataset.ater); });
   ruta.querySelectorAll('[data-redigera]').forEach((k) => {
     const b = bokningar.find((x) => x.id === k.dataset.redigera);
     k.onclick = () => redigeraBokning(b, { klar: () => { stangPanel('modal'); rita(); } });
@@ -92,16 +94,34 @@ function kort(b) {
       ? '<span class="bokad-antal">' + esc(b.aterkoppling[b.aterkoppling.length - 1].utfall_text) + '</span>' : '') +
     (b.kommentarer.length ? '<span class="bokad-antal">' + b.kommentarer.length + ' 💬</span>' : '') +
     (b.bilagor.length ? '<span class="bokad-antal">' + b.bilagor.length + ' 📷</span>' : '') +
-    '<span class="märke m-' + (b.status === 'genomford' ? 'bokat' : 'aterkom') + '">' +
-    (b.status === 'genomford' ? 'GENOMFÖRD' : 'BOKAD') + '</span></span>' +
+    '<span class="märke m-' + (b.lamna_omdome ? 'aterkom' : b.status === 'genomford' ? 'bokat'
+      : b.status === 'ej_genomford' ? 'nej' : 'ejsvar') + '">' +
+    (b.lamna_omdome ? 'LÄMNA OMDÖME' : b.status === 'genomford' ? 'GENOMFÖRD'
+      : b.status === 'ej_genomford' ? 'EJ GENOMFÖRD' : 'BOKAD') + '</span></span>' +
     '</button>' +
     (utfalld ? detaljer(b) : '') +
     '</div>';
 }
 
+/** Ett omdöme som det lämnades: svaret på "genomfördes den?" och resten. */
+function omdomeHtml(a) {
+  const jaNej = (v) => (v === 1 ? 'Ja' : v === 0 ? 'Nej' : null);
+  return '<div class="komm utfall"><div class="komm-topp"><b>' + esc(a.utfall_text) + '</b>' +
+    ' · ' + esc(a.forfattare || 'Okänd') + ' · ' + esc(visaTidpunkt(a.skapad)) + '</div>' +
+    (a.vad_hande ? '<div><b>Vad hände:</b> ' + esc(a.vad_hande) + '</div>' : '') +
+    (jaNej(a.intresserad) ? '<div><b>Intresserad:</b> ' + jaNej(a.intresserad) + '</div>' : '') +
+    (jaNej(a.blev_jobb) ? '<div><b>Blev det jobb:</b> ' + jaNej(a.blev_jobb) +
+      (a.belopp ? ' · ' + esc(Number(a.belopp).toLocaleString('sv-SE')) + ' kr' : '') + '</div>' : '') +
+    (a.text ? '<div>' + esc(a.text) + '</div>' : '') + '</div>';
+}
+
 function detaljer(b) {
   const telefon = (b.telefon || '').replace(/[^\d+]/g, '');
+  const omdomen = b.aterkoppling || [];
+  const senaste = omdomen[omdomen.length - 1];
   return '<div class="bokad-detalj">' +
+    (b.lamna_omdome
+      ? '<button class="btn btn-primary omdome-knapp" data-ater="' + esc(b.id) + '">Lämna omdöme</button>' : '') +
     '<div class="bokad-fakta">' +
     rad('Kund', b.kund) +
     rad('Telefon', b.telefon) +
@@ -115,20 +135,16 @@ function detaljer(b) {
     '<div class="btn-rad">' +
     (telefon ? '<a class="btn btn-primary" href="tel:' + esc(telefon) + '">Ring kund</a>' : '') +
     (b.far_andra ? '<button class="btn btn-ghost" data-redigera="' + esc(b.id) + '">Redigera bokning</button>' : '') +
-    (b.status !== 'genomford'
-      ? '<button class="btn btn-ghost" data-genomford="' + esc(b.id) + '">Markera genomförd</button>' : '') +
     '</div>' +
 
-    '<h3>Utfall</h3>' +
-    ((b.aterkoppling && b.aterkoppling.length)
-      ? '<div class="komm-lista">' + b.aterkoppling.map((a) =>
-        '<div class="komm utfall"><div class="komm-topp"><b>' + esc(a.utfall_text) + '</b>' +
-        (a.belopp ? ' · ' + esc(String(a.belopp)) + ' kr' : '') +
-        ' · ' + esc(a.forfattare || 'Okänd') + ' · ' + esc(visaTidpunkt(a.skapad)) + '</div>' +
-        esc(a.text || '') + '</div>').join('') + '</div>'
-      : '<p class="sub">Ingen återkoppling än.</p>') +
-    (kan('aterkoppla')
-      ? '<button class="btn btn-ghost" data-ater="' + esc(b.id) + '">Återkoppla på mötet</button>' : '') +
+    '<h3>Omdöme</h3>' +
+    (senaste ? omdomeHtml(senaste) : '<p class="sub">' +
+      (b.lamna_omdome ? 'Mötet har börjat — lämna omdöme när du är klar.' : 'Inget omdöme än.') + '</p>') +
+    (omdomen.length > 1
+      ? '<details class="tidigare"><summary>Tidigare omdömen (' + (omdomen.length - 1) + ')</summary>' +
+        omdomen.slice(0, -1).reverse().map(omdomeHtml).join('') + '</details>' : '') +
+    (b.far_omdome && senaste && !b.lamna_omdome
+      ? '<button class="btn btn-ghost" data-ater="' + esc(b.id) + '">Ändra omdöme</button>' : '') +
 
     '<h3>Kommentarer</h3>' +
     (b.kommentarer.length
@@ -188,45 +204,116 @@ function skrivKommentar(id) {
  * Säljaren berättar hur mötet gick. Den som bokade får se det på sin
  * bokning — det är hela poängen med att den hör ihop med bokningen.
  */
-function skrivAterkoppling(id) {
+const ORSAKER = [
+  ['ingen_hemma', 'Ingen hemma'],
+  ['avbokade', 'Kunden avbokade'],
+  ['ombokad', 'Kunden ringde och bokade om'],
+  ['annat', 'Annat'],
+];
+
+/**
+ * Lämna omdöme. Första frågan avgör resten: blev mötet av, och i så fall
+ * hur — eller varför inte. Ett nytt omdöme ersätter inte det gamla; båda
+ * står kvar, och det senaste gäller.
+ */
+function lamnaOmdome(id) {
   const b = bokningar.find((x) => x.id === id);
-  const val = Object.entries(utfallstext).length
-    ? Object.entries(utfallstext)
-    : [['salt', 'Sålt'], ['ej_salt', 'Inte sålt'], ['uppfoljning', 'Uppföljning'], ['uteblev', 'Kunden uteblev']];
+  if (!b) return;
+  const forra = (b.aterkoppling || [])[b.aterkoppling.length - 1] || {};
+  const val = {
+    genomford: forra.genomford === 0 ? false : forra.genomford === 1 ? true : null,
+    orsak: forra.orsak || '',
+    intresserad: forra.intresserad === 1 ? true : forra.intresserad === 0 ? false : null,
+    blev_jobb: forra.blev_jobb === 1 ? true : forra.blev_jobb === 0 ? false : null,
+  };
+  const jaNej = (namn) => '<div class="jn" data-jn="' + namn + '">' +
+    '<button type="button" data-v="1" class="' + (val[namn] === true ? 'vald' : '') + '">Ja</button>' +
+    '<button type="button" data-v="0" class="' + (val[namn] === false ? 'vald' : '') + '">Nej</button></div>';
 
-  oppnaPanel('modal',
-    '<h2>Hur gick mötet?</h2><p class="sub">' + esc((b && b.adress) || '') +
-    (b && b.kund ? ' · ' + esc(b.kund) : '') + '</p>' +
-    '<div class="field" style="margin-top:14px"><label for="aUtfall">Utfall</label>' +
-    '<select id="aUtfall">' + val.map(([k, t]) =>
-      '<option value="' + esc(k) + '">' + esc(t) + '</option>').join('') + '</select></div>' +
-    '<div class="field"><label for="aBelopp">Ordervärde (kr, valfritt)</label>' +
-    '<input id="aBelopp" type="number" inputmode="numeric" placeholder="t.ex. 180000"></div>' +
-    '<div class="field"><label for="aText">Kommentar</label>' +
-    '<textarea id="aText" rows="4" placeholder="T.ex. tegeltak, vill ha offert på hela taket"></textarea></div>' +
-    '<div class="err" id="aFel"></div>' +
-    '<div class="btn-rad"><button class="btn btn-ghost" id="aAvbryt">Avbryt</button>' +
-    '<button class="btn btn-primary" id="aSpara">Spara</button></div>');
+  const panel = oppnaPanel('modal',
+    '<h2>Lämna omdöme</h2><p class="sub">' + esc(b.adress || '') + (b.kund ? ' · ' + esc(b.kund) : '') +
+    (b.datum ? ' · ' + esc(visaDatum(b.datum)) + (b.tid ? ' kl. ' + esc(b.tid) : '') : '') + '</p>' +
+    '<h3>Genomfördes bokningen?</h3>' + jaNej('genomford') +
+    '<div id="oJa" hidden>' +
+    '<div class="field"><label for="oVad">Vad hände?</label>' +
+    '<textarea id="oVad" rows="3" placeholder="T.ex. gick upp på taket, visade skadorna">' + esc(forra.vad_hande || '') + '</textarea></div>' +
+    '<h3>Var kunden intresserad?</h3>' + jaNej('intresserad') +
+    '<h3>Blev det jobb?</h3>' + jaNej('blev_jobb') +
+    '<div class="field" id="oBeloppRad" hidden><label for="oBelopp">Ordervärde (kr, valfritt)</label>' +
+    '<input id="oBelopp" type="number" inputmode="numeric" placeholder="t.ex. 180000" value="' + esc(forra.belopp || '') + '"></div>' +
+    '</div>' +
+    '<div id="oNej" hidden><h3>Varför inte?</h3><div class="chips" id="oOrsaker">' +
+    ORSAKER.map(([k, t]) => '<button type="button" class="chip' + (val.orsak === k ? ' vald' : '') +
+      '" data-orsak="' + k + '">' + esc(t) + '</button>').join('') + '</div>' +
+    (b.far_andra ? '<button type="button" class="btn btn-ghost" id="oFlytta" hidden style="margin-top:10px">Flytta bokningen till en ny tid</button>' : '') +
+    '</div>' +
+    '<div class="field" style="margin-top:14px"><label for="oText">Anteckningar</label>' +
+    '<textarea id="oText" rows="3" placeholder="Allt som är bra att veta">' + esc(forra.text || '') + '</textarea></div>' +
+    '<p class="sub">Kommentarer och bilder lägger du till på bokningen — de syns för Admin Besiktare och Mötesbokare+.</p>' +
+    '<div class="err" id="oFel"></div>' +
+    '<div class="btn-rad"><button class="btn btn-ghost" id="oAvbryt">Avbryt</button>' +
+    '<button class="btn btn-primary" id="oSpara">Spara omdöme</button></div>');
 
-  $('aAvbryt').onclick = () => stangPanel('modal');
-  $('aSpara').onclick = async () => {
-    $('aSpara').textContent = 'Sparar…';
+  const visa = () => {
+    $('oJa').hidden = val.genomford !== true;
+    $('oNej').hidden = val.genomford !== false;
+    $('oBeloppRad').hidden = val.blev_jobb !== true;
+    if ($('oFlytta')) $('oFlytta').hidden = val.orsak !== 'ombokad';
+  };
+  panel.querySelectorAll('[data-jn]').forEach((grupp) => {
+    grupp.querySelectorAll('button').forEach((k) => {
+      k.onclick = () => {
+        val[grupp.dataset.jn] = k.dataset.v === '1';
+        grupp.querySelectorAll('button').forEach((x) => x.classList.toggle('vald', x === k));
+        visa();
+      };
+    });
+  });
+  $('oOrsaker').querySelectorAll('[data-orsak]').forEach((k) => {
+    k.onclick = () => {
+      val.orsak = k.dataset.orsak;
+      $('oOrsaker').querySelectorAll('.chip').forEach((x) => x.classList.toggle('vald', x === k));
+      visa();
+    };
+  });
+  visa();
+
+  $('oAvbryt').onclick = () => stangPanel('modal');
+  $('oSpara').onclick = async () => {
+    if (val.genomford === null) { $('oFel').textContent = 'Svara om bokningen genomfördes.'; return; }
+    if (val.genomford === false && !val.orsak) { $('oFel').textContent = 'Välj varför den inte blev av.'; return; }
+    const knapp = $('oSpara');
+    if (knapp.disabled) return;
+    knapp.disabled = true;
+    knapp.textContent = 'Sparar…';
     try {
       await anrop('aterkoppling-spara', {
         bokning_id: id,
-        utfall: $('aUtfall').value,
-        belopp: $('aBelopp').value || undefined,
-        text: $('aText').value.trim(),
+        genomford: val.genomford,
+        orsak: val.genomford ? undefined : val.orsak,
+        vad_hande: val.genomford ? $('oVad').value.trim() : undefined,
+        intresserad: val.genomford && val.intresserad !== null ? val.intresserad : undefined,
+        blev_jobb: val.genomford && val.blev_jobb !== null ? val.blev_jobb : undefined,
+        belopp: val.genomford && val.blev_jobb && $('oBelopp').value ? $('oBelopp').value : undefined,
+        text: $('oText').value.trim(),
       });
-      stangPanel('modal');
-      toast('Återkopplingen är sparad ✓');
-      await rita();
+      toast('Omdömet är sparat ✓');
       dataAndrad();
+      await rita();
+      // Kunden bokade om: direkt vidare till en ny tid på samma bokning.
+      const flytta = val.genomford === false && val.orsak === 'ombokad' && b.far_andra;
+      if (flytta) {
+        redigeraBokning(bokningar.find((x) => x.id === id) || b, { klar: () => { stangPanel('modal'); rita(); } });
+      } else {
+        stangPanel('modal');
+      }
     } catch (e) {
-      $('aSpara').textContent = 'Spara';
-      $('aFel').textContent = e.message;
+      knapp.disabled = false;
+      knapp.textContent = 'Spara omdöme';
+      $('oFel').textContent = e.message;
     }
   };
+  if ($('oFlytta')) $('oFlytta').onclick = () => $('oSpara').click();
 }
 
 /* ── Bilder ── */
@@ -301,13 +388,4 @@ async function visaBild(id) {
   } catch (e) {
     oppnaPanel('modal', '<h2>Bild</h2><p class="sub">' + esc(e.message) + '</p>');
   }
-}
-
-async function sattStatus(id, status) {
-  try {
-    await anrop('bokning-status', { id, status });
-    toast('Bokningen är markerad som genomförd ✓');
-    await rita();
-    dataAndrad();
-  } catch (e) { toast(e.message); }
 }

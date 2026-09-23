@@ -885,3 +885,14 @@ a.btn { display: grid; place-items: center; text-decoration: none; }
 .dagrad-bokade { background: #0d0d0d; color: #fff; }
 .dagrad-lediga { background: rgba(26,127,55,0.12); color: #1a7f37; }
 .dagrad-pil { flex: 0 0 auto; color: var(--muted); font-size: 18px; }
+
+/* Omdöme efter mötet: Ja/Nej som två stora knappar, lätta att träffa. */
+.jn { display: flex; gap: 8px; margin: 6px 0 4px; }
+.jn button {
+  flex: 1; padding: 13px 8px; border-radius: 10px; font-weight: 600; font-size: 15px;
+  background: var(--bg-input); border: 1px solid var(--linje); color: var(--muted);
+}
+.jn button.vald { background: var(--accent); border-color: var(--accent); color: #fff; }
+.omdome-knapp { width: 100%; margin-bottom: 12px; }
+details.tidigare { margin: 8px 0; font-size: 13.5px; }
+details.tidigare summary { cursor: pointer; color: var(--muted); padding: 6px 0; }

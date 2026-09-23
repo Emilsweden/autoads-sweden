@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS bokningar (
   saljare_id   TEXT,                           -- besiktaren mötet är bokat på
   stege        INTEGER NOT NULL DEFAULT 0,     -- ta med stege
   kommentar    TEXT,
-  status       TEXT NOT NULL DEFAULT 'bokad',  -- bokad | genomford | avbokad
+  status       TEXT NOT NULL DEFAULT 'bokad',  -- bokad | genomford | ej_genomford | avbokad
   lagenhet     TEXT,                           -- lägenhetsnummer, när det finns
   andrad       INTEGER,                        -- senaste ändringen, ms
   andrad_av    TEXT,
@@ -162,10 +162,15 @@ CREATE TABLE IF NOT EXISTS aterkoppling (
   id           TEXT PRIMARY KEY,
   bokning_id   TEXT NOT NULL,
   anvandare_id TEXT NOT NULL,
-  utfall       TEXT NOT NULL,        -- salt | ej_salt | uppfoljning | uteblev
+  utfall       TEXT NOT NULL,        -- salt | ej_salt | uppfoljning | uteblev | ej_genomford
   belopp       INTEGER,
-  text         TEXT,
-  skapad       INTEGER NOT NULL
+  text         TEXT,                 -- anteckningar
+  skapad       INTEGER NOT NULL,
+  genomford    INTEGER,              -- "Genomfördes bokningen?" 1 ja, 0 nej
+  orsak        TEXT,                 -- vid nej: ingen_hemma | avbokade | ombokad | annat
+  intresserad  INTEGER,              -- vid ja: var kunden intresserad
+  blev_jobb    INTEGER,              -- vid ja: blev det jobb
+  vad_hande    TEXT                  -- vid ja: vad som hände
 );
 CREATE INDEX IF NOT EXISTS idx_ater_bok ON aterkoppling(bokning_id, skapad);
 CREATE INDEX IF NOT EXISTS idx_ater_tid ON aterkoppling(skapad);

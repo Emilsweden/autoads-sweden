@@ -164,7 +164,9 @@ describe('uppsättningen och testservern', () => {
     const schema = readFileSync(new URL('../worker-falt/schema.sql', import.meta.url), 'utf8');
     for (const [tabell, kolumn] of [['anvandare', 'arbetstid_fran'], ['anvandare', 'arbetstid_till'],
       ['saljartider', 'orsak'], ['bokningar', 'lagenhet'], ['bokningar', 'andrad'], ['bokningar', 'andrad_av'],
-      ['adresser', 'kommun'], ['handelser', 'klient_id']]) {
+      ['adresser', 'kommun'], ['handelser', 'klient_id'], ['aterkoppling', 'genomford'],
+      ['aterkoppling', 'orsak'], ['aterkoppling', 'intresserad'], ['aterkoppling', 'blev_jobb'],
+      ['aterkoppling', 'vad_hande']]) {
       assert.match(schema, new RegExp('\\b' + kolumn + '\\s+(TEXT|INTEGER|REAL)'), kolumn + ' saknas i schema.sql');
       assert.ok(workflow.includes('"' + tabell + '|' + kolumn + ' '), kolumn + ' läggs inte på gamla tabeller');
     }

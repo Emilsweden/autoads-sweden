@@ -128,7 +128,12 @@ jobs:
             "bokningar|andrad INTEGER" \
             "bokningar|andrad_av TEXT" \
             "adresser|kommun TEXT" \
-            "handelser|klient_id TEXT"
+            "handelser|klient_id TEXT" \
+            "aterkoppling|genomford INTEGER" \
+            "aterkoppling|orsak TEXT" \
+            "aterkoppling|intresserad INTEGER" \
+            "aterkoppling|blev_jobb INTEGER" \
+            "aterkoppling|vad_hande TEXT"
           do
             tabell="${kolumn%%|*}"
             rest="${kolumn#*|}"
