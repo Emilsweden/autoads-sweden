@@ -323,11 +323,15 @@ const MAX_DAGAR = 190;
  * hur många dagar och besiktare det gäller. `utom` räknar bort en bokning —
  * den som flyttas ska inte stå i vägen för sig själv.
  */
-async function bokbara(env, { fran, till, tid, saljareId, utom } = {}) {
+async function bokbara(env, { fran, till, tid, saljareId, utom, platsIdn } = {}) {
   if (!fran || !till || till < fran) return [];
   if (dagarMellanAntal(fran, till) > MAX_DAGAR) throw new Fel('Välj ett kortare intervall');
   let besiktare = await saljarlista(env);
   if (saljareId) besiktare = besiktare.filter((b) => b.id === saljareId);
+  if (platsIdn) {
+    const orter = await orterPerBesiktare(env);
+    besiktare = besiktare.filter((b) => jobbarDar(orter.get(b.id), platsIdn));
+  }
   if (!besiktare.length) return [];
 
   const tider = await alla(env,
@@ -340,6 +344,74 @@ async function bokbara(env, { fran, till, tid, saljareId, utom } = {}) {
        AND saljare_id IS NOT NULL AND id <> ?3`,
     fran, till, utom || '');
   return raknaBokbara({ besiktare, tider, bokningar, nu: stockholmNu() });
+}
+
+/* ══ Orter ══ */
+
+/** besiktare_id → Set av plats-id:n han jobbar i. */
+async function orterPerBesiktare(env) {
+  const ut = new Map();
+  for (const r of await alla(env, 'SELECT besiktare_id, plats_id FROM besiktare_platser')) {
+    if (!ut.has(r.besiktare_id)) ut.set(r.besiktare_id, new Set());
+    ut.get(r.besiktare_id).add(r.plats_id);
+  }
+  return ut;
+}
+
+/** Utan orter jobbar besiktaren överallt; annars där någon av hans orter finns. */
+const jobbarDar = (hans, platsIdn) => !platsIdn || !hans || !hans.size || platsIdn.some((p) => hans.has(p));
+
+const jamfor = (s) => String(s || '').toLowerCase().replace(/\s+kommun$/, '').trim();
+
+/** Avstånd i kilometer mellan två punkter på jorden. */
+function avstandKm(lat1, lon1, lat2, lon2) {
+  const r = Math.PI / 180;
+  const a = Math.sin((lat2 - lat1) * r / 2) ** 2 +
+    Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin((lon2 - lon1) * r / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(a));
+}
+
+/**
+ * Orterna en adress hör till: först efter kommun och postort, och bara när
+ * de saknas efter läget — en adress i Sala ligger i Sala även om den råkar
+ * vara närmare Västerås centrum. null betyder att orten inte gick att
+ * avgöra, och då visas alla besiktare.
+ */
+async function platserForAdress(env, adress) {
+  if (!adress) return null;
+  const platser = await alla(env, 'SELECT * FROM platser');
+  const namn = [adress.kommun, adress.postort].map(jamfor).filter(Boolean);
+  const efterNamn = platser.filter((p) => namn.includes(jamfor(p.namn)) || namn.includes(jamfor(p.kommun)));
+  if (efterNamn.length) return efterNamn.map((p) => p.id);
+  const lat = nr(adress.lat, null), lon = nr(adress.lon, null);
+  if (lat === null || lon === null) return null;
+  const nara = platser
+    .filter((p) => p.lat !== null && p.lon !== null)
+    .map((p) => ({ id: p.id, km: avstandKm(lat, lon, p.lat, p.lon), radie: nr(p.radie_km, 25) }))
+    .filter((p) => p.km <= p.radie)
+    .sort((a, b) => a.km - b.km);
+  return nara.length ? [nara[0].id] : null;
+}
+
+/**
+ * Adressen ett anrop gäller: en befintlig dörr (adress_id) eller det som
+ * är känt om en ny — ort, kommun, läge. Används för att bara visa de
+ * besiktare som jobbar där.
+ */
+async function platserUrAnrop(env, body) {
+  const id = txt(body.adress_id, 40);
+  if (id) return platserForAdress(env, await en(env, 'SELECT postort, kommun, lat, lon FROM adresser WHERE id = ?1', id));
+  if (body.postort || body.kommun || (body.lat !== undefined && body.lon !== undefined)) {
+    return platserForAdress(env, { postort: txt(body.postort, 80), kommun: txt(body.kommun, 80), lat: body.lat, lon: body.lon });
+  }
+  return null;
+}
+
+/** Namnen på orterna, för ett begripligt fel. */
+async function ortnamn(env, platsIdn) {
+  if (!platsIdn || !platsIdn.length) return '';
+  const p = platsIdn.map((_, i) => '?' + (i + 1)).join(',');
+  return (await alla(env, `SELECT namn FROM platser WHERE id IN (${p})`, ...platsIdn)).map((r) => r.namn).join(', ');
 }
 
 /** Antal dagar från och med `fran` till och med `till`. */
@@ -428,8 +500,13 @@ async function varforInteBokbar(env, saljareId, dat, tid, utom) {
  * servern ska gissa åt honom. Det här är kontrollen som ger ett begripligt
  * fel; den slutliga ligger i bokbarVakt() på själva skrivningen.
  */
-async function valjSaljare(env, onskad, dat, tid, utom) {
+async function valjSaljare(env, onskad, dat, tid, utom, platsIdn) {
   const id = txt(onskad, 40);
+  if (id && platsIdn && !jobbarDar((await orterPerBesiktare(env)).get(id), platsIdn)) {
+    const b = await en(env, `SELECT namn FROM anvandare WHERE id = ?1 AND roll = 'besiktare'`, id);
+    if (!b) throw new Fel('Okänd besiktare');
+    throw new Fel(b.namn + ' jobbar inte i ' + (await ortnamn(env, platsIdn)) + ' — välj en besiktare som gör det', 409);
+  }
   if (!dat || !tid) {
     if (id && !(await en(env, `SELECT id FROM anvandare WHERE id = ?1 AND roll = 'besiktare' AND aktiv = 1`, id))) {
       throw new Fel('Okänd besiktare');
@@ -437,7 +514,7 @@ async function valjSaljare(env, onskad, dat, tid, utom) {
     return id || null;
   }
 
-  const lediga = await bokbara(env, { fran: dat, till: dat, tid, utom });
+  const lediga = await bokbara(env, { fran: dat, till: dat, tid, utom, platsIdn });
   if (id) {
     if (lediga.some((l) => l.saljare_id === id)) return id;
     throw await varforInteBokbar(env, id, dat, tid, utom);
@@ -672,6 +749,19 @@ function gammalNyckel(gata, nummer, postort) {
 }
 
 /**
+ * Husnumret som det skrivs på huset: "12 a" och "12a" blir "12A". Bokstaven
+ * gör det till ett eget hus — 12, 12A och 12B är tre adresser.
+ */
+function husnummer(v) {
+  return String(v || '').replace(/\s+/g, '').toUpperCase().slice(0, 20);
+}
+
+/** "Sala kommun" → "Sala". Kommunen är det adresstjänsterna ger. */
+function rensaKommun(v) {
+  return snyggText(txt(v, 80)).replace(/\s+kommun$/i, '').trim() || null;
+}
+
+/**
  * Städar upp hur adressen skrivs utan att hitta på ett nytt namn:
  * extra mellanslag bort, och VERSALER blir normal skrift.
  */
@@ -880,12 +970,15 @@ api['byt-losenord'] = async (env, request, body, anv) => {
 
 api['anvandare-lista'] = async (env, request, body, anv) => {
   kraverFormaga(anv, 'se_personal');
+  const orter = await orterPerBesiktare(env);
   return {
     roller: ROLLNAMN,
-    anvandare: await alla(env,
+    platser: await alla(env, 'SELECT id, namn FROM platser ORDER BY namn'),
+    anvandare: (await alla(env,
       `SELECT id, namn, epost, roll, team, aktiv, skapad, max_per_dag, snabbtider,
               arbetstid_fran, arbetstid_till
-       FROM anvandare ORDER BY roll DESC, namn`),
+       FROM anvandare ORDER BY roll DESC, namn`))
+      .map((a) => ({ ...a, platser: [...(orter.get(a.id) || [])] })),
   };
 };
 
@@ -947,6 +1040,7 @@ api['anvandare-spara'] = async (env, request, body, anv) => {
         await hasha(String(body.losenord), salt), salt, body.id);
       await kor(env, 'DELETE FROM sessioner WHERE anvandare_id = ?1', body.id);
     }
+    if (roll === 'besiktare') await sattOrter(env, body.id, body.platser);
     await nyhet(env, 'konto', anv.namn + ' ändrade kontot ' + namn +
       ' (' + (ROLLNAMN[roll] || roll) + ')', { anvandare_id: anv.id });
     return { id: body.id };
@@ -964,6 +1058,7 @@ api['anvandare-spara'] = async (env, request, body, anv) => {
      VALUES (?1,?2,?3,?4,?5,?6,?7,1,?8,?9,?10,?11)`,
     id, namn, epost, roll, txt(body.team, 60), await hasha(losenord, salt), salt, Date.now(),
     maxPerDag || MAX_PER_DAG, ram ? ram.fran : null, ram ? ram.till : null);
+  if (roll === 'besiktare') await sattOrter(env, id, body.platser);
   await nyhet(env, 'konto', anv.namn + ' lade upp ' + namn +
     ' som ' + (ROLLNAMN[roll] || roll), { anvandare_id: anv.id });
   return { id };
@@ -983,6 +1078,59 @@ function arbetstidUr(body) {
   }
   if (fran >= till) throw new Fel('Arbetstiden måste börja innan den slutar');
   return { fran, till };
+}
+
+/* ── Orter besiktarna jobbar i ── */
+
+/** Orterna, och vilka besiktare som jobbar i varje. */
+api['platser'] = async (env, request, body, anv) => {
+  if (!far(anv, 'se_tider') && !far(anv, 'eget_schema') && !far(anv, 'se_personal')) {
+    throw new Fel('Du har inte behörighet till detta', 403);
+  }
+  const orter = await orterPerBesiktare(env);
+  return {
+    platser: await alla(env, 'SELECT id, namn, kommun, lat, lon, radie_km FROM platser ORDER BY namn'),
+    besiktare: Object.fromEntries([...orter].map(([id, set]) => [id, [...set]])),
+  };
+};
+
+/**
+ * Lägger till eller ändrar en ort. Läget används när en adress saknar
+ * kommun och postort; radien är hur långt från centrum orten räknas.
+ */
+api['plats-spara'] = async (env, request, body, anv) => {
+  kraverFormaga(anv, 'styr_tider');
+  const namn = snyggText(txt(body.namn, 60));
+  if (!namn) throw new Fel('Ortens namn krävs');
+  const lat = body.lat === undefined ? null : nr(body.lat, null);
+  const lon = body.lon === undefined ? null : nr(body.lon, null);
+  if ((lat !== null && (lat < 55 || lat > 70)) || (lon !== null && (lon < 10 || lon > 25))) {
+    throw new Fel('Läget ligger inte i Sverige');
+  }
+  const radie = Math.max(1, Math.min(100, nr(body.radie_km, 25) || 25));
+  const id = txt(body.id, 40) || uid();
+  try {
+    await kor(env,
+      `INSERT INTO platser (id, namn, kommun, lat, lon, radie_km, skapad) VALUES (?1,?2,?3,?4,?5,?6,?7)
+       ON CONFLICT(id) DO UPDATE SET namn = ?2, kommun = ?3, lat = ?4, lon = ?5, radie_km = ?6`,
+      id, namn, rensaKommun(body.kommun) || namn, lat, lon, radie, Date.now());
+  } catch (e) {
+    if (arKrock(e)) throw new Fel('Orten ' + namn + ' finns redan', 409);
+    throw e;
+  }
+  return { plats: await en(env, 'SELECT * FROM platser WHERE id = ?1', id) };
+};
+
+/** Sätter vilka orter en besiktare jobbar i. Okända id:n hoppas över. */
+async function sattOrter(env, besiktareId, lista) {
+  if (!Array.isArray(lista)) return;
+  const finns = new Set((await alla(env, 'SELECT id FROM platser')).map((r) => r.id));
+  const valda = [...new Set(lista.map((x) => txt(x, 40)).filter((x) => finns.has(x)))];
+  await iSamma(env, [
+    sats(env, 'DELETE FROM besiktare_platser WHERE besiktare_id = ?1', besiktareId),
+    ...valda.map((p) => sats(env,
+      'INSERT OR IGNORE INTO besiktare_platser (besiktare_id, plats_id) VALUES (?1, ?2)', besiktareId, p)),
+  ]);
 }
 
 /* ── Områden ── */
@@ -1206,7 +1354,8 @@ api['handelse'] = async (env, request, body, anv) => {
   let bokSaljare = null;
   if (resultat === 'bokat') {
     if (bokTid && bokDatum) kontrolleraSlot(bokDatum, bokTid);
-    bokSaljare = await valjSaljare(env, body.saljare_id, bokDatum, bokTid);
+    // Bara en besiktare som jobbar där huset ligger.
+    bokSaljare = await valjSaljare(env, body.saljare_id, bokDatum, bokTid, null, await platserForAdress(env, adress));
   }
 
   const aterkomDatum = datum(body.aterkom_datum);
@@ -1327,9 +1476,10 @@ api['adress-ny'] = async (env, request, body, anv) => {
  */
 async function hittaEllerSkapaAdress(env, anv, body, { omradeId: betrott } = {}) {
   const gata = snyggText(txt(body.gata, 120));
-  const nummer = txt(body.nummer, 20).replace(/\s+/g, ' ').trim();
+  const nummer = husnummer(body.nummer);
   if (!gata || !nummer) throw new Fel('Gata och husnummer krävs');
   const postort = snyggText(txt(body.postort, 80));
+  const kommun = rensaKommun(body.kommun);
   const postnr = postnummer(body.postnummer);
   const nyckel = adressnyckel(gata, nummer, postort);
 
@@ -1351,6 +1501,10 @@ async function hittaEllerSkapaAdress(env, anv, body, { omradeId: betrott } = {})
     if (!befintlig.postnummer && postnr) {
       satt.push('postnummer=?' + (varden.push(postnr)));
       befintlig.postnummer = postnr;
+    }
+    if (!befintlig.kommun && kommun) {
+      satt.push('kommun=?' + (varden.push(kommun)));
+      befintlig.kommun = kommun;
     }
     if (satt.length) {
       await kor(env, 'UPDATE adresser SET ' + satt.join(', ') + ' WHERE id=?' + (varden.push(befintlig.id)), ...varden);
@@ -1375,11 +1529,11 @@ async function hittaEllerSkapaAdress(env, anv, body, { omradeId: betrott } = {})
   // andra hamnar på nyckeln och läser den första i stället för att krascha.
   const id = uid();
   const res = await kor(env,
-    `INSERT INTO adresser (id,omrade_id,gata,nummer,postnummer,postort,nyckel,lat,lon,status,skapad)
-     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'ejbesokt',?10) ON CONFLICT(nyckel) DO NOTHING`,
+    `INSERT INTO adresser (id,omrade_id,gata,nummer,postnummer,postort,nyckel,lat,lon,status,skapad,kommun)
+     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'ejbesokt',?10,?11) ON CONFLICT(nyckel) DO NOTHING`,
     id, omradeId, gata, nummer, postnr, postort, nyckel,
     body.lat === undefined ? null : nr(body.lat, null),
-    body.lon === undefined ? null : nr(body.lon, null), Date.now());
+    body.lon === undefined ? null : nr(body.lon, null), Date.now(), kommun);
 
   const skapad = await en(env, 'SELECT * FROM adresser WHERE nyckel = ?1', nyckel);
   return { adress: putsaAdress(skapad), fanns: !andradeRader(res) };
@@ -1431,7 +1585,7 @@ api['adress-andra'] = async (env, request, body, anv) => {
   if (!adress) throw new Fel('Adressen finns inte', 404);
 
   const gata = snyggText(txt(body.gata, 120)) || adress.gata;
-  const nummer = txt(body.nummer, 20).replace(/\s+/g, ' ').trim() || adress.nummer;
+  const nummer = husnummer(body.nummer) || adress.nummer;
   const postort = body.postort === undefined ? adress.postort : snyggText(txt(body.postort, 80));
   const postnr = body.postnummer === undefined ? adress.postnummer : postnummer(body.postnummer);
   const nyckel = adressnyckel(gata, nummer, postort);
@@ -1695,7 +1849,8 @@ api['kalender'] = async (env, request, body, anv) => {
   // Tiderna som går att boka — inte allt som lagts in. En tid hos en
   // besiktare som redan är full, eller för nära ett annat möte, finns inte
   // här; den syns i besiktarens schema, inte i bokningskalendern.
-  let fria = far(anv, 'se_tider') || arBesiktare(anv) ? await bokbara(env, { fran, till }) : [];
+  let fria = far(anv, 'se_tider') || arBesiktare(anv)
+    ? await bokbara(env, { fran, till, platsIdn: await platserUrAnrop(env, body) }) : [];
   if (!far(anv, 'se_tider')) fria = fria.filter((f) => f.saljare_id === anv.id);
   const ledigaPerDag = {};
   fria.forEach((f) => { ledigaPerDag[f.datum] = (ledigaPerDag[f.datum] || 0) + 1; });
@@ -1731,7 +1886,9 @@ api['lediga-besiktare'] = async (env, request, body, anv) => {
   const dat = datum(body.datum);
   const tid = klockslag(body.tid);
   if (!dat || !tid) throw new Fel('Datum och tid krävs');
-  const lediga = await bokbara(env, { fran: dat, till: dat, tid, utom: txt(body.utom, 40) });
+  const lediga = await bokbara(env, {
+    fran: dat, till: dat, tid, utom: txt(body.utom, 40), platsIdn: await platserUrAnrop(env, body),
+  });
   return { besiktare: lediga.map((s) => ({ id: s.saljare_id, namn: s.namn })) };
 };
 
@@ -1747,16 +1904,17 @@ api['bokbara-tider'] = async (env, request, body, anv) => {
   // Besiktaren ser bara sina egna tider — han flyttar sina möten inom sin dag.
   const saljareId = far(anv, 'se_tider') ? undefined : (kraverFormaga(anv, 'eget_schema'), anv.id);
   const utom = txt(body.utom, 40);
+  const platsIdn = await platserUrAnrop(env, body);
   const tid = klockslag(body.tid);
   if (tid) {
     const fran = datum(body.fran) || stockholmNu().datum;
     const till = datum(body.till) || plusDagar(fran, 60);
-    const lista = await bokbara(env, { fran, till, tid, utom, saljareId });
+    const lista = await bokbara(env, { fran, till, tid, utom, saljareId, platsIdn });
     return { tid, dagar: grupperaBokbara(lista, 'datum') };
   }
   const dat = datum(body.datum);
   if (!dat) throw new Fel('Datum eller tid krävs');
-  const lista = await bokbara(env, { fran: dat, till: dat, utom, saljareId });
+  const lista = await bokbara(env, { fran: dat, till: dat, utom, saljareId, platsIdn });
   return { datum: dat, tider: grupperaBokbara(lista, 'tid') };
 };
 
@@ -1803,9 +1961,18 @@ api['kalender-boka'] = async (env, request, body, anv) => {
   const telefon = txt(body.telefon, 40);
   if (!fornamn || !telefon) throw new Fel('Kundens namn och telefonnummer krävs');
 
-  // Besiktaren mötet ska ligga på, och att han går att boka då. Görs innan
-  // adressen skapas, så att en nekad tid inte lämnar en tom dörr efter sig.
-  const saljare = await valjSaljare(env, body.saljare_id, dat, tid);
+  // Adressen tolkas först, så att orten är känd när besiktaren väljs.
+  const delad = body.gata ? { gata: txt(body.gata, 120), nummer: txt(body.nummer, 20), postort: '' }
+    : delaAdressrad(txt(body.adress, 200));
+  const postort = txt(body.postort, 80) || delad.postort;
+
+  // Besiktaren mötet ska ligga på, att han jobbar där och går att boka då.
+  // Görs innan adressen skapas, så att en nekad tid inte lämnar en tom dörr
+  // efter sig.
+  const platsIdn = await platserUrAnrop(env, {
+    adress_id: body.adress_id, postort, kommun: body.kommun, lat: body.lat, lon: body.lon,
+  });
+  const saljare = await valjSaljare(env, body.saljare_id, dat, tid, null, platsIdn);
 
   // Mötesbokaren bokningen tillhör: den som bokar, eller den en Mötesbokare+
   // väljer åt någon annan.
@@ -1818,13 +1985,13 @@ api['kalender-boka'] = async (env, request, body, anv) => {
 
   let adressId = txt(body.adress_id, 40);
   if (!adressId) {
-    const delad = body.gata ? { gata: txt(body.gata, 120), nummer: txt(body.nummer, 20) }
-      : delaAdressrad(txt(body.adress, 200));
     if (!delad.gata || !delad.nummer) throw new Fel('Adress med husnummer krävs');
     const svar = await api['adress-ny'](env, request, {
       gata: delad.gata, nummer: delad.nummer,
       postnummer: body.postnummer,
-      postort: txt(body.postort, 80) || delad.postort,
+      postort,
+      kommun: body.kommun,
+      lat: body.lat, lon: body.lon,
       omrade_id: txt(body.omrade_id, 40),
     }, anv);
     adressId = svar.adress.id;
@@ -1887,12 +2054,6 @@ api['bokning-andra'] = async (env, request, body, anv) => {
   if (saljare !== bokning.saljare_id && !farBytaBesiktare(anv)) {
     throw new Fel('Du kan inte flytta mötet till en annan besiktare', 403);
   }
-  const flyttad = dat !== bokning.datum || tid !== bokning.tid || saljare !== bokning.saljare_id;
-  if (flyttad && dat && tid) {
-    kontrolleraSlot(dat, tid);
-    saljare = await valjSaljare(env, saljare, dat, tid, id);
-  }
-
   // Adressen: är den fel pekas bokningen om till rätt dörr. Dörren den stod
   // på står kvar med sin historik.
   let adressId = bokning.adress_id;
@@ -1908,6 +2069,16 @@ api['bokning-andra'] = async (env, request, body, anv) => {
     adressId = ny.adress.id;
   }
 
+  // Flyttas mötet — i tid, till en annan besiktare eller till en annan ort —
+  // prövas samma regler som vid en ny bokning.
+  const flyttad = dat !== bokning.datum || tid !== bokning.tid || saljare !== bokning.saljare_id;
+  const nyOrt = adressId !== bokning.adress_id;
+  if ((flyttad || nyOrt) && dat && tid) {
+    kontrolleraSlot(dat, tid);
+    const platsIdn = await platserForAdress(env, await en(env, 'SELECT * FROM adresser WHERE id = ?1', adressId));
+    saljare = await valjSaljare(env, saljare, dat, tid, id, platsIdn);
+  }
+
   const falt = (namn, max) => (body[namn] === undefined ? bokning[namn] : txt(body[namn], max));
   const varden = [
     falt('fornamn', 80), falt('efternamn', 80), falt('telefon', 40), dat, tid,
@@ -1915,7 +2086,7 @@ api['bokning-andra'] = async (env, request, body, anv) => {
     body.stege === undefined ? nr(bokning.stege) : (body.stege ? 1 : 0),
     falt('lagenhet', 20), adressId, Date.now(), anv.id,
   ];
-  const vakt = flyttad && dat && tid && saljare;
+  const vakt = (flyttad || nyOrt) && dat && tid && saljare;
   let res;
   try {
     res = await kor(env,
@@ -2568,7 +2739,7 @@ api['lediga-dagar'] = async (env, request, body, anv) => {
   kraverFormaga(anv, 'se_tider');
   const fran = datum(body.fran) || stockholmNu().datum;
   const till = datum(body.till) || plusDagar(fran, 120);
-  const lista = await bokbara(env, { fran, till, utom: txt(body.utom, 40) });
+  const lista = await bokbara(env, { fran, till, utom: txt(body.utom, 40), platsIdn: await platserUrAnrop(env, body) });
 
   const perDag = new Map();
   for (const l of lista) {

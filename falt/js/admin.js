@@ -3,7 +3,7 @@
 import { anrop } from './api.js';
 import { $, esc, toast, oppnaPanel, stangPanel, procent } from './ui.js';
 import { S, buss, arRoll, kan, dataAndrad } from './state.js';
-import { husnummerPaGata } from './geo.js';
+import { husnummerPaGata, sokOrt } from './geo.js';
 
 /** Rollernas namn i laget. Nycklarna är serverns; namnen är de vi säger. */
 const ROLLNAMN = {
@@ -69,7 +69,10 @@ async function ladda() {
   ]);
   omradesData = o.omraden || [];
   anvandarData = a.anvandare || [];
+  platsLista = a.platser || [];
 }
+
+let platsLista = [];         // orterna besiktarna kan jobba i
 
 function ritaOmraden() {
   if (!omradesData.length) {
@@ -466,6 +469,13 @@ function anvandarFormular(a) {
     HALVTIMMAR.map((h) => '<option' + (h === ((a && a.arbetstid_till) || '18:00') ? ' selected' : '') +
       '>' + h + '</option>').join('') + '</select></div>' +
     '</div>' +
+    '<div class="field" id="aOrter"><label>Tillgänglig i</label>' +
+    '<div class="chips" id="aOrtChips"></div>' +
+    '<div class="rad2" style="margin-top:8px">' +
+    '<input id="aNyOrt" type="text" placeholder="Ny ort, t.ex. Enköping" autocomplete="off">' +
+    '<button class="knapp-mork" id="aLaggOrt" type="button">Lägg till ort</button></div>' +
+    '<div class="sub" style="margin-top:5px">Bokningar på en adress i orten visar bara besiktarna som ' +
+    'jobbar där. Utan någon ort kan besiktaren bokas överallt.</div></div>' +
     '<p class="karttips">Gäller besiktare. Bara tider inom arbetstiden går att lägga in ' +
     'och boka, och når besiktaren sitt tak försvinner resten av dagens tider ur bokningen.</p>' +
     '<div class="field"><label for="aLosen">' + (a ? 'Nytt lösenord (lämna tomt för oförändrat)' : 'Lösenord') +
@@ -476,8 +486,42 @@ function anvandarFormular(a) {
     '<div class="btn-rad"><button class="btn btn-ghost" id="aAvbryt">Avbryt</button>' +
     '<button class="btn btn-primary" id="aSpara">Spara</button></div>');
 
-  // Arbetstiden hör till besiktare; för andra roller döljs den.
-  const visaArbetstid = () => { $('aArbetstid').hidden = $('aRoll').value !== 'besiktare'; };
+  // Orterna: ett tryck väljer eller väljer bort. Nya orter slås upp på kartan
+  // så att adresser utan ort också hamnar rätt.
+  const valdaOrter = new Set((a && a.platser) || []);
+  const ritaOrter = () => {
+    $('aOrtChips').innerHTML = platsLista.map((p) => '<button type="button" class="chip' +
+      (valdaOrter.has(p.id) ? ' vald' : '') + '" data-ort="' + esc(p.id) + '" aria-pressed="' +
+      valdaOrter.has(p.id) + '">' + esc(p.namn) + '</button>').join('');
+    $('aOrtChips').querySelectorAll('[data-ort]').forEach((k) => {
+      k.onclick = () => {
+        if (valdaOrter.has(k.dataset.ort)) valdaOrter.delete(k.dataset.ort); else valdaOrter.add(k.dataset.ort);
+        ritaOrter();
+      };
+    });
+  };
+  ritaOrter();
+  $('aLaggOrt').onclick = async () => {
+    const namn = $('aNyOrt').value.trim();
+    if (!namn) return;
+    $('aLaggOrt').disabled = true;
+    try {
+      const lage = await sokOrt(namn).catch(() => null);
+      const svar = await anrop('plats-spara', { namn, lat: lage ? lage.lat : undefined, lon: lage ? lage.lon : undefined });
+      platsLista = platsLista.concat(svar.plats).sort((x, y) => x.namn.localeCompare(y.namn, 'sv'));
+      valdaOrter.add(svar.plats.id);
+      $('aNyOrt').value = '';
+      ritaOrter();
+    } catch (e) { $('aFel').textContent = e.message; }
+    $('aLaggOrt').disabled = false;
+  };
+
+  // Arbetstid och orter hör till besiktare; för andra roller döljs de.
+  const visaArbetstid = () => {
+    const bes = $('aRoll').value === 'besiktare';
+    $('aArbetstid').hidden = !bes;
+    $('aOrter').hidden = !bes;
+  };
   $('aRoll').onchange = visaArbetstid;
   visaArbetstid();
 
@@ -495,6 +539,7 @@ function anvandarFormular(a) {
         max_per_dag: $('aMax').value || undefined,
         arbetstid_fran: $('aRoll').value === 'besiktare' ? $('aFran').value : undefined,
         arbetstid_till: $('aRoll').value === 'besiktare' ? $('aTill').value : undefined,
+        platser: $('aRoll').value === 'besiktare' ? [...valdaOrter] : undefined,
         snabbtider: $('aMall').value.split(',').map((t) => t.trim()).filter(Boolean),
         losenord: $('aLosen').value || undefined,
         aktiv: a ? $('aAktiv').checked : true,

@@ -352,8 +352,8 @@ function visaBokningsformular(tid, saljareId) {
  * Används när ett knack blir en bokning, så att mötesbokaren väljer tid och
  * besiktare direkt vid dörren — ur samma tider som kalendern visar.
  */
-export async function ledigaTider(dat) {
-  const data = await anrop('kalender', { fran: dat, till: dat });
+export async function ledigaTider(dat, adress = {}) {
+  const data = await anrop('kalender', { fran: dat, till: dat, ...adress });
   inst = data.installningar || inst;
   const bokade = (data.bokningar || []).filter((b) => b.datum === dat);
 

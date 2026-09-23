@@ -33,6 +33,7 @@ function tolkaAdress(data, lat, lon) {
     nummer: a.house_number || '',
     postnummer: rensaPostnummer(a.postcode),
     postort: a.city || a.town || a.village || a.hamlet || a.municipality || '',
+    kommun: String(a.municipality || '').replace(/\s+kommun$/i, ''),
     lat: Number(data && data.lat) || lat,
     lon: Number(data && data.lon) || lon,
     kalla: 'karta',
@@ -194,4 +195,21 @@ export function vagbeskrivning(adress) {
 /** Namnet på kartappen, så att knappen säger vart den leder. */
 export function kartappNamn() {
   return arApple() ? 'Apple Kartor' : 'Google Maps';
+}
+
+/**
+ * Var ligger en ort? För nya orter besiktarna jobbar i — läget används när
+ * en adress saknar postort. null om orten inte hittas.
+ */
+export function sokOrt(namn) {
+  const fraga = String(namn || '').trim();
+  if (fraga.length < 2) return Promise.resolve(null);
+  return franCache('ort:' + fraga.toLowerCase(), async () => {
+    const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=se' +
+      '&accept-language=sv&q=' + encodeURIComponent(fraga);
+    const svar = await fetch(url, { cache: 'no-store' });
+    if (!svar.ok) throw new Error('Ortsökningen svarade ' + svar.status);
+    const [rad] = await svar.json();
+    return rad ? { lat: Number(rad.lat), lon: Number(rad.lon) } : null;
+  });
 }

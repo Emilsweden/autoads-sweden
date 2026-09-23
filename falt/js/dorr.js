@@ -184,7 +184,8 @@ function visaBokning() {
   async function visaDagar() {
     const ruta = $('bSteg');
     try {
-      dagar = (await anrop('lediga-dagar', {})).dagar || [];
+      // Husets adress avgör vilka besiktare som jobbar där.
+      dagar = (await anrop('lediga-dagar', { adress_id: aktuell.adress.id })).dagar || [];
     } catch (e) {
       ruta.innerHTML = '<div class="tom">Kunde inte hämta lediga dagar: ' + esc(e.message) + '</div>';
       return;
@@ -214,7 +215,7 @@ function visaBokning() {
     ruta.innerHTML = '<div class="tom">Hämtar tider…</div>';
     let svar;
     try {
-      svar = await ledigaTider(valdDag);
+      svar = await ledigaTider(valdDag, { adress_id: aktuell.adress.id });
     } catch (e) {
       ruta.innerHTML = '<div class="tom">Kunde inte hämta tiderna: ' + esc(e.message) + '</div>';
       return;
@@ -589,7 +590,7 @@ export function manuell(omraden, valtOmrade, forval = {}) {
     '<div class="field" style="margin-top:16px"><label for="mGata">Gata</label>' +
     '<input id="mGata" type="text" placeholder="Västeråsvägen" autocomplete="off" value="' + esc(forval.gata || '') + '"></div>' +
     '<div class="rad2">' +
-    '<div class="field"><label for="mNummer">Husnummer</label><input id="mNummer" type="text" placeholder="17" inputmode="numeric" autocomplete="off" value="' + esc(forval.nummer || '') + '"></div>' +
+    '<div class="field"><label for="mNummer">Husnummer</label><input id="mNummer" type="text" placeholder="17 eller 17A" autocapitalize="characters" autocomplete="off" value="' + esc(forval.nummer || '') + '"></div>' +
     '<div class="field"><label for="mPostnummer">Postnummer</label><input id="mPostnummer" type="text" placeholder="721 34" inputmode="numeric" autocomplete="off" value="' + esc(visaPostnr(forval.postnummer)) + '"></div>' +
     '</div>' +
     '<div class="field"><label for="mPostort">Postort</label><input id="mPostort" type="text" placeholder="Västerås" autocomplete="off" value="' + esc(forval.postort || '') + '"></div>' +
@@ -627,6 +628,7 @@ export function manuell(omraden, valtOmrade, forval = {}) {
         nummer,
         postnummer: postnr || undefined,
         postort,
+        kommun: forval.kommun || undefined,
         omrade_id: $('mOmrade') ? $('mOmrade').value || undefined : undefined,
         ...lage,
       });

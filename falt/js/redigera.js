@@ -29,34 +29,34 @@ export function redigeraBokning(b, { adress, panel = 'modal', klar, tillbaka } =
     '<h2>Redigera bokning</h2>' +
     '<p class="sub">' + esc([gata + ' ' + nummer, postort].filter((x) => x.trim()).join(', ')) + '</p>' +
     '<div class="rad2" style="margin-top:14px">' +
-    falt('rFornamn', 'Förnamn', b.fornamn, 'given-name') +
-    falt('rEfternamn', 'Efternamn', b.efternamn, 'family-name') +
+    falt('rbFornamn', 'Förnamn', b.fornamn, 'given-name') +
+    falt('rbEfternamn', 'Efternamn', b.efternamn, 'family-name') +
     '</div>' +
-    '<div class="field"><label for="rTelefon">Mobilnummer</label>' +
-    '<input id="rTelefon" type="tel" inputmode="tel" value="' + esc(b.telefon || '') + '"></div>' +
+    '<div class="field"><label for="rbTelefon">Mobilnummer</label>' +
+    '<input id="rbTelefon" type="tel" inputmode="tel" value="' + esc(b.telefon || '') + '"></div>' +
     '<div class="rad2">' +
-    falt('rGata', 'Gata', gata, 'address-line1') +
-    '<div class="field"><label for="rNummer">Husnummer</label>' +
+    falt('rbGata', 'Gata', gata, 'address-line1') +
+    '<div class="field"><label for="rbNummer">Husnummer</label>' +
     // Text, inte siffror: 12A och 12b är egna adresser.
-    '<input id="rNummer" type="text" autocapitalize="characters" value="' + esc(nummer) + '"></div>' +
+    '<input id="rbNummer" type="text" autocapitalize="characters" value="' + esc(nummer) + '"></div>' +
     '</div>' +
     '<div class="rad2">' +
-    falt('rPostort', 'Ort', postort, 'address-level2') +
-    falt('rLagenhet', 'Lägenhet', b.lagenhet, 'off') +
+    falt('rbPostort', 'Ort', postort, 'address-level2') +
+    falt('rbLagenhet', 'Lägenhet', b.lagenhet, 'off') +
     '</div>' +
-    '<div class="field"><label for="rDatum">Datum</label>' +
-    '<input id="rDatum" type="date" value="' + esc(b.datum || '') + '"></div>' +
-    '<h3>Tid</h3><div id="rTider" class="chips tider">Hämtar tider…</div>' +
-    '<div class="field" id="rBesRad" hidden style="margin-top:14px"><label for="rBesiktare">Besiktare</label>' +
-    '<select id="rBesiktare"></select></div>' +
-    '<div class="field" style="margin-top:14px"><label for="rKomm">Anteckning</label>' +
-    '<textarea id="rKomm">' + esc(b.kommentar || '') + '</textarea></div>' +
-    '<div class="err" id="rFel"></div>' +
-    '<div class="btn-rad"><button class="btn btn-ghost" id="rTillbaka">Tillbaka</button>' +
-    '<button class="btn btn-primary" id="rSpara">Spara</button></div>' +
+    '<div class="field"><label for="rbDatum">Datum</label>' +
+    '<input id="rbDatum" type="date" value="' + esc(b.datum || '') + '"></div>' +
+    '<h3>Tid</h3><div id="rbTider" class="chips tider">Hämtar tider…</div>' +
+    '<div class="field" id="rbBesRad" hidden style="margin-top:14px"><label for="rbBesiktare">Besiktare</label>' +
+    '<select id="rbBesiktare"></select></div>' +
+    '<div class="field" style="margin-top:14px"><label for="rbKomm">Anteckning</label>' +
+    '<textarea id="rbKomm">' + esc(b.kommentar || '') + '</textarea></div>' +
+    '<div class="err" id="rbFel"></div>' +
+    '<div class="btn-rad"><button class="btn btn-ghost" id="rbTillbaka">Tillbaka</button>' +
+    '<button class="btn btn-primary" id="rbSpara">Spara</button></div>' +
     '<div class="btn-rad">' +
-    (b.far_avboka ? '<button class="btn btn-ghost" id="rAvboka">Avboka mötet</button>' : '') +
-    (b.far_radera ? '<button class="btn btn-fara" id="rRadera">Radera bokningen</button>' : '') +
+    (b.far_avboka ? '<button class="btn btn-ghost" id="rbAvboka">Avboka mötet</button>' : '') +
+    (b.far_radera ? '<button class="btn btn-fara" id="rbRadera">Radera bokningen</button>' : '') +
     '</div>');
 
   let valdTid = b.tid || '';
@@ -66,12 +66,13 @@ export function redigeraBokning(b, { adress, panel = 'modal', klar, tillbaka } =
   /* Tiderna kommer från servern, med bokningen själv borträknad — den ska
      inte stå i vägen för att flytta en halvtimme. */
   async function laddaTider() {
-    const ruta = $('rTider');
-    const dat = $('rDatum').value;
+    const ruta = $('rbTider');
+    const dat = $('rbDatum').value;
     if (!dat) { ruta.innerHTML = '<span class="sub">Välj ett datum.</span>'; return; }
     ruta.textContent = 'Hämtar tider…';
     try {
-      const svar = await anrop('bokbara-tider', { datum: dat, utom: b.id });
+      // Bokningens adress avgör vilka besiktare som jobbar där.
+      const svar = await anrop('bokbara-tider', { datum: dat, utom: b.id, adress_id: b.adress_id });
       perTid = {};
       (svar.tider || []).forEach((t) => { perTid[t.tid] = t.besiktare; });
       // Bokningens egen tid finns kvar att behålla, även om ingen annan kan ta den.
@@ -99,39 +100,39 @@ export function redigeraBokning(b, { adress, panel = 'modal', klar, tillbaka } =
   /* Besiktarna som kan ta den valda tiden. Den som inte får byta besiktare
      ser inget val — mötet stannar hos sin. */
   function ritaBesiktare() {
-    const rad = $('rBesRad');
+    const rad = $('rbBesRad');
     const lista = perTid[valdTid] || [];
     if (!b.far_byt_besiktare || !valdTid || !lista.length) { rad.hidden = true; return; }
     if (!lista.some((x) => x.id === valdBes)) valdBes = lista[0].id;
-    $('rBesiktare').innerHTML = lista.map((x) => '<option value="' + esc(x.id) + '"' +
+    $('rbBesiktare').innerHTML = lista.map((x) => '<option value="' + esc(x.id) + '"' +
       (x.id === valdBes ? ' selected' : '') + '>' + esc(x.namn) + '</option>').join('');
-    $('rBesiktare').onchange = () => { valdBes = $('rBesiktare').value; };
+    $('rbBesiktare').onchange = () => { valdBes = $('rbBesiktare').value; };
     rad.hidden = lista.length < 2 && lista[0].id === b.saljare_id;
   }
 
   laddaTider();
-  $('rDatum').onchange = () => { valdTid = ''; laddaTider(); };
+  $('rbDatum').onchange = () => { valdTid = ''; laddaTider(); };
 
-  $('rTillbaka').onclick = () => (tillbaka ? tillbaka() : stangPanel(panel));
+  $('rbTillbaka').onclick = () => (tillbaka ? tillbaka() : stangPanel(panel));
 
-  $('rSpara').onclick = async () => {
-    const knapp = $('rSpara');
+  $('rbSpara').onclick = async () => {
+    const knapp = $('rbSpara');
     const data = {
       id: b.id,
-      fornamn: $('rFornamn').value.trim(),
-      efternamn: $('rEfternamn').value.trim(),
-      telefon: $('rTelefon').value.trim(),
-      lagenhet: $('rLagenhet').value.trim(),
-      kommentar: $('rKomm').value.trim(),
-      datum: $('rDatum').value,
+      fornamn: $('rbFornamn').value.trim(),
+      efternamn: $('rbEfternamn').value.trim(),
+      telefon: $('rbTelefon').value.trim(),
+      lagenhet: $('rbLagenhet').value.trim(),
+      kommentar: $('rbKomm').value.trim(),
+      datum: $('rbDatum').value,
       tid: valdTid,
     };
-    if (!data.fornamn || !data.telefon) { $('rFel').textContent = 'Förnamn och mobilnummer krävs.'; return; }
-    if (data.datum && !data.tid) { $('rFel').textContent = 'Välj en tid.'; return; }
+    if (!data.fornamn || !data.telefon) { $('rbFel').textContent = 'Förnamn och mobilnummer krävs.'; return; }
+    if (data.datum && !data.tid) { $('rbFel').textContent = 'Välj en tid.'; return; }
     // Adressen skickas bara om den ändrats — annars pekas bokningen inte om.
-    const nyGata = $('rGata').value.trim();
-    const nyttNummer = $('rNummer').value.trim().replace(/\s+/g, '');
-    const nyOrt = $('rPostort').value.trim();
+    const nyGata = $('rbGata').value.trim();
+    const nyttNummer = $('rbNummer').value.trim().replace(/\s+/g, '');
+    const nyOrt = $('rbPostort').value.trim();
     if (nyGata !== gata || nyttNummer !== nummer || nyOrt !== postort) {
       Object.assign(data, { gata: nyGata, nummer: nyttNummer, postort: nyOrt });
     }
@@ -144,32 +145,32 @@ export function redigeraBokning(b, { adress, panel = 'modal', klar, tillbaka } =
         dataAndrad();
         if (klar) klar(); else stangPanel(panel);
       } catch (e) {
-        $('rFel').textContent = e.message;
+        $('rbFel').textContent = e.message;
         if (e.status === 409) laddaTider();
       }
     });
   };
 
-  if ($('rAvboka')) {
-    $('rAvboka').onclick = () => upptagen($('rAvboka'), 'Avbokar…', async () => {
+  if ($('rbAvboka')) {
+    $('rbAvboka').onclick = () => upptagen($('rbAvboka'), 'Avbokar…', async () => {
       if (!confirm('Avboka mötet? Tiden blir ledig igen.')) return;
       try {
         await anrop('bokning-status', { id: b.id, status: 'avbokad' });
         toast('Mötet är avbokat — tiden är ledig igen');
         dataAndrad();
         if (klar) klar(); else stangPanel(panel);
-      } catch (e) { $('rFel').textContent = e.message; }
+      } catch (e) { $('rbFel').textContent = e.message; }
     });
   }
-  if ($('rRadera')) {
-    $('rRadera').onclick = () => upptagen($('rRadera'), 'Raderar…', async () => {
+  if ($('rbRadera')) {
+    $('rbRadera').onclick = () => upptagen($('rbRadera'), 'Raderar…', async () => {
       if (!confirm('Radera bokningen helt? Kommentarer och bilder försvinner med den. Det går inte att ångra.')) return;
       try {
         await anrop('bokning-ta-bort', { id: b.id });
         toast('Bokningen är raderad');
         dataAndrad();
         if (klar) klar(); else stangPanel(panel);
-      } catch (e) { $('rFel').textContent = e.message; }
+      } catch (e) { $('rbFel').textContent = e.message; }
     });
   }
 }

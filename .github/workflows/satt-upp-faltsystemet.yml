@@ -126,7 +126,8 @@ jobs:
             "saljartider|orsak TEXT" \
             "bokningar|lagenhet TEXT" \
             "bokningar|andrad INTEGER" \
-            "bokningar|andrad_av TEXT"
+            "bokningar|andrad_av TEXT" \
+            "adresser|kommun TEXT"
           do
             tabell="${kolumn%%|*}"
             rest="${kolumn#*|}"

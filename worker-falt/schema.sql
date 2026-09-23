@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS adresser (
   nummer          TEXT NOT NULL,
   postnummer      TEXT,                              -- fem siffror, utan mellanslag
   postort         TEXT,
+  kommun          TEXT,                              -- "Sala", utan " kommun"
   nyckel          TEXT NOT NULL UNIQUE,
   lat             REAL,
   lon             REAL,
@@ -218,6 +219,35 @@ CREATE TABLE IF NOT EXISTS bilagor (
   skapad       INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_bilaga_bok ON bilagor(bokning_id, skapad);
+
+/* ── Orter besiktarna jobbar i ──
+   En besiktare är tillgänglig i de orter han kopplats till. En adress hör
+   till en ort genom sin kommun eller postort, eller — när de saknas —
+   genom att ligga inom ortens radie. En besiktare utan orter kan bokas
+   överallt, så att ingen blir obokbar bara för att orterna inte satts. */
+
+CREATE TABLE IF NOT EXISTS platser (
+  id        TEXT PRIMARY KEY,
+  namn      TEXT NOT NULL UNIQUE,
+  kommun    TEXT,
+  lat       REAL,
+  lon       REAL,
+  radie_km  REAL NOT NULL DEFAULT 25,
+  skapad    INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS besiktare_platser (
+  besiktare_id TEXT NOT NULL,
+  plats_id     TEXT NOT NULL,
+  PRIMARY KEY (besiktare_id, plats_id)
+);
+
+INSERT OR IGNORE INTO platser (id, namn, kommun, lat, lon, radie_km, skapad) VALUES
+  ('plats-sala', 'Sala', 'Sala', 59.9199, 16.6066, 25, 0),
+  ('plats-vasteras', 'Västerås', 'Västerås', 59.6099, 16.5448, 25, 0),
+  ('plats-koping', 'Köping', 'Köping', 59.5140, 15.9926, 20, 0),
+  ('plats-orebro', 'Örebro', 'Örebro', 59.2753, 15.2134, 30, 0),
+  ('plats-stockholm', 'Stockholm', 'Stockholm', 59.3293, 18.0686, 40, 0);
 
 /* ── Säljarnas position ── */
 

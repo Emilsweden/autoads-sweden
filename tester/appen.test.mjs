@@ -103,12 +103,12 @@ describe('appen', { skip: !pw && 'Playwright saknas — installera med: npm i -g
     await sida.click('#botten button[data-vy="lista"]');
     await sida.click(`[data-bok="${fore.id}"]`);
     await sida.click('#bkRedigera');
-    await sida.waitForSelector('#rTider [data-tid="10:00"]', { timeout: 10000 });
-    await sida.fill('#rTelefon', '070-999 99 99');
-    await sida.click('#rTider [data-tid="10:00"]');
-    await sida.click('#rSpara');
+    await sida.waitForSelector('#rbTider [data-tid="10:00"]', { timeout: 10000 });
+    await sida.fill('#rbTelefon', '070-999 99 99');
+    await sida.click('#rbTider [data-tid="10:00"]');
+    await sida.click('#rbSpara');
     await sida.waitForFunction(() => !document.querySelector('#modalOverlay.open'), null, { timeout: 10000 })
-      .catch(async (e) => { throw new Error(e.message + ' — ' + await sida.textContent('#rFel')); });
+      .catch(async (e) => { throw new Error(e.message + ' — ' + await sida.textContent('#rbFel')); });
 
     const efter = s.sql(`SELECT id, tid, telefon FROM bokningar WHERE fornamn = 'Johan'`);
     assert.equal(efter.length, 1, 'en ombokning ska inte skapa en ny bokning');
