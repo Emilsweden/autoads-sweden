@@ -15,6 +15,7 @@ import { valjMotor } from './kartmotor.js';
 
 let motor = null;
 let skapas = null;            // pågående start, så att kartan bara skapas en gång
+let googleAvstangd = false;   // Googles karta har fallerat — prova den inte igen i passet
 let jagMarkor = null;
 let saljarMarkorer = [];
 let harCentrerat = false;
@@ -47,7 +48,7 @@ function positionsKnapp() {
 /** Skapar kartan första gången den visas. Anrop under tiden väntar på samma start. */
 function skapa() {
   if (motor) return Promise.resolve();
-  if (!skapas) skapas = starta({}).finally(() => { skapas = null; });
+  if (!skapas) skapas = starta({ baraReserv: googleAvstangd }).finally(() => { skapas = null; });
   return skapas;
 }
 
@@ -105,6 +106,7 @@ function koppla(m) {
 async function bytTillReserv() {
   if (!motor || motor.namn !== 'google') return;
   const gammal = motor;
+  googleAvstangd = true;
   motor = null;
   laddad = false;
   brickor.clear();
@@ -114,7 +116,10 @@ async function bytTillReserv() {
   centreratOmrade = null;
   harCentrerat = false;
   gammal.forstor();
-  await starta({ baraReserv: true });
+  // Genom samma spärr som skapa(): trycker någon på Karta medan bytet pågår
+  // ska det anropet vänta på den här starten, inte starta en egen karta
+  // i samma ruta.
+  await skapa();
   if (motor && S.vy === 'karta') {
     motor.omrakna();
     if (arRoll('teamleader')) ritaSaljare();
