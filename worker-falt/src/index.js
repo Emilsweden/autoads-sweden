@@ -1461,8 +1461,11 @@ api['handelse'] = async (env, request, body, anv) => {
     body.lat === undefined ? null : nr(body.lat, null),
     body.lon === undefined ? null : nr(body.lon, null), nu, klientId || null));
   satser.push(sats(env,
+    // Ett besök betyder att dörren finns: var den raderad kommer den tillbaka,
+    // i stället för att besöket hamnar på en dörr ingen hittar.
     `UPDATE adresser SET status=?2, senast_tid=?3, senast_av=?4, senast_resultat=?5,
-       sparrad_till=?6, aterkom_datum=?7, aterkom_tid=?8, antal_besok=antal_besok+1
+       sparrad_till=?6, aterkom_datum=?7, aterkom_tid=?8, antal_besok=antal_besok+1,
+       dold=NULL, dold_av=NULL
      WHERE id=?9 AND ${bokningFinns}`,
     bokningId, status, nu, anv.id, resultat, sparrTill(resultat, aterkomDatum, inst, nu),
     aterkomDatum, klockslag(body.aterkom_tid), adressId));

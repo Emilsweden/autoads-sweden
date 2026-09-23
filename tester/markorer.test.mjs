@@ -116,4 +116,15 @@ describe('markörerna', () => {
     assert.match(r.fel, /möte/);
     assert.ok(bok.bokning.id);
   });
+
+  it('ett besök på en dörr som just raderats tar tillbaka den — besöket hamnar inte på en osynlig dörr', async () => {
+    const a = await ny(bea, 'Återvägen');
+    await anrop(s.url, 'handelse', { adress_id: a.id, resultat: 'nej' }, bea.token);
+    await anrop(s.url, 'adress-ta-bort', { id: a.id }, plusBokare.token);
+    assert.equal(await pakarta(olle, a.id), false);
+    // Olle hade dörren öppen sedan innan och trycker Inget svar.
+    const r = await anrop(s.url, 'handelse', { adress_id: a.id, resultat: 'ejsvar', bekrafta: true }, olle.token);
+    assert.equal(r.kod, 200, r.fel);
+    assert.equal(await pakarta(olle, a.id), true);
+  });
 });
