@@ -6,7 +6,7 @@
  */
 
 import { anrop } from './api.js';
-import { $, esc, toast, visaTidpunkt } from './ui.js';
+import { $, esc, toast, visaTidpunkt, veckostart, plusDagar } from './ui.js';
 import { S } from './state.js';
 
 const IKON = {
@@ -15,42 +15,96 @@ const IKON = {
   avbokning: '🚫',
   aterkoppling: '💬',
   tid: '🕑',
+  blockering: '⛔',
   konto: '👤',
 };
 
 let nyheter = [];
+/*
+ * Gränsen mellan Nya och Sedda. Den läses när vyn öppnas och står still
+ * medan man tittar — annars skulle det nya hoppa över till Sedda i samma
+ * ögonblick som flödet ritats om.
+ */
+let grans = null;
+
+/** Anropas när vyn öppnas: nästa ritning läser gränsen på nytt. */
+export function oppnad() {
+  grans = null;
+}
 
 export async function rita() {
   const ruta = $('flodeInnehall');
   if (!ruta) return;
   if (!nyheter.length) ruta.innerHTML = '<div class="tom">Hämtar flödet…</div>';
 
+  let svar;
   try {
-    nyheter = (await anrop('nyheter', { antal: 80 })).nyheter || [];
+    svar = await anrop('nyheter', { antal: 120 });
   } catch (e) {
     ruta.innerHTML = '<div class="tom">Kunde inte hämta flödet: ' + esc(e.message) + '</div>';
     return;
   }
+  nyheter = svar.nyheter || [];
+  if (grans === null) grans = svar.sedda_till || 0;
 
-  if (S.vy === 'nyheter') $('vySub').textContent = nyheter.length + ' händelser';
+  const nya = nyheter.filter((n) => n.skapad > grans);
+  const sedda = nyheter.filter((n) => n.skapad <= grans);
+  if (S.vy === 'nyheter') {
+    $('vySub').textContent = nya.length ? nya.length + ' nya' : nyheter.length + ' händelser';
+  }
 
   ruta.innerHTML = nyheter.length
-    ? '<p class="karttips">Svep en nyhet åt sidan för att ta bort den. ' +
-      'Den försvinner bara för dig — de andra har kvar sin.</p>' +
-      '<div class="flode">' + nyheter.map((n) =>
-      '<div class="flode-svep" data-id="' + esc(n.id) + '">' +
-      '<div class="flode-rad flode-' + esc(n.typ) + '">' +
-      '<span class="flode-ikon" aria-hidden="true">' + (IKON[n.typ] || '•') + '</span>' +
-      '<span class="flode-text">' + esc(n.text) +
-      '<span class="under">' + esc(visaTidpunkt(n.skapad)) + '</span></span>' +
-      '<button class="flode-bort" data-bort="' + esc(n.id) + '" aria-label="Ta bort">✕</button>' +
-      '</div></div>').join('') + '</div>'
-    : '<div class="tom">Inget har hänt än.</div>';
+    ? '<div class="listverktyg"><button class="knapp-mork" id="fRensa">Rensa allt</button></div>' +
+      (nya.length ? '<h3 class="flode-rubrik">Nya</h3>' + grupperat(nya, true) : '') +
+      (sedda.length ? '<h3 class="flode-rubrik">Sedda</h3>' + grupperat(sedda, false) : '') +
+      '<p class="karttips">Svep en nyhet åt sidan för att ta bort den. ' +
+      'Den försvinner bara för dig — de andra har kvar sin.</p>'
+    : '<div class="tom">Inget nytt.</div>';
 
   ruta.querySelectorAll('[data-bort]').forEach((k) => {
     k.onclick = (ev) => { ev.stopPropagation(); dolj(k.dataset.bort); };
   });
+  if ($('fRensa')) $('fRensa').onclick = rensa;
   kopplaSvep(ruta);
+
+  // Det som visats är sett. Nästa gång vyn öppnas står det under Sedda.
+  const nyast = nyheter.reduce((m, n) => Math.max(m, n.skapad), 0);
+  if (nyast > (svar.sedda_till || 0)) anrop('nyheter-sedda', { till: nyast }).catch(() => {});
+}
+
+/** Den här veckan, förra veckan och äldre — var för sig. */
+function grupperat(lista, nya) {
+  const denna = new Date(veckostart() + 'T00:00:00').getTime();
+  const forra = new Date(plusDagar(-7, veckostart()) + 'T00:00:00').getTime();
+  const grupper = [
+    ['Den här veckan', lista.filter((n) => n.skapad >= denna)],
+    ['Förra veckan', lista.filter((n) => n.skapad < denna && n.skapad >= forra)],
+    ['Äldre', lista.filter((n) => n.skapad < forra)],
+  ].filter(([, rader]) => rader.length);
+  return grupper.map(([rubrik, rader]) =>
+    '<div class="flode-grupp">' + esc(rubrik) + '</div>' +
+    '<div class="flode">' + rader.map((n) =>
+      '<div class="flode-svep" data-id="' + esc(n.id) + '">' +
+      '<div class="flode-rad flode-' + esc(n.typ) + (nya ? ' flode-ny' : '') + '">' +
+      '<span class="flode-ikon" aria-hidden="true">' + (IKON[n.typ] || '•') + '</span>' +
+      '<span class="flode-text">' + esc(n.text) +
+      '<span class="under">' + esc(visaTidpunkt(n.skapad)) + '</span></span>' +
+      '<button class="flode-bort" data-bort="' + esc(n.id) + '" aria-label="Ta bort">✕</button>' +
+      '</div></div>').join('') + '</div>').join('');
+}
+
+/** Rensa allt — flödet töms för den här användaren, ingen annan. */
+async function rensa() {
+  if (!confirm('Rensa alla nyheter? De försvinner bara för dig.')) return;
+  try {
+    await anrop('nyheter-rensa', {});
+    nyheter = [];
+    grans = null;
+    toast('Nyheterna är rensade');
+    rita();
+  } catch (e) {
+    toast('Kunde inte rensa: ' + e.message);
+  }
 }
 
 /**
@@ -111,4 +165,5 @@ function kopplaSvep(ruta) {
 /** Töm inför nästa hämtning, t.ex. vid utloggning. */
 export function nollstall() {
   nyheter = [];
+  grans = null;
 }

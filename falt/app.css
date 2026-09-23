@@ -896,3 +896,8 @@ a.btn { display: grid; place-items: center; text-decoration: none; }
 .omdome-knapp { width: 100%; margin-bottom: 12px; }
 details.tidigare { margin: 8px 0; font-size: 13.5px; }
 details.tidigare summary { cursor: pointer; color: var(--muted); padding: 6px 0; }
+
+/* Nyheterna: Nya överst, grupperat per vecka. */
+.flode-rubrik { padding: 14px 16px 0; font-size: 15px; }
+.flode-grupp { padding: 10px 16px 0; font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); }
+.flode-ny { border-left: 3px solid var(--accent); background: var(--accent-dim); }

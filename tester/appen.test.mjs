@@ -208,4 +208,32 @@ describe('appen', { skip: !pw && 'Playwright saknas — installera med: npm i -g
     assert.deepEqual(fel, []);
     await sida.context().close();
   });
+
+  it('Kommande utan Klistra in, Skapade i skapad ordning, och nyheterna i Nya och Sedda', async () => {
+    const { sida, fel } = await oppna(bokare.epost);
+    await sida.click('#botten button[data-vy="lista"]');
+    assert.equal(await sida.$('#anteckningarKnapp'), null, 'Klistra in ska inte finnas i Kommande');
+
+    await sida.click('#botten button[data-vy="bokningar"]');
+    await sida.click('#bokFlikar [data-bok="skapade"]');
+    await sida.waitForSelector('#skapadeInnehall .bokrad', { timeout: 10000 });
+    const namn = await sida.$$eval('#skapadeInnehall .bokrad .under', (n) => n.map((e) => e.textContent));
+    // Nyast först: omdömestestets bokning, sedan tiden-först-testets.
+    assert.match(namn[0], /Omdömet/);
+    assert.match(namn[1], /Tidfors/);
+    assert.ok(namn.some((x) => /Johan/.test(x)));
+
+    await sida.click('#botten button[data-vy="nyheter"]');
+    await sida.waitForSelector('.flode-rubrik', { timeout: 10000 });
+    assert.equal(await sida.textContent('.flode-rubrik'), 'Nya');
+    // Öppnas vyn igen står samma nyheter under Sedda.
+    await sida.click('#botten button[data-vy="lista"]');
+    await sida.click('#botten button[data-vy="nyheter"]');
+    await sida.waitForFunction(() => [...document.querySelectorAll('.flode-rubrik')].some((h) => h.textContent === 'Sedda'));
+    sida.once('dialog', (d) => d.accept());
+    await sida.click('#fRensa');
+    await sida.waitForSelector('#flodeInnehall .tom', { timeout: 10000 });
+    assert.deepEqual(fel, []);
+    await sida.context().close();
+  });
 });

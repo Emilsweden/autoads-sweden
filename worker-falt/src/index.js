@@ -556,11 +556,19 @@ async function nyhet(env, typ, text, extra = {}) {
   // stället för att lägga en till.
   if (SLASIHOP.includes(typ) && extra.ihop) {
     const senaste = await en(env,
-      `SELECT id FROM nyheter WHERE typ = ?1 AND anvandare_id = ?2 AND saljare_id IS ?3
+      `SELECT id, text FROM nyheter WHERE typ = ?1 AND anvandare_id = ?2 AND saljare_id IS ?3
          AND skapad > ?4 AND text LIKE ?5 ORDER BY skapad DESC LIMIT 1`,
       typ, extra.anvandare_id || null, extra.saljare_id || null, nu - IHOP_FONSTER,
       String(extra.ihop).slice(0, 200) + '%');
     if (senaste) {
+      // Tiderna läggs ihop: tre tryck på 09, 12 och 15 blir en nyhet med
+      // alla tre, inte tre nyheter och inte en med bara den sista.
+      if (extra.lista) {
+        const forra = String(senaste.text).slice(String(extra.ihop).length).replace(/^ — /, '')
+          .replace(/ \(.*\)$/, '').split(', ').filter((x) => /^\d\d:\d\d$/.test(x));
+        const alla = [...new Set(forra.concat(extra.lista))].sort();
+        text = extra.ihop + ' — ' + alla.join(', ') + (extra.efter || '');
+      }
       return kor(env, 'UPDATE nyheter SET text = ?1, skapad = ?2 WHERE id = ?3',
         String(text).slice(0, 400), nu, senaste.id);
     }
@@ -1833,6 +1841,9 @@ api['bokningar'] = async (env, request, body, anv) => {
   if (txt(body.saljare_id, 40)) lagg('b.saljare_id = ?', txt(body.saljare_id, 40));
   if (txt(body.status, 20)) lagg('b.status = ?', txt(body.status, 20));
   if (txt(body.omrade_id, 40)) lagg('ad.omrade_id = ?', txt(body.omrade_id, 40));
+  if (body.skapad_efter !== undefined) lagg('b.skapad >= ?', Math.round(nr(body.skapad_efter, 0)));
+  // "Skapade": i den ordning bokningarna gjordes, nyast först.
+  const ordning = body.sortera === 'skapad' ? 'b.skapad DESC' : 'b.datum, b.tid';
 
   const rader = await alla(env,
     `SELECT b.*, u.namn AS bokare, sa.namn AS saljare, ad.gata, ad.nummer, ad.postort,
@@ -1843,7 +1854,7 @@ api['bokningar'] = async (env, request, body, anv) => {
      LEFT JOIN adresser ad ON ad.id = b.adress_id
      LEFT JOIN omraden o ON o.id = ad.omrade_id
      WHERE ${villkor.join(' AND ')}
-     ORDER BY b.datum, b.tid LIMIT 1000`, ...args);
+     ORDER BY ${ordning} LIMIT 1000`, ...args);
 
   if (!rader.length) return { bokningar: [], utfall: UTFALLSTEXT };
 
@@ -2594,9 +2605,11 @@ api['saljartid-andra'] = async (env, request, body, anv) => {
   const vem = body.saljare_id === 'alla' ? 'alla besiktares'
     : lista[0].id === anv.id ? 'sina' : lista[0].namn + 's';
   const inledning = anv.namn + ' ' + LAGEN[lage] + ' ' + vem + ' tider ' + dat;
-  await nyhet(env, lage === 'blockera' ? 'blockering' : 'tid',
-    inledning + ' — ' + tider.join(', ') + (orsak ? ' (' + orsak + ')' : ''),
-    { saljare_id: body.saljare_id === 'alla' ? null : lista[0].id, anvandare_id: anv.id, ihop: inledning });
+  const efter = orsak ? ' (' + orsak + ')' : '';
+  await nyhet(env, lage === 'blockera' ? 'blockering' : 'tid', inledning + ' — ' + tider.join(', ') + efter, {
+    saljare_id: body.saljare_id === 'alla' ? null : lista[0].id, anvandare_id: anv.id,
+    ihop: inledning, lista: tider, efter,
+  });
   return { datum: dat, lage, tider };
 };
 
@@ -2784,6 +2797,8 @@ api['nyheter'] = async (env, request, body, anv) => {
   // Det användaren själv svepat bort syns inte för honom — men står kvar
   // för alla andra. Därför en rad i nyhet_dold, aldrig en radering.
   villkor.push(`n.id NOT IN (SELECT nyhet_id FROM nyhet_dold WHERE anvandare_id = ?${args.push(anv.id)})`);
+  // "Rensa allt" är en tidpunkt per användare: allt före den är borta för honom.
+  villkor.push(`n.skapad > ?${args.push(nr(anv.nyheter_rensade, 0))}`);
 
   const rader = await alla(env,
     `SELECT n.*, u.namn AS av FROM nyheter n
@@ -2792,7 +2807,23 @@ api['nyheter'] = async (env, request, body, anv) => {
      ORDER BY n.skapad DESC LIMIT ?${args.length + 1}`,
     ...args, Math.min(200, Math.max(1, nr(body.antal, 60))));
 
-  return { nyheter: rader };
+  // Det som skett efter sedda_till är nytt för honom.
+  return { nyheter: rader, sedda_till: nr(anv.nyheter_sedda, 0) };
+};
+
+/** Markerar flödet som sett fram till en tidpunkt. Går aldrig bakåt. */
+api['nyheter-sedda'] = async (env, request, body, anv) => {
+  const till = Math.min(Date.now(), Math.round(nr(body.till, 0)));
+  await kor(env,
+    'UPDATE anvandare SET nyheter_sedda = MAX(COALESCE(nyheter_sedda, 0), ?1) WHERE id = ?2', till, anv.id);
+  return {};
+};
+
+/** Rensa allt — för den som rensar. Alla andra har kvar sitt flöde. */
+api['nyheter-rensa'] = async (env, request, body, anv) => {
+  const nu = Date.now();
+  await kor(env, 'UPDATE anvandare SET nyheter_rensade = ?1, nyheter_sedda = ?1 WHERE id = ?2', nu, anv.id);
+  return {};
 };
 
 /**
@@ -3173,7 +3204,7 @@ const OSKYDDADE = ['logga-in', 'logga-ut', 'installera'];
  */
 const LASANDE = new Set([
   'logga-in', 'logga-ut', 'jag', 'byt-losenord', 'puls', 'position', 'positioner',
-  'nyheter', 'nyhet-dolj', 'nyhet-visa', 'adresser', 'adress', 'adress-sok', 'nasta-dorr',
+  'nyheter', 'nyhet-dolj', 'nyhet-visa', 'nyheter-sedda', 'nyheter-rensa', 'adresser', 'adress', 'adress-sok', 'nasta-dorr',
   'aterbesok', 'omraden', 'bokningar', 'bokade-adresser', 'kalender', 'lediga-besiktare',
   'lediga-dagar', 'bokbara-tider', 'saljartider', 'aterkoppling', 'bilaga', 'platser',
   'anvandare-lista', 'anvandare-statistik', 'dashboard', 'saljare-trend',

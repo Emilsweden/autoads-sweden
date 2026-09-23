@@ -252,10 +252,69 @@ function visaBokning(id, lista) {
   $('bkStang').onclick = () => stangPanel('modal');
   if ($('bkRedigera')) {
     $('bkRedigera').onclick = () => redigeraBokning(b, {
-      klar: () => { stangPanel('modal'); (lista === kommande ? ritaLista : ritaBokningar)(); },
+      klar: () => {
+        stangPanel('modal');
+        (lista === kommande ? ritaLista : lista === skapade ? ritaSkapade : ritaBokningar)();
+      },
       tillbaka: () => visaBokning(id, lista),
     });
   }
+}
+
+/* ══ SKAPADE ══ */
+
+/*
+ * Bokningarna i den ordning de gjordes, grupperade per dag — "vad bokade vi
+ * i tisdags?". Mötesdagen står på varje rad; det är skapandet som sorterar.
+ * Mötesbokaren ser sina egna, Mötesbokare+ allas.
+ */
+let skapade = [];
+let skapadeDagar = 30;
+
+export async function ritaSkapade() {
+  const behallare = $('skapadeInnehall');
+  if (!behallare) return;
+  if (!skapade.length) behallare.innerHTML = '<div class="tom">Hämtar bokningar…</div>';
+  let data;
+  try {
+    data = await anrop('bokningar', {
+      sortera: 'skapad', skapad_efter: Date.now() - skapadeDagar * 86400000,
+    });
+  } catch (e) {
+    behallare.innerHTML = '<div class="tom">Kunde inte hämta bokningar: ' + esc(e.message) + '</div>';
+    return;
+  }
+  skapade = data.bokningar || [];
+  if (S.vy === 'bokningar') $('vySub').textContent = skapade.length + ' bokningar de senaste ' + skapadeDagar + ' dagarna';
+
+  const perDag = new Map();
+  skapade.forEach((b) => {
+    const d = new Date(b.skapad);
+    const dag = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    if (!perDag.has(dag)) perDag.set(dag, []);
+    perDag.get(dag).push(b);
+  });
+
+  behallare.innerHTML = (skapade.length
+    ? '<div class="lista">' + [...perDag].map(([dag, rader]) =>
+      '<div class="rubrik">Skapade ' + esc(visaDatum(dag).toLowerCase()) + ' · ' + rader.length + '</div>' +
+      rader.map((b) => '<button class="kort bokrad" data-bok="' + esc(b.id) + '">' +
+        '<div class="kort-topp"><div>' +
+        '<div class="adress">' + esc(b.adress || 'Adress saknas') + '</div>' +
+        '<div class="under">' + esc(b.kund || 'Kund saknas') + (b.saljare ? ' · ' + esc(b.saljare) : '') + '</div>' +
+        '</div><span class="märke m-' + (b.status === 'avbokad' ? 'nej' : 'bokat') + '">' +
+        esc(new Date(b.skapad).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })) + '</span></div>' +
+        '<div class="rad"><span>Möte ' + esc(b.datum ? visaDatum(b.datum) + (b.tid ? ' kl. ' + b.tid : '') : 'utan tid') + '</span>' +
+        (b.bokare ? '<span>Bokad av ' + esc(b.bokare) + '</span>' : '') +
+        (b.status === 'avbokad' ? '<span>Avbokad</span>' : '') + '</div></button>').join('')).join('') + '</div>'
+    : '<div class="tom">Inga bokningar de senaste ' + skapadeDagar + ' dagarna.</div>') +
+    (skapadeDagar < 365
+      ? '<div class="listverktyg"><button class="knapp-mork" id="skapadeFler">Visa äldre</button></div>' : '');
+
+  behallare.querySelectorAll('[data-bok]').forEach((k) => {
+    k.onclick = () => visaBokning(k.dataset.bok, skapade);
+  });
+  if ($('skapadeFler')) $('skapadeFler').onclick = () => { skapadeDagar = Math.min(365, skapadeDagar * 3); ritaSkapade(); };
 }
 
 const fakta = (etikett, varde) => (varde

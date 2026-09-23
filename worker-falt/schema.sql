@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS anvandare (
   snabbtider  TEXT,                         -- egen mall, t.ex. "10:00,13:00,17:00"
   arbetstid_fran TEXT,                      -- besiktarens arbetstid; NULL = 09:00
   arbetstid_till TEXT,                      -- NULL = 18:00, sista tiden som går att boka
+  nyheter_sedda INTEGER,                    -- ms; nyheter efter det är nya för honom
+  nyheter_rensade INTEGER,                  -- ms; "Rensa allt" — det före syns inte för honom
   hash      TEXT NOT NULL,
   salt      TEXT NOT NULL,
   aktiv     INTEGER NOT NULL DEFAULT 1,

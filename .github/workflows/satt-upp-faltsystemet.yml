@@ -133,7 +133,9 @@ jobs:
             "aterkoppling|orsak TEXT" \
             "aterkoppling|intresserad INTEGER" \
             "aterkoppling|blev_jobb INTEGER" \
-            "aterkoppling|vad_hande TEXT"
+            "aterkoppling|vad_hande TEXT" \
+            "anvandare|nyheter_sedda INTEGER" \
+            "anvandare|nyheter_rensade INTEGER"
           do
             tabell="${kolumn%%|*}"
             rest="${kolumn#*|}"

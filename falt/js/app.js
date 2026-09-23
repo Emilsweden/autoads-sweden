@@ -6,7 +6,6 @@ import { $, esc, toast, oppnaPanel, stangPanel, kopplaStangning, kopplaLayout } 
 import { S, buss, arRoll, kan, dataAndrad } from './state.js';
 import * as karta from './karta.js';
 import { manuell as manuellBokning } from './dorr.js';
-import { visaImport as visaAnteckningar } from './anteckningar.js';
 import * as listor from './listor.js';
 import * as kalender from './kalender.js';
 import * as bokade from './bokade.js';
@@ -70,7 +69,7 @@ export function visaVy(vy) {
   if (vy === 'karta') karta.visa();
   if (vy === 'lista') listor.ritaLista();
   if (vy === 'bokningar') visaBokningsflik();
-  if (vy === 'nyheter') flode.rita();
+  if (vy === 'nyheter') { flode.oppnad(); flode.rita(); }
   if (vy === 'admin') admin.rita();
   if (vy === 'dashboard') {
     dashboard.rita();
@@ -90,6 +89,7 @@ function bokFlikar() {
   const saljare = S.anvandare && S.anvandare.roll === 'besiktare';
   const flikar = [['kalender', 'Kalender'], ['bokade', saljare ? 'Mina möten' : 'Bokade adresser']];
   flikar.push(['lista', 'Månadslista']);
+  if (kan('boka')) flikar.push(['skapade', 'Skapade']);
   if (kan('styr_tider') || kan('eget_schema')) {
     flikar.push(['tider', kan('styr_tider') ? 'Besiktarnas tider' : 'Mina tider']);
   }
@@ -111,11 +111,13 @@ function visaBokningsflik() {
   $('bokadeInnehall').hidden = bokFlik !== 'bokade';
   $('bokningsLista').hidden = bokFlik !== 'lista';
   $('tiderInnehall').hidden = bokFlik !== 'tider';
+  $('skapadeInnehall').hidden = bokFlik !== 'skapade';
 
   if (bokFlik === 'kalender') { kalender.starta(); return; }
   kalender.stoppa();
   if (bokFlik === 'bokade') bokade.rita();
   else if (bokFlik === 'tider') tider.rita();
+  else if (bokFlik === 'skapade') listor.ritaSkapade();
   else listor.ritaBokningar();
 }
 
@@ -172,6 +174,7 @@ function uppdateraSynligt() {
     if (bokFlik === 'bokade') bokade.rita();
     else if (bokFlik === 'tider') tider.rita();
     else if (bokFlik === 'lista') listor.ritaBokningar();
+    else if (bokFlik === 'skapade') listor.ritaSkapade();
     // Kalendern har en egen hämtning som redan går medan den syns.
   } else if (S.vy === 'karta' || S.vy === 'lista') {
     laddaDorrar().then(() => dataAndrad());
@@ -523,7 +526,6 @@ $('koPill').addEventListener('click', skickaKo);
 ['manuellDorr', 'manuellDorr2'].forEach((id) => {
   if ($(id)) $(id).addEventListener('click', () => manuellBokning(S.omraden, S.valtOmrade));
 });
-$('anteckningarKnapp').addEventListener('click', () => visaAnteckningar(S.omraden, S.valtOmrade));
 // Områdesvalet ligger kvar i översikten; kartan visar alla områden.
 ['omradeVal', 'lOmrade'].forEach((id) => {
   const el = $(id);

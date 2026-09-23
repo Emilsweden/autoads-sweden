@@ -166,7 +166,7 @@ describe('uppsättningen och testservern', () => {
       ['saljartider', 'orsak'], ['bokningar', 'lagenhet'], ['bokningar', 'andrad'], ['bokningar', 'andrad_av'],
       ['adresser', 'kommun'], ['handelser', 'klient_id'], ['aterkoppling', 'genomford'],
       ['aterkoppling', 'orsak'], ['aterkoppling', 'intresserad'], ['aterkoppling', 'blev_jobb'],
-      ['aterkoppling', 'vad_hande']]) {
+      ['aterkoppling', 'vad_hande'], ['anvandare', 'nyheter_sedda'], ['anvandare', 'nyheter_rensade']]) {
       assert.match(schema, new RegExp('\\b' + kolumn + '\\s+(TEXT|INTEGER|REAL)'), kolumn + ' saknas i schema.sql');
       assert.ok(workflow.includes('"' + tabell + '|' + kolumn + ' '), kolumn + ' läggs inte på gamla tabeller');
     }
