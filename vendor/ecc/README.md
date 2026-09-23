@@ -24,4 +24,14 @@ agenten att köra `node scripts/setup.js --yes` och
 `npx --yes --package ecc-universal ecc install` utan att fråga. Den kör bara om
 någon ber om ECC-uppsättning, men den finns.
 
+Kontrollerat inför påslag: alla 68 agenter och alla 292 skills har giltig
+frontmatter (namn och beskrivning), inga dubbla namn, och modellerna är
+`sonnet`, `opus` eller `haiku`. Två krockar med det som finns inbyggt:
+`commands/code-review.md` och `skills/security-review` skuggar de inbyggda
+kommandona med samma namn.
+
+Beskrivningarna är tillsammans runt 24 000 tokens, som laddas i varje session.
+Behövs bara en del av dem — till exempel de som rör JavaScript, webb, tester,
+granskning och säkerhet — går det att flytta in just de katalogerna i stället.
+
 Uppdatering görs genom att hämta om från repot ovan, inte genom att ändra här.
