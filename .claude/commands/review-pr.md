@@ -18,11 +18,8 @@ If no PR is specified, review the current branch's PR. If no focus is specified,
    - look for `CLAUDE.md`, lint config, TypeScript config, repo conventions
 3. Run specialized review agents:
    - `code-reviewer`
-   - `comment-analyzer`
    - `pr-test-analyzer`
    - `silent-failure-hunter`
-   - `type-design-analyzer`
-   - `code-simplifier`
 4. Aggregate results:
    - dedupe overlapping findings
    - rank by severity
