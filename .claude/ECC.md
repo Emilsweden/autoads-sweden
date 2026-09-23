@@ -24,8 +24,9 @@ code-reviewer, security-reviewer, tdd-guide, e2e-runner, typescript-reviewer,
 silent-failure-hunter, pr-test-analyzer, performance-optimizer, doc-updater,
 a11y-architect.
 
-`planner` och `architect` kör på Opus, som tar av Pro-gränsen fortast. Övriga
-kör på Sonnet, utom `doc-updater` som kör på Haiku.
+Alla agenter kör på Opus (`model: opus`, alltså den senaste Opus-modellen) —
+Emils val. Opus tar av Pro-gränsen fortast; blir gränsen ett problem kan
+granskarna sättas tillbaka till `sonnet` i sin frontmatter.
 
 **Kommandon (7):** plan, feature-dev, review-pr, test-coverage, checkpoint,
 update-docs, aside.
