@@ -9,3 +9,11 @@ export const STANDARD_SERVER = 'https://autoads-falt.emilgrigoryan29.workers.dev
 
 /** Visas på inloggningsskärmen, så att det syns vilken version en telefon kör. */
 export const VERSION = '2026-09-10.1';
+
+/**
+ * Googles karta. Fylls i av uppsättningen från GitHub-hemligheterna
+ * GOOGLE_MAPS_NYCKEL och GOOGLE_MAPS_KARTID — skriv aldrig in dem här.
+ * Tomma = OpenStreetMap-kartan, som alltid finns kvar som reserv.
+ */
+export const GOOGLE_MAPS_NYCKEL = '';
+export const GOOGLE_MAPS_KARTID = '';

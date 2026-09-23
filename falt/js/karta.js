@@ -1,9 +1,9 @@
 /**
  * Kartvyn — alla dörrar i området som färgade punkter, plus säljarnas position.
  *
- * Renderas med MapLibre (WebGL) i stället för vanliga kartrutor: det ger
- * vridning med två fingrar, lutning och steglös zoom, vilket efterfrågades
- * ute i fält. Kartbilden är fortfarande OpenStreetMap.
+ * Vilken karta som ritar — Googles eller OpenStreetMap-kartan — avgörs i
+ * kartmotor.js. Här finns det kartan gör: dörrarna, husnumren, trycken,
+ * sökningen och positionerna, samma kod oavsett motor.
  */
 
 import { anrop } from './api.js';
@@ -11,8 +11,10 @@ import { $, esc, toast, STATUS_FARG, STATUS_TEXTFARG, visaTidpunkt } from './ui.
 import { S, arRoll, dataAndrad } from './state.js';
 import { oppna as oppnaDorr, manuell as manuellDorr } from './dorr.js';
 import { adressVid, husIRuta, sokAdress } from './geo.js';
+import { valjMotor } from './kartmotor.js';
 
-let karta = null;
+let motor = null;
+let skapas = null;            // pågående start, så att kartan bara skapas en gång
 let jagMarkor = null;
 let saljarMarkorer = [];
 let harCentrerat = false;
@@ -20,123 +22,69 @@ let centreratOmrade = null;   // vilket urval kartan senast zoomade till
 let kartrutorFel = false;     // kartbilden kunde inte hämtas (nät/brandvägg)
 let laddad = false;
 
-const VASTERAS = [16.5448, 59.6099];   // MapLibre vill ha [lon, lat]
-const DORRAR = 'dorrar';
-const NUMMER = 'dorrnummer';
+// Positionen kan komma innan kartan finns — Googles karta tar en stund att
+// ladda. Den sparas och ritas ut när kartan är klar i stället för att tappas.
+let senastePosition = null;
+let positionGammal = false;
 
-const STATUSAR = ['bokat', 'ejsvar', 'nej', 'aterkom', 'ejbesokt'];
-
-/** Färg per status, som ett uttryck MapLibre kan räkna på i renderingen. */
-function fargUttryck(tabell, standard) {
-  const ut = ['match', ['get', 'status']];
-  STATUSAR.forEach((s) => ut.push(s, tabell[s]));
-  ut.push(standard);
-  return ut;
-}
+const VASTERAS = { lon: 16.5448, lat: 59.6099 };
 
 /** Knapp som hoppar till säljarens egen position. */
 function positionsKnapp() {
-  return {
-    onAdd() {
-      const ruta = document.createElement('div');
-      ruta.className = 'maplibregl-ctrl maplibregl-ctrl-group';
-      const knapp = document.createElement('button');
-      knapp.type = 'button';
-      knapp.className = 'kartknapp-jag';
-      knapp.title = 'Min position';
-      knapp.setAttribute('aria-label', 'Min position');
-      knapp.textContent = '◎';
-      knapp.onclick = () => {
-        if (!S.position) { toast('Ingen position ännu — tillåt platsdelning'); return; }
-        karta.easeTo({ center: [S.position.lon, S.position.lat], zoom: Math.max(karta.getZoom(), 17) });
-      };
-      ruta.appendChild(knapp);
-      return ruta;
-    },
-    onRemove() { /* kartan städar upp själv */ },
+  const knapp = document.createElement('button');
+  knapp.type = 'button';
+  knapp.className = 'kartknapp-jag';
+  knapp.title = 'Min position';
+  knapp.setAttribute('aria-label', 'Min position');
+  knapp.textContent = '◎';
+  knapp.onclick = () => {
+    if (!S.position) { toast('Ingen position ännu — tillåt platsdelning'); return; }
+    motor.flyg(S.position.lon, S.position.lat, Math.max(motor.zoom(), 17));
   };
+  return knapp;
 }
 
+/** Skapar kartan första gången den visas. Anrop under tiden väntar på samma start. */
 function skapa() {
-  if (karta) return;
-  if (typeof maplibregl === 'undefined') {
+  if (motor) return Promise.resolve();
+  if (!skapas) skapas = starta({}).finally(() => { skapas = null; });
+  return skapas;
+}
+
+async function starta(val) {
+  const behallare = $('karta');
+  let m = null;
+  try {
+    m = await valjMotor(behallare, { ...VASTERAS, zoom: 13 }, { ...val, vidFel: bytTillReserv });
+  } catch (e) {
+    console.error('Kartan kunde inte skapas:', e);
+  }
+  if (!m) {
     // Kartbiblioteket kunde inte hämtas (t.ex. helt utan täckning).
     // Resten av appen ska fungera ändå — dörrarna finns i listvyn.
-    $('karta').innerHTML =
+    behallare.innerHTML =
       '<div class="tom">Kartan kunde inte laddas.<br>Dörrarna finns kvar under <b>Dörrar</b>.</div>';
     return;
   }
+  koppla(m);
+}
 
-  karta = new maplibregl.Map({
-    container: 'karta',
-    center: VASTERAS,
-    zoom: 13,
-    maxZoom: 21,          // kartrutorna slutar på 19, resten är förstoring
-    maxPitch: 70,
-    attributionControl: { compact: true },
-    style: {
-      version: 8,
-      sources: {
-        osm: {
-          type: 'raster',
-          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-          tileSize: 256,
-          maxzoom: 19,
-          attribution: '&copy; OpenStreetMap',
-        },
-      },
-      layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
-    },
-  });
-
+function koppla(m) {
+  motor = m;
+  $('karta').dataset.motor = m.namn;
   // Kartan exponeras för felsökning och för de automatiska proven.
-  window.__karta = karta;
+  window.__karta = m.karta;
+  window.__kartmotor = m;
 
-  // Vridning och lutning med två fingrar, och en kompass som ställer tillbaka.
-  karta.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }), 'top-left');
-  karta.addControl(positionsKnapp(), 'top-left');
-  karta.touchZoomRotate.enableRotation();
-
-  karta.on('load', () => {
+  m.knapp(positionsKnapp());
+  m.vidKartbildFel((fel) => { kartrutorFel = fel; uppdateraBanner(); });
+  m.nar('klick', vidKartklick);
+  m.nar('rorelseslut', ritaNummer);
+  m.nar('vila', () => { ritaNummer(); hamtaHus(); });
+  m.klar(() => {
     laddad = true;
-    karta.addSource(DORRAR, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-
-    // Husnumret är det man känner igen huset på ute på gatan, så markören
-    // är numret självt — en färgad bricka i husets status.
-    karta.addLayer({
-      id: DORRAR,
-      type: 'circle',
-      source: DORRAR,
-      paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 3, 15, 5, 18, 7, 20, 9],
-        'circle-color': fargUttryck(STATUS_FARG, STATUS_FARG.ejbesokt),
-        'circle-opacity': 1,
-        'circle-stroke-width': ['case', ['get', 'sparrad'], 2, 1],
-        'circle-stroke-color': ['case', ['get', 'sparrad'], STATUS_FARG.sparrad, '#0d0d0d'],
-      },
-    });
-    karta.on('click', vidKartklick);
-    karta.on('moveend', ritaNummer);
-    karta.on('zoomend', ritaNummer);
-    // 'idle' är det enda som säkert kommer efter allt kartan gör — även
-    // efter en storleksändring, som inte ger moveend.
-    karta.on('idle', () => { ritaNummer(); hamtaHus(); });
-    karta.on('mouseenter', DORRAR, () => { karta.getCanvas().style.cursor = 'pointer'; });
-    karta.on('mouseleave', DORRAR, () => { karta.getCanvas().style.cursor = ''; });
     rita();
-  });
-
-  // Utan kartbild ser kartan bara tom ut. Säg vad som hänt i stället —
-  // punkterna fungerar ändå, de ligger i ett eget lager.
-  karta.on('error', (e) => {
-    if (!e || !e.sourceId || e.sourceId !== 'osm' || kartrutorFel) return;
-    kartrutorFel = true;
-    uppdateraBanner();
-  });
-  karta.on('data', (e) => {
-    if (!kartrutorFel || !e || e.sourceId !== 'osm' || !e.isSourceLoaded) return;
-    kartrutorFel = false;
-    uppdateraBanner();
+    ritaPosition();
   });
 
   const teckenruta = $('teckenforklaring');
@@ -146,6 +94,31 @@ function skapa() {
       ['aterkom', 'Återkom'], ['nej', 'Nej'], ['sparrad', 'Nyligen besökt'],
     ].map(([k, t]) => '<span><i style="background:' + STATUS_FARG[k] +
       ';border:1px solid ' + (k === 'ejbesokt' ? '#0d0d0d' : 'rgba(0,0,0,0.15)') + '"></i>' + t + '</span>').join('');
+}
+
+/**
+ * Googles karta slutade fungera mitt i passet — kvoten är slut eller nyckeln
+ * spärrad. Då tar OpenStreetMap-kartan över. Allt som hörde till den gamla
+ * kartan släpps och ritas upp igen på den nya. Aldrig åt andra hållet: en
+ * karta som byts under tummen är värre än en som ser annorlunda ut.
+ */
+async function bytTillReserv() {
+  if (!motor || motor.namn !== 'google') return;
+  const gammal = motor;
+  motor = null;
+  laddad = false;
+  brickor.clear();
+  jagMarkor = null;
+  saljarMarkorer = [];
+  popp = null;
+  centreratOmrade = null;
+  harCentrerat = false;
+  gammal.forstor();
+  await starta({ baraReserv: true });
+  if (motor && S.vy === 'karta') {
+    motor.omrakna();
+    if (arRoll('teamleader')) ritaSaljare();
+  }
 }
 
 /* ── Husnummer som brickor ── */
@@ -166,11 +139,11 @@ const brickor = new Map();  // adress-id → markör
  * har sin färgade punkt — deras nummer skulle bara skymma statusen.
  */
 function ritaNummer() {
-  if (!karta || !laddad) return;
+  if (!motor || !laddad) return;
 
-  const okanda = karta.getZoom() >= NUMMER_ZOOM ? okandaHusIVy() : [];
+  const okanda = motor.zoom() >= NUMMER_ZOOM ? okandaHusIVy() : [];
   if (!okanda.length) {
-    brickor.forEach((m) => m.remove());
+    brickor.forEach((m) => m.bort());
     brickor.clear();
     return;
   }
@@ -179,15 +152,15 @@ function ritaNummer() {
   const placerade = [];
 
   okanda.slice(0, MAX_NUMMER).forEach((h) => {
-    const p = karta.project([h.lon, h.lat]);
-    if (placerade.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < BRICKA)) return;
+    const p = motor.pixel(h.lon, h.lat);
+    if (!p || placerade.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < BRICKA)) return;
     placerade.push(p);
     kvar.add(h.id);
 
     const fanns = brickor.get(h.id);
     if (fanns) {
-      sattKlasser(fanns.getElement(), 'hus-nummer okand', h.nummer);
-      fanns.setLngLat([h.lon, h.lat]);
+      sattKlasser(fanns.el, 'hus-nummer okand', h.nummer);
+      fanns.flytta(h.lon, h.lat);
       return;
     }
     const el = document.createElement('button');
@@ -195,13 +168,12 @@ function ritaNummer() {
     el.className = 'hus-nummer okand';
     el.textContent = h.nummer;
     el.title = [h.gata, h.nummer].filter(Boolean).join(' ') + (h.postort ? ', ' + h.postort : '');
-    el.onclick = (ev) => { ev.stopPropagation(); oppnaOkantHus(h); };
-    brickor.set(h.id, new maplibregl.Marker({ element: el }).setLngLat([h.lon, h.lat]).addTo(karta));
+    brickor.set(h.id, motor.markor(el, h.lon, h.lat, { klick: () => oppnaOkantHus(h) }));
   });
 
   brickor.forEach((m, id) => {
     if (kvar.has(id)) return;
-    m.remove();
+    m.bort();
     brickor.delete(id);
   });
 }
@@ -221,7 +193,8 @@ function rutnyckel(g) {
 
 /** Husen i vyn som inte redan finns som dörr hos oss. */
 function okandaHusIVy() {
-  const g = karta.getBounds();
+  const g = motor.grans();
+  if (!g) return [];
   const hus = husCache.get(rutnyckel(g)) || [];
   if (!hus.length) return [];
 
@@ -242,8 +215,9 @@ function okandaHusIVy() {
  * OpenStreetMap — ingen ska behöva skriva in en gata för hand.
  */
 async function hamtaHus() {
-  if (!karta || hamtarHus || karta.getZoom() < NUMMER_ZOOM) return;
-  const g = karta.getBounds();
+  if (!motor || hamtarHus || motor.zoom() < NUMMER_ZOOM) return;
+  const g = motor.grans();
+  if (!g) return;
   const nyckel = rutnyckel(g);
   if (husCache.has(nyckel)) return;
   if (Date.now() - senasteHamtning < HAMTA_PAUS) {
@@ -329,9 +303,10 @@ async function oppnaOkantHus(h) {
 }
 
 /**
- * Byter statusklass på en bricka utan att röra MapLibres egna klasser.
- * De sköter positioneringen — skrivs de över faller brickan ur sitt läge
- * och hamnar i en hög med de andra.
+ * Byter statusklass på en bricka utan att röra kartmotorns egna klasser.
+ * MapLibre lägger sina direkt på brickan och sköter positioneringen med
+ * dem — skrivs de över faller brickan ur sitt läge och hamnar i en hög med
+ * de andra. (Googles karta lägger brickan i en egen ruta och rör den inte.)
  */
 function sattKlasser(el, klasser, nummer) {
   const egna = [...el.classList].filter((k) => k.startsWith('maplibregl'));
@@ -357,7 +332,8 @@ function narmasteDorr(punkt, maxPixlar) {
   let bast = null;
   let bastAvstand = maxPixlar;
   synligaAdresser().forEach((a) => {
-    const p = karta.project([a.lon, a.lat]);
+    const p = motor.pixel(a.lon, a.lat);
+    if (!p) return;
     const d = Math.hypot(p.x - punkt.x, p.y - punkt.y);
     if (d <= bastAvstand) { bast = a; bastAvstand = d; }
   });
@@ -376,7 +352,7 @@ async function oppnaNyDorr(traff, latlng) {
       lat: latlng.lat,
       lon: latlng.lng,
     });
-    if (popp) popp.remove();
+    if (popp) popp.stang();
     dataAndrad();
     oppnaDorr(svar.adress.id);
   } catch (e) {
@@ -394,19 +370,21 @@ async function vidKartklick(ev) {
   const latlng = ev.lngLat;
 
   // Träffar trycket en utritad dörr är det den som avses.
-  const traffade = karta.queryRenderedFeatures(ev.point, { layers: [DORRAR] });
-  if (traffade.length) { oppnaDorr(traffade[0].properties.id); return; }
+  if (ev.dorrId) { oppnaDorr(ev.dorrId); return; }
 
   // 16 bildpunkter ≈ punktens egen storlek. Utanför den räknas trycket
   // som en ny plats, inte som grannens dörr.
-  const nara = narmasteDorr(ev.point, 16);
+  const nara = narmasteDorr(ev.punkt, 16);
   if (nara) { oppnaDorr(nara.id); return; }
 
   const ruta = document.createElement('div');
   ruta.className = 'kartpopp';
   ruta.textContent = 'Hämtar adressen…';
-  if (popp) popp.remove();
-  popp = new maplibregl.Popup({ offset: 12, closeButton: true }).setLngLat(latlng).setDOMContent(ruta).addTo(karta);
+  if (popp) popp.stang();
+  const denna = motor.popup(latlng.lng, latlng.lat, ruta, {
+    vidStang: () => { if (popp === denna) popp = null; },
+  });
+  popp = denna;
 
   // Husnumren vi redan hämtat kostar ingenting och finns direkt. De frågas
   // först; adresstjänsten är komplementet, inte tvärtom.
@@ -416,7 +394,7 @@ async function vidKartklick(ev) {
   try {
     traff = await adressVid(latlng.lat, latlng.lng);
   } catch (e) { /* uppslaget kan misslyckas — då får man skriva själv */ }
-  if (!popp) return;                       // rutan stängdes medan vi väntade
+  if (popp !== denna) return;              // rutan stängdes, eller ett nytt tryck kom
 
   // Förslagen, i tur och ordning: husnumret vi står på, grannarna vi redan
   // ritat ut, och adresstjänstens svar. Dubbletter räknas bara en gång.
@@ -439,7 +417,7 @@ async function vidKartklick(ev) {
     knapp.className = 'kartpopp-knapp ghost';
     knapp.textContent = text;
     knapp.onclick = () => {
-      if (popp) popp.remove();
+      if (popp) popp.stang();
       manuellDorr(S.omraden, S.valtOmrade, {
         gata: (forval && forval.gata) || '',
         nummer: (forval && forval.nummer) || '',
@@ -486,6 +464,7 @@ async function vidKartklick(ev) {
       });
     }
     ruta.append(skrivSjalv('Ändra adressen', basta));
+    denna.uppdatera();
     return;
   }
 
@@ -502,6 +481,7 @@ async function vidKartklick(ev) {
     postnummer: (traff && traff.postnummer) || '',
     postort: (traff && traff.postort) || '',
   }));
+  denna.uppdatera();
 }
 
 /** "72134" visas som "721 34". */
@@ -538,24 +518,18 @@ function uppdateraBanner() {
 
 /** Ritar om alla dörrpunkter utifrån aktuellt urval. */
 export function rita() {
-  if (!karta || !laddad) return;
+  if (!motor || !laddad) return;
 
   const nu = Date.now();
   const synliga = synligaAdresser();
 
-  karta.getSource(DORRAR).setData({
-    type: 'FeatureCollection',
-    features: synliga.map((a) => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [a.lon, a.lat] },
-      properties: {
-        id: a.id,
-        nummer: a.nummer || '',
-        status: a.status || 'ejbesokt',
-        sparrad: a.sparrad_till > nu && a.status !== 'ejbesokt',
-      },
-    })),
-  });
+  motor.dorrar(synliga.map((a) => ({
+    id: a.id,
+    lon: a.lon,
+    lat: a.lat,
+    status: a.status || 'ejbesokt',
+    sparrad: a.sparrad_till > nu && a.status !== 'ejbesokt',
+  })));
 
   const utanKoordinat = S.adresser.filter((a) =>
     (!S.valtOmrade || a.omrade_id === S.valtOmrade) && (!a.lat || !a.lon)).length;
@@ -571,9 +545,7 @@ export function rita() {
   // annars blev man kvar på förra områdets vy.
   const urval = S.valtOmrade || 'alla';
   if (synliga.length && centreratOmrade !== urval) {
-    const grans = new maplibregl.LngLatBounds();
-    synliga.forEach((a) => grans.extend([a.lon, a.lat]));
-    karta.fitBounds(grans, { padding: 50, maxZoom: 17, duration: 0 });
+    motor.passaIn(synliga.map((a) => [a.lon, a.lat]), { kant: 50, maxZoom: 17 });
     centreratOmrade = urval;
     harCentrerat = true;
   }
@@ -685,14 +657,13 @@ function valjTraff(a) {
   visaTraffar([]);
   $('adressSok').value = [a.gata, a.nummer].filter(Boolean).join(' ');
   $('adressSok').blur();
-  if (a.lat && a.lon) karta.easeTo({ center: [a.lon, a.lat], zoom: 18 });
+  if (motor && a.lat && a.lon) motor.flyg(a.lon, a.lat, 18);
 
   if (a.vår) { oppnaDorr(a.id); return; }
   // En adress från kartan är ingen dörr än — säljaren får välja att lägga
   // upp den, i stället för att ett sökresultat tyst skapar en dörr.
-  if (!a.nummer) return;
-  const popp2 = new maplibregl.Popup({ offset: 12, closeButton: true })
-    .setLngLat([a.lon, a.lat]).addTo(karta);
+  if (!motor || !a.nummer) return;
+  let popp2 = null;
   const ruta = document.createElement('div');
   ruta.className = 'kartpopp';
   const rubrik = document.createElement('b');
@@ -703,17 +674,17 @@ function valjTraff(a) {
   const knapp = document.createElement('button');
   knapp.className = 'kartpopp-knapp';
   knapp.textContent = 'Öppna dörren';
-  knapp.onclick = () => { popp2.remove(); oppnaNyDorr(a, { lat: a.lat, lng: a.lon }); };
+  knapp.onclick = () => { popp2.stang(); oppnaNyDorr(a, { lat: a.lat, lng: a.lon }); };
   ruta.append(rubrik, ort, knapp);
-  popp2.setDOMContent(ruta);
+  popp2 = motor.popup(a.lon, a.lat, ruta);
 }
 
-export function visa() {
-  skapa();
-  if (!karta) return;
+export async function visa() {
+  await skapa();
+  if (!motor) return;
   // Två omräkningar: en direkt och en när layouten hunnit sätta sig.
-  karta.resize();
-  setTimeout(() => karta.resize(), 200);
+  motor.omrakna();
+  setTimeout(() => { if (motor) motor.omrakna(); }, 200);
   rita();
   if (arRoll('teamleader')) ritaSaljare();
 }
@@ -722,9 +693,9 @@ export function visa() {
 let omraknare = null;
 ['resize', 'orientationchange'].forEach((h) => {
   window.addEventListener(h, () => {
-    if (!karta) return;
+    if (!motor) return;
     clearTimeout(omraknare);
-    omraknare = setTimeout(() => karta.resize(), 150);
+    omraknare = setTimeout(() => { if (motor) motor.omrakna(); }, 150);
   });
 });
 
@@ -733,27 +704,36 @@ let omraknare = null;
  * att det syns att den inte är färsk.
  */
 export function gammalPosition() {
-  if (jagMarkor) jagMarkor.getElement().classList.add('gammal');
+  positionGammal = true;
+  if (jagMarkor) jagMarkor.el.classList.add('gammal');
 }
 
 export function centreraPa(adress) {
-  if (!karta || !adress.lat) return;
-  karta.easeTo({ center: [adress.lon, adress.lat], zoom: 18 });
+  if (!motor || !adress.lat) return;
+  motor.flyg(adress.lon, adress.lat, 18);
 }
 
 export function egenPosition(lat, lon) {
-  if (!karta) return;
+  senastePosition = { lat, lon };
+  positionGammal = false;
+  ritaPosition();
+}
+
+/** Ritar ut den senaste positionen — direkt, eller när kartan blivit klar. */
+function ritaPosition() {
+  if (!motor || !laddad || !senastePosition) return;
+  const { lat, lon } = senastePosition;
   if (!jagMarkor) {
     const prick = document.createElement('div');
     prick.className = 'jag-punkt';
-    jagMarkor = new maplibregl.Marker({ element: prick }).setLngLat([lon, lat]).addTo(karta);
+    jagMarkor = motor.markor(prick, lon, lat);
   } else {
-    jagMarkor.getElement().classList.remove('gammal');
-    jagMarkor.setLngLat([lon, lat]);
+    jagMarkor.flytta(lon, lat);
   }
+  jagMarkor.el.classList.toggle('gammal', positionGammal);
   // Dörrarna har företräde; hoppa hit bara när det inte finns några att visa.
   if (!harCentrerat && !harDorrar) {
-    karta.easeTo({ center: [lon, lat], zoom: 17 });
+    motor.flyg(lon, lat, 17);
     harCentrerat = true;
   }
 }
@@ -761,7 +741,8 @@ export function egenPosition(lat, lon) {
 async function ritaSaljare() {
   try {
     const data = await anrop('positioner');
-    saljarMarkorer.forEach((m) => m.remove());
+    if (!motor) return;
+    saljarMarkorer.forEach((m) => m.bort());
     saljarMarkorer = [];
     (data.positioner || []).forEach((p) => {
       if (p.anvandare_id === S.anvandare.id || !p.lat) return;
@@ -769,7 +750,7 @@ async function ritaSaljare() {
       etikett.className = 'saljar-etikett';
       etikett.textContent = p.namn;
       etikett.title = 'Senast sedd ' + visaTidpunkt(p.uppdaterad);
-      saljarMarkorer.push(new maplibregl.Marker({ element: etikett }).setLngLat([p.lon, p.lat]).addTo(karta));
+      saljarMarkorer.push(motor.markor(etikett, p.lon, p.lat));
     });
   } catch (e) { /* positioner är en bonus, inte kritiskt */ }
 }
