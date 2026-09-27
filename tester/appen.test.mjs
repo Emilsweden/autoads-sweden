@@ -236,4 +236,39 @@ describe('appen', { skip: !pw && 'Playwright saknas — installera med: npm i -g
     assert.deepEqual(fel, []);
     await sida.context().close();
   });
+
+  it('administratören bevakar ett konto och ser vad det gör, med en räknare på Nyheter', async () => {
+    const klas = await (async () => {
+      const r = await anrop(s.url, 'logga-in', { epost: 'admin@vt.test', losenord: LOSENORD });
+      const ny = await anrop(s.url, 'anvandare-spara',
+        { namn: 'Klas Plus', epost: 'klasplus@vt.test', roll: 'bokare_plus', losenord: LOSENORD }, r.token);
+      return { id: ny.id, epost: 'klasplus@vt.test' };
+    })();
+
+    // Administratören slår på bevakningen i formuläret.
+    let { sida, fel } = await oppna('admin@vt.test');
+    await sida.click('#profilKnapp');
+    await sida.click('#pAdmin');
+    await sida.click('#adminFlikar [data-admin="anvandare"]');
+    await sida.click(`[data-anv="${klas.id}"]`);
+    await sida.check('#aBevakad');
+    await sida.click('#aSpara');
+    await sida.waitForFunction(() => !document.querySelector('#modalOverlay.open'), null, { timeout: 10000 });
+    assert.equal(s.sql('SELECT bevakad FROM anvandare WHERE id = ?', klas.id)[0].bevakad, 1);
+    await sida.context().close();
+
+    // Klas kommenterar en bokning — något som annars inte blir en nyhet.
+    const klasIn = await anrop(s.url, 'logga-in', { epost: klas.epost, losenord: LOSENORD });
+    const [bok] = s.sql(`SELECT id FROM bokningar WHERE fornamn = 'Johan'`);
+    await anrop(s.url, 'bokning-kommentar', { bokning_id: bok.id, text: 'Kunden vill ha offert' }, klasIn.token);
+
+    ({ sida, fel } = await oppna('admin@vt.test'));
+    await sida.waitForSelector('#botten button[data-vy="nyheter"] .raknare', { timeout: 15000 });
+    await sida.click('#botten button[data-vy="nyheter"]');
+    await sida.waitForSelector('.flode-aktivitet', { timeout: 10000 });
+    assert.match(await sida.textContent('.flode-aktivitet'), /Klas Plus kommenterade.*Kunden vill ha offert/s);
+    assert.equal(await sida.$('#botten button[data-vy="nyheter"] .raknare'), null, 'räknaren ska försvinna när flödet öppnas');
+    assert.deepEqual(fel, []);
+    await sida.context().close();
+  });
 });

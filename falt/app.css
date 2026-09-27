@@ -386,6 +386,13 @@ button { cursor: pointer; border: none; background: none; }
   font-size: 11px; color: var(--dim); font-weight: 600; letter-spacing: 0.01em;
 }
 #botten button.aktiv { color: var(--accent); }
+#botten button { position: relative; }
+/* Antal nya nyheter, i hörnet på knappen. */
+#botten .raknare {
+  position: absolute; top: 4px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 9px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700;
+  line-height: 18px; text-align: center; box-shadow: 0 0 0 2px #fff;
+}
 #botten svg { width: 23px; height: 23px; }
 
 /* ══ PANELER ══ */
@@ -901,3 +908,4 @@ details.tidigare summary { cursor: pointer; color: var(--muted); padding: 6px 0;
 .flode-rubrik { padding: 14px 16px 0; font-size: 15px; }
 .flode-grupp { padding: 10px 16px 0; font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); }
 .flode-ny { border-left: 3px solid var(--accent); background: var(--accent-dim); }
+.flode-aktivitet { border-left: 3px solid #1a73e8; }

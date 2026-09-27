@@ -137,7 +137,8 @@ jobs:
             "anvandare|nyheter_sedda INTEGER" \
             "anvandare|nyheter_rensade INTEGER" \
             "adresser|dold INTEGER" \
-            "adresser|dold_av TEXT"
+            "adresser|dold_av TEXT" \
+            "anvandare|bevakad INTEGER"
           do
             tabell="${kolumn%%|*}"
             rest="${kolumn#*|}"

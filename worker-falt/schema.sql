@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS anvandare (
   arbetstid_till TEXT,                      -- NULL = 18:00, sista tiden som går att boka
   nyheter_sedda INTEGER,                    -- ms; nyheter efter det är nya för honom
   nyheter_rensade INTEGER,                  -- ms; "Rensa allt" — det före syns inte för honom
+  bevakad   INTEGER,                        -- 1 = allt kontot gör syns i administratörens nyheter
   hash      TEXT NOT NULL,
   salt      TEXT NOT NULL,
   aktiv     INTEGER NOT NULL DEFAULT 1,

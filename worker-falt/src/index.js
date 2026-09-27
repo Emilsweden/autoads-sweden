@@ -1022,9 +1022,14 @@ api['anvandare-lista'] = async (env, request, body, anv) => {
     platser: await alla(env, 'SELECT id, namn FROM platser ORDER BY namn'),
     anvandare: (await alla(env,
       `SELECT id, namn, epost, roll, team, aktiv, skapad, max_per_dag, snabbtider,
-              arbetstid_fran, arbetstid_till
+              arbetstid_fran, arbetstid_till, bevakad
        FROM anvandare ORDER BY roll DESC, namn`))
-      .map((a) => ({ ...a, platser: [...(orter.get(a.id) || [])] })),
+      .map(({ bevakad, ...a }) => ({
+        ...a,
+        platser: [...(orter.get(a.id) || [])],
+        // Vem som bevakas vet bara administratören.
+        ...(rang(anv.roll) >= ROLLER.admin ? { bevakad } : {}),
+      })),
   };
 };
 
@@ -1089,6 +1094,9 @@ api['anvandare-spara'] = async (env, request, body, anv) => {
         await hasha(String(body.losenord), salt), salt, body.id);
       await kor(env, 'DELETE FROM sessioner WHERE anvandare_id = ?1', body.id);
     }
+    if (helAdmin && body.bevakad !== undefined) {
+      await kor(env, 'UPDATE anvandare SET bevakad = ?1 WHERE id = ?2', body.bevakad ? 1 : null, body.id);
+    }
     await nyhet(env, 'konto', anv.namn + ' ändrade kontot ' + namn +
       ' (' + (ROLLNAMN[roll] || roll) + ')', { anvandare_id: anv.id });
     return { id: body.id };
@@ -1107,6 +1115,7 @@ api['anvandare-spara'] = async (env, request, body, anv) => {
      VALUES (?1,?2,?3,?4,?5,?6,?7,1,?8,?9,?10,?11)`,
     id, namn, epost, roll, txt(body.team, 60), await hasha(losenord, salt), salt, Date.now(),
     maxPerDag || MAX_PER_DAG, ram ? ram.fran : null, ram ? ram.till : null);
+  if (helAdmin && body.bevakad) await kor(env, 'UPDATE anvandare SET bevakad = 1 WHERE id = ?1', id);
   await nyhet(env, 'konto', anv.namn + ' lade upp ' + namn +
     ' som ' + (ROLLNAMN[roll] || roll), { anvandare_id: anv.id });
   return { id };
@@ -2872,6 +2881,10 @@ api['nyheter'] = async (env, request, body, anv) => {
            (SELECT id FROM bokningar WHERE anvandare_id = ?))`, anv.id, anv.id);
   }
 
+  // Bevakningen är administratörens: ingen annan ser de raderna, inte heller
+  // den som bevakas.
+  if (rang(anv.roll) < ROLLER.admin) villkor.push("n.typ <> 'aktivitet'");
+
   // Det användaren själv svepat bort syns inte för honom — men står kvar
   // för alla andra. Därför en rad i nyhet_dold, aldrig en radering.
   villkor.push(`n.id NOT IN (SELECT nyhet_id FROM nyhet_dold WHERE anvandare_id = ?${args.push(anv.id)})`);
@@ -3270,6 +3283,137 @@ api['installera'] = async (env, request, body) => {
   return { id };
 };
 
+/* ══ Bevakade konton ══ */
+
+/*
+ * Administratören kan bevaka ett konto (anvandare.bevakad). Allt det kontot
+ * gör syns då i administratörens nyheter, som typ "aktivitet" — och bara där.
+ *
+ * Det mesta blir redan en nyhet: en raderad bokning, ändrade tider, ett
+ * omdöme. Då skrivs ingen rad till, så att samma sak inte står två gånger.
+ * Det som annars är tyst — en kommentar, ett ändrat telefonnummer, ett Nej
+ * vid dörren — får en egen rad med vem, vad och var.
+ */
+
+const UTFALL_ORD = { bokat: 'Bokat', nej: 'Nej', ejsvar: 'Inget svar' };
+
+/** "Eva Ek, Storgatan 4 (2026-10-01 kl. 09:00)" — en bokning i en nyhet. */
+function bokningsText(b) {
+  if (!b) return 'en bokning';
+  const kund = [b.fornamn, b.efternamn].filter(Boolean).join(' ');
+  const nar = b.datum ? ' (' + b.datum + (b.tid ? ' kl. ' + b.tid : '') + ')' : '';
+  return [kund, b.gata ? b.gata + ' ' + b.nummer : ''].filter(Boolean).join(', ') + nar;
+}
+const adressText = (a) => (a ? a.gata + ' ' + a.nummer + (a.postort ? ', ' + a.postort : '') : 'en adress');
+
+const BOKNING_MED_ADRESS = `SELECT b.*, ad.gata, ad.nummer, ad.postort, sa.namn AS besiktare FROM bokningar b
+  LEFT JOIN adresser ad ON ad.id = b.adress_id LEFT JOIN anvandare sa ON sa.id = b.saljare_id WHERE b.id = ?1`;
+
+/** Det som behövs för att beskriva anropet efteråt, hämtat innan det körs. */
+async function foreAktivitet(env, namn, body) {
+  const bokningId = txt(body.bokning_id, 40) || (namn.startsWith('bokning-') ? txt(body.id, 40) : '');
+  if (namn === 'bokning-kommentar-ta-bort') {
+    const k = await en(env, 'SELECT bokning_id, text FROM kommentarer WHERE id = ?1', txt(body.id, 40));
+    return { kommentar: k, bokning: k && await en(env, BOKNING_MED_ADRESS, k.bokning_id) };
+  }
+  if (namn === 'bilaga-ta-bort') {
+    const f = await en(env, 'SELECT bokning_id FROM bilagor WHERE id = ?1', txt(body.id, 40));
+    return { bokning: f && await en(env, BOKNING_MED_ADRESS, f.bokning_id) };
+  }
+  if (bokningId) return { bokning: await en(env, BOKNING_MED_ADRESS, bokningId) };
+  const adressId = txt(body.adress_id, 40) || (namn.startsWith('adress-') ? txt(body.id, 40) : '');
+  if (adressId) return { adress: await en(env, 'SELECT * FROM adresser WHERE id = ?1', adressId) };
+  if (namn.startsWith('anvandare-') && body.id) {
+    return { konto: await en(env, 'SELECT namn, roll FROM anvandare WHERE id = ?1', txt(body.id, 40)) };
+  }
+  return {};
+}
+
+/** Vad som ändrades på en bokning, fält för fält: "telefon 070-111 → 070-999". */
+function bokningsDiff(fore, efter) {
+  if (!fore || !efter) return [];
+  const namn = (b) => [b.fornamn, b.efternamn].filter(Boolean).join(' ');
+  const adr = (b) => (b.gata ? b.gata + ' ' + b.nummer : '');
+  return [
+    ['namn', namn], ['telefon', (b) => b.telefon], ['adress', adr], ['lägenhet', (b) => b.lagenhet],
+    ['anteckning', (b) => b.kommentar], ['stege', (b) => (nr(b.stege) ? 'ja' : 'nej')],
+  ].map(([etikett, varde]) => [etikett, varde(fore) || '—', varde(efter) || '—'])
+    .filter(([, f, e]) => f !== e)
+    .map(([etikett, f, e]) => etikett + ' ' + f + ' → ' + e);
+}
+
+/** Beskrivningen av det kontot gjorde, eller null när det inte är värt en rad. */
+async function beskrivAktivitet(env, namn, body, fore, data) {
+  const f = fore || {};
+  switch (namn) {
+    case 'handelse':
+      return 'registrerade ' + (UTFALL_ORD[resultatUr(body.resultat)] || body.resultat) + ' på ' + adressText(f.adress);
+    case 'adress-ny':
+      return data && data.fanns ? null : 'skapade dörren ' + adressText(data && data.adress);
+    case 'adress-andra':
+      return 'rättade adressen ' + adressText(f.adress) + ' → ' + adressText(data && data.adress);
+    case 'adress-broschyr':
+      return (body.broschyr === false ? 'tog bort broschyren på ' : 'lämnade broschyr på ') + adressText(f.adress);
+    case 'bokning-andra': {
+      // En flytt i tid eller till en annan besiktare blir redan en nyhet;
+      // här står det som annars inte syns någonstans.
+      const efter = await en(env, BOKNING_MED_ADRESS, txt(body.id, 40));
+      const andrat = bokningsDiff(f.bokning, efter);
+      return andrat.length ? 'ändrade bokningen ' + bokningsText(f.bokning) + ': ' + andrat.join('; ') : null;
+    }
+    case 'bokning-kommentar':
+      return 'kommenterade bokningen ' + bokningsText(f.bokning) + ': "' + txt(body.text, 300) + '"';
+    case 'bokning-kommentar-ta-bort':
+      return 'tog bort kommentaren "' + txt(f.kommentar && f.kommentar.text, 200) + '" på bokningen ' + bokningsText(f.bokning);
+    case 'bokning-bilaga':
+      return 'lade till en bild på bokningen ' + bokningsText(f.bokning);
+    case 'bilaga-ta-bort':
+      return 'tog bort en bild på bokningen ' + bokningsText(f.bokning);
+    case 'kalender-boka':
+      return 'bokade ' + bokningsText(data && data.bokning) +
+        (data && data.bokning && data.bokning.saljare ? ' hos ' + data.bokning.saljare : '');
+    case 'snabbtider-spara':
+      return 'sparade standardtider ' + (rensaTider(body.tider).join(', ') || '(inga)');
+    case 'plats-spara':
+      return 'sparade orten ' + txt(body.namn, 60);
+    case 'anvandare-spara':
+      return (body.id ? 'ändrade kontot ' : 'lade upp kontot ') + txt(body.namn, 80);
+    case 'anvandare-ta-bort':
+      return 'tog bort kontot ' + ((f.konto && f.konto.namn) || '');
+    case 'omrade-spara':
+      return 'sparade området ' + txt(body.namn, 80);
+    case 'omrade-tilldela':
+      return 'ändrade vilka som har ett område';
+    case 'adresser-importera':
+      return 'importerade ' + (Array.isArray(body.adresser) ? body.adresser.length : 0) + ' adresser';
+    case 'anteckningar-importera':
+      return 'sparade inklistrade anteckningar';
+    case 'adresser-stada':
+      return 'slog ihop dubbla adresser';
+    case 'installningar-spara':
+      return 'ändrade reglerna (spärrar och mål)';
+    default:
+      return 'gjorde ' + namn;
+  }
+}
+
+/**
+ * Skriver en aktivitetsrad för ett bevakat konto — om anropet inte redan
+ * gav en nyhet. Anropas bara efter att anropet lyckats: ett nekat försök
+ * syns inte, bara det som faktiskt gjordes.
+ */
+async function loggaAktivitet(env, namn, body, anv, fore, data, start) {
+  if (namn !== 'bokning-andra') {
+    const redan = await en(env,
+      `SELECT id FROM nyheter WHERE anvandare_id = ?1 AND skapad >= ?2 AND typ <> 'aktivitet' LIMIT 1`,
+      anv.id, start);
+    if (redan) return;
+  }
+  const text = await beskrivAktivitet(env, namn, body, fore, data);
+  if (!text) return;
+  await nyhet(env, 'aktivitet', anv.namn + ' ' + text, { anvandare_id: anv.id });
+}
+
 /* ══ Router ══ */
 
 const OSKYDDADE = ['logga-in', 'logga-ut', 'installera'];
@@ -3311,11 +3455,20 @@ export default {
     try {
       const body = (await request.json().catch(() => ({}))) || {};
       const anv = OSKYDDADE.includes(namn) ? null : await anvandareFranToken(env, request, body);
+      // Ett bevakat konto: läget före anropet, så att det går att säga vad
+      // som ändrades — och vad som togs bort, som inte finns kvar efteråt.
+      const bevakas = !!(anv && nr(anv.bevakad) && !LASANDE.has(namn));
+      const start = Date.now();
+      const fore = bevakas ? await foreAktivitet(env, namn, body).catch(() => null) : null;
       const data = await fn(env, request, body || {}, anv);
       if (!LASANDE.has(namn)) {
         // Pulsen får aldrig fälla ett anrop som redan lyckats.
         await kor(env, 'UPDATE andringar SET senast = ?1 WHERE id = 1', Date.now())
           .catch((e) => console.error('Pulsen kunde inte uppdateras efter ' + namn + ': ' + e.message));
+      }
+      if (bevakas) {
+        await loggaAktivitet(env, namn, body || {}, anv, fore, data, start)
+          .catch((e) => console.error('Aktiviteten kunde inte loggas (' + namn + '): ' + e.message));
       }
       return svar(request, { ok: true, ...data });
     } catch (err) {

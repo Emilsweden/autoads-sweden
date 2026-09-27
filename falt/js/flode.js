@@ -17,6 +17,7 @@ const IKON = {
   tid: '🕑',
   blockering: '⛔',
   konto: '👤',
+  aktivitet: '👁',   // ett bevakat konto — bara administratören ser dem
 };
 
 let nyheter = [];

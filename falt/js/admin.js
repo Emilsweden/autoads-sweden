@@ -368,7 +368,8 @@ function ritaAnvandare() {
     '<div class="kort-topp"><div>' +
     '<div class="adress">' + esc(a.namn) + '</div>' +
     '<div class="under">' + esc(a.epost) + (a.team ? ' · ' + esc(a.team) : '') + '</div>' +
-    '</div><span class="märke m-' + (a.aktiv ? 'bokat' : 'nej') + '">' + esc(roller[a.roll] || a.roll) + '</span></div>' +
+    '</div><span class="märke m-' + (a.aktiv ? 'bokat' : 'nej') + '">' + esc(roller[a.roll] || a.roll) +
+    (a.bevakad ? ' · 👁 BEVAKAD' : '') + '</span></div>' +
     '<div class="chips">' +
     '<button class="chip" data-statistik="' + esc(a.id) + '">Visa</button>' +
     (farRora(a) ? '<button class="chip" data-anv="' + esc(a.id) + '">Ändra</button>' : '') +
@@ -482,6 +483,13 @@ function anvandarFormular(a) {
     '</label><input id="aLosen" type="text" autocomplete="new-password" placeholder="minst 8 tecken"></div>' +
     (a ? '<div class="field"><label><input type="checkbox" id="aAktiv" style="width:auto;margin-right:8px"' +
       (a.aktiv ? ' checked' : '') + '>Aktiv</label></div>' : '') +
+    // Bara administratören bevakar — och bara han ser att någon är bevakad.
+    (arRoll('admin') && (!a || a.id !== S.anvandare.id)
+      ? '<div class="field"><label><input type="checkbox" id="aBevakad" style="width:auto;margin-right:8px"' +
+        (a && a.bevakad ? ' checked' : '') + '>Bevaka — visa allt kontot gör i mina nyheter</label>' +
+        '<div class="sub" style="margin-top:5px">Raderade bokningar, ändrade tider, kommentarer, ändrade ' +
+        'kunduppgifter, registreringar vid dörren. Bara du ser dem.</div></div>'
+      : '') +
     '<div class="err" id="aFel"></div>' +
     '<div class="btn-rad"><button class="btn btn-ghost" id="aAvbryt">Avbryt</button>' +
     '<button class="btn btn-primary" id="aSpara">Spara</button></div>');
@@ -545,6 +553,7 @@ function anvandarFormular(a) {
         snabbtider: $('aMall').value.split(',').map((t) => t.trim()).filter(Boolean),
         losenord: $('aLosen').value || undefined,
         aktiv: a ? $('aAktiv').checked : true,
+        bevakad: $('aBevakad') ? $('aBevakad').checked : undefined,
       });
       stangPanel('modal');
       toast('Användaren sparad');

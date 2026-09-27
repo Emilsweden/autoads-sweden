@@ -69,7 +69,7 @@ export function visaVy(vy) {
   if (vy === 'karta') karta.visa();
   if (vy === 'lista') listor.ritaLista();
   if (vy === 'bokningar') visaBokningsflik();
-  if (vy === 'nyheter') { flode.oppnad(); flode.rita(); }
+  if (vy === 'nyheter') { flode.oppnad(); flode.rita(); visaRaknare(0); }
   if (vy === 'admin') admin.rita();
   if (vy === 'dashboard') {
     dashboard.rita();
@@ -160,10 +160,42 @@ async function kollaPuls() {
     return;   // utan täckning är tystnad rätt svar
   }
   if (!svar || !svar.senast) return;
-  if (!senastePuls) { senastePuls = svar.senast; return; }
+  if (!senastePuls) { senastePuls = svar.senast; raknaNyheter(); return; }
   if (svar.senast <= senastePuls) return;
   senastePuls = svar.senast;
   uppdateraSynligt();
+  raknaNyheter();
+}
+
+/*
+ * Räknaren på Nyheter: hur många nyheter som kommit sedan man senast
+ * tittade. Så syns det att något hänt utan att man behöver öppna flödet —
+ * för administratören också allt ett bevakat konto gör.
+ */
+async function raknaNyheter() {
+  if (!S.anvandare) return;
+  let d;
+  try {
+    d = await anrop('nyheter', { antal: 100 });
+  } catch (e) {
+    return;   // utan täckning står det gamla talet kvar
+  }
+  const nya = (d.nyheter || []).filter((n) => n.skapad > (d.sedda_till || 0)).length;
+  visaRaknare(S.vy === 'nyheter' ? 0 : nya);
+}
+
+function visaRaknare(antal) {
+  const knapp = document.querySelector('#botten button[data-vy="nyheter"]');
+  if (!knapp) return;
+  let r = knapp.querySelector('.raknare');
+  if (!antal) { if (r) r.remove(); return; }
+  if (!r) {
+    r = document.createElement('span');
+    r.className = 'raknare';
+    knapp.appendChild(r);
+  }
+  r.textContent = antal > 99 ? '99+' : String(antal);
+  r.setAttribute('aria-label', antal + ' nya nyheter');
 }
 
 /** Hämtar om det som faktiskt syns — inte allt. */
