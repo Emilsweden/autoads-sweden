@@ -165,6 +165,38 @@ describe('bevakade konton', () => {
     assert.match(rad.text, /Broschyrvägen 2/);
   });
 
+  it('en registrering som skickas om — kön eller ett dubbeltryck — blir en rad, inte två', async () => {
+    const dorr = (await anrop(s.url, 'adress-ny', { gata: 'Omsändarvägen', nummer: '1', postort: 'Sala' }, klasPlus.token)).adress;
+    const data = { adress_id: dorr.id, resultat: 'ejsvar', klient_id: 'klas-omsand-1' };
+    await anrop(s.url, 'handelse', data, klasPlus.token);
+    await anrop(s.url, 'handelse', data, klasPlus.token);
+    const rader = (await aktivitet()).filter((n) => /registrerade.*Omsändarvägen 1/.test(n.text));
+    assert.equal(rader.length, 1, JSON.stringify(rader.map((n) => n.text)));
+  });
+
+  it('bokar han åt någon annan blir det en rad, inte två', async () => {
+    const r = await anrop(s.url, 'kalender-boka', {
+      datum: DAG, tid: '12:00', saljare_id: klasBes.id, fornamn: 'Åtannan', telefon: '070',
+      adress: 'Åtannanvägen 3, Sala', bokare_id: bea.id,
+    }, klasPlus.token);
+    assert.equal(r.kod, 200, r.fel);
+    const rader = (await adminsNyheter()).filter((n) => /Åtannanvägen 3/.test(n.text));
+    assert.equal(rader.length, 1, JSON.stringify(rader.map((n) => n.text)));
+  });
+
+  it('en ändrad ort på en bokning syns', async () => {
+    await anrop(s.url, 'bokning-andra', { id: bokning.id, postort: 'Västerås' }, klasPlus.token);
+    assert.ok((await aktivitet()).some((n) => /adress Bevakningsgatan 4, Sala → Bevakningsgatan 4, Västerås/.test(n.text)));
+  });
+
+  it('en raderad dörr som tas tillbaka syns', async () => {
+    const dorr = (await anrop(s.url, 'adress-ny', { gata: 'Tillbakavägen', nummer: '5', postort: 'Sala' }, bea.token)).adress;
+    await anrop(s.url, 'handelse', { adress_id: dorr.id, resultat: 'nej' }, bea.token);
+    await anrop(s.url, 'adress-ta-bort', { id: dorr.id }, admin.token);
+    await anrop(s.url, 'adress-ny', { gata: 'Tillbakavägen', nummer: '5', postort: 'Sala' }, klasPlus.token);
+    assert.ok((await aktivitet()).some((n) => /tog tillbaka dörren Tillbakavägen 5/.test(n.text)));
+  });
+
   it('administratören slår av bevakningen, och då slutar raderna', async () => {
     assert.equal((await bevaka(klasBes, false)).kod, 200);
     const fore = (await aktivitet()).length;

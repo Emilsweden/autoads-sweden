@@ -1598,7 +1598,8 @@ async function hittaEllerSkapaAdress(env, anv, body, { omradeId: betrott } = {})
     const satt = [];
     const varden = [];
     // En raderad dörr som skapas igen kommer tillbaka, med sin historik.
-    if (befintlig.dold) {
+    const aterstalld = !!befintlig.dold;
+    if (aterstalld) {
       satt.push('dold=NULL', 'dold_av=NULL');
       befintlig.dold = null;
     }
@@ -1622,7 +1623,7 @@ async function hittaEllerSkapaAdress(env, anv, body, { omradeId: betrott } = {})
     if (satt.length) {
       await kor(env, 'UPDATE adresser SET ' + satt.join(', ') + ' WHERE id=?' + (varden.push(befintlig.id)), ...varden);
     }
-    return { adress: putsaAdress(befintlig), fanns: true };
+    return { adress: putsaAdress(befintlig), fanns: true, ...(aterstalld ? { aterstalld: true } : {}) };
   }
 
   // Område: det säljaren valt, annars en samlingsplats för lösa adresser.
@@ -3351,7 +3352,7 @@ async function foreAktivitet(env, namn, body) {
 function bokningsDiff(fore, efter) {
   if (!fore || !efter) return [];
   const namn = (b) => [b.fornamn, b.efternamn].filter(Boolean).join(' ');
-  const adr = (b) => (b.gata ? b.gata + ' ' + b.nummer : '');
+  const adr = (b) => (b.gata ? b.gata + ' ' + b.nummer + (b.postort ? ', ' + b.postort : '') : '');
   return [
     ['namn', namn], ['telefon', (b) => b.telefon], ['adress', adr], ['lägenhet', (b) => b.lagenhet],
     ['anteckning', (b) => b.kommentar], ['stege', (b) => (nr(b.stege) ? 'ja' : 'nej')],
@@ -3367,6 +3368,7 @@ async function beskrivAktivitet(env, namn, body, fore, data) {
     case 'handelse':
       return 'registrerade ' + (UTFALL_ORD[resultatUr(body.resultat)] || body.resultat) + ' på ' + adressText(f.adress);
     case 'adress-ny':
+      if (data && data.aterstalld) return 'tog tillbaka dörren ' + adressText(data.adress);
       return data && data.fanns ? null : 'skapade dörren ' + adressText(data && data.adress);
     case 'adress-andra':
       return 'rättade adressen ' + adressText(f.adress) + ' → ' + adressText(data && data.adress);
@@ -3407,7 +3409,7 @@ async function beskrivAktivitet(env, namn, body, fore, data) {
     case 'anteckningar-importera':
       return 'sparade inklistrade anteckningar';
     case 'adresser-stada':
-      return 'slog ihop dubbla adresser';
+      return body.kor ? 'slog ihop dubbla adresser' : null;   // förhandsvisningen ändrar inget
     case 'installningar-spara':
       return 'ändrade reglerna (spärrar och mål)';
     default:
@@ -3424,6 +3426,8 @@ async function loggaAktivitet(env, namn, body, anv, fore, data) {
   // Bara det här anropets egna nyheter räknas — inte en annan förfrågan
   // från samma konto som råkar skriva samtidigt.
   if (namn !== 'bokning-andra' && env.skrivnaNyheter.length) return;
+  // En omsänd registrering (kön, ett dubbeltryck) gjorde ingenting nytt.
+  if (data && data.redan_sparad) return;
   const text = await beskrivAktivitet(env, namn, body, fore, data);
   if (!text) return;
   await nyhet(env, 'aktivitet', anv.namn + ' ' + text, { anvandare_id: anv.id });

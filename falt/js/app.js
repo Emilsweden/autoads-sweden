@@ -173,14 +173,17 @@ async function kollaPuls() {
  * för administratören också allt ett bevakat konto gör.
  */
 async function raknaNyheter() {
-  if (!S.anvandare) return;
+  // Med flödet öppet ritas det redan om, och räknaren står på noll.
+  if (!S.anvandare || S.vy === 'nyheter') return;
   let d;
   try {
     d = await anrop('nyheter', { antal: 100 });
   } catch (e) {
     return;   // utan täckning står det gamla talet kvar
   }
-  const nya = (d.nyheter || []).filter((n) => n.skapad > (d.sedda_till || 0)).length;
+  // Det man själv gjort är inget nytt för en själv.
+  const nya = (d.nyheter || []).filter((n) => n.skapad > (d.sedda_till || 0) &&
+    n.anvandare_id !== S.anvandare.id).length;
   visaRaknare(S.vy === 'nyheter' ? 0 : nya);
 }
 

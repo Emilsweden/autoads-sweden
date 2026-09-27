@@ -7,7 +7,7 @@
 - Arbetsgren: `claude/door-knock-sales-app-1oegem`. Version 2026-09-23.1
   rullades ut från grenen 2026-09-23 16:06. `main` ligger efter.
 - 2026-09-27: bevakade konton och räknaren på Nyheter (version 2026-09-27.1).
-- Tester: 127, alla gröna (`./tester/kor.sh`), inklusive webbläsartester.
+- Tester: 134, alla gröna (`./tester/kor.sh`), inklusive webbläsartester.
 - Granskat av kodgranskare, säkerhetsgranskare och en genomgång av tysta
   fel; allt som hittades är rättat och har tester.
 
