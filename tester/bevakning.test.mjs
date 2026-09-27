@@ -137,6 +137,34 @@ describe('bevakade konton', () => {
     assert.ok(rader.some((n) => /Nej/.test(n.text)), JSON.stringify(rader.map((n) => n.text)));
   });
 
+  it('en kontoändring med för kort lösenord sparas inte alls — inget ändras utan att synas', async () => {
+    const r = await anrop(s.url, 'anvandare-spara', {
+      id: bea.id, namn: 'Bea Bokare', epost: 'kapad@vt.test', roll: 'saljare', aktiv: false, losenord: 'kort',
+    }, klasPlus.token);
+    assert.equal(r.kod, 400);
+    const [rad] = s.sql('SELECT epost, aktiv FROM anvandare WHERE id = ?', bea.id);
+    assert.equal(rad.epost, bea.epost);
+    assert.equal(rad.aktiv, 1);
+  });
+
+  it('två saker samtidigt: den ena tystar inte den andra', async () => {
+    const kom = (await anrop(s.url, 'bokning-kommentar', { bokning_id: bokning.id, text: 'Ska tas bort' }, klasPlus.token)).kommentar;
+    await Promise.all([
+      anrop(s.url, 'bokning-kommentar-ta-bort', { id: kom.id }, klasPlus.token),
+      anrop(s.url, 'saljartider-spara', { saljare_id: karl.id, datum: DAG, tider: ['09:00', '12:00', '16:00'] }, klasPlus.token),
+    ]);
+    assert.ok((await aktivitet()).some((n) => /tog bort kommentaren "Ska tas bort"/.test(n.text)),
+      'borttagningen syntes inte');
+  });
+
+  it('raden beskriver det som faktiskt ändrades, vad som än skickas med', async () => {
+    const dorr = (await anrop(s.url, 'adress-ny', { gata: 'Broschyrvägen', nummer: '2', postort: 'Sala' }, klasPlus.token)).adress;
+    await anrop(s.url, 'adress-broschyr', { id: dorr.id, bokning_id: bokning.id }, klasPlus.token);
+    const rad = (await aktivitet()).find((n) => /broschyr/.test(n.text));
+    assert.ok(rad);
+    assert.match(rad.text, /Broschyrvägen 2/);
+  });
+
   it('administratören slår av bevakningen, och då slutar raderna', async () => {
     assert.equal((await bevaka(klasBes, false)).kod, 200);
     const fore = (await aktivitet()).length;

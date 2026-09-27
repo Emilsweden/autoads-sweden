@@ -575,6 +575,8 @@ async function nyhet(env, typ, text, extra = {}) {
 
 async function skrivNyhet(env, typ, text, extra) {
   const nu = Date.now();
+  // Anropet som skrev nyheten får veta det (se loggaAktivitet).
+  if (env.skrivnaNyheter && typ !== 'aktivitet') env.skrivnaNyheter.push(typ);
 
   // Lägger en besiktare in fyra tider på en kvart är det en sak som hänt,
   // inte fyra. Samma typ, samma person, inom en kvart skriver om raden i
@@ -1061,6 +1063,9 @@ api['anvandare-spara'] = async (env, request, body, anv) => {
     : Math.max(1, Math.min(20, Math.round(nr(body.max_per_dag, MAX_PER_DAG))));
 
   if (body.id) {
+    // Allt som kan nekas prövas innan något skrivs: annars sparades namn,
+    // e-post och roll fast svaret sa att det misslyckades.
+    if (body.losenord && String(body.losenord).length < 8) throw new Fel('Lösenordet måste vara minst 8 tecken');
     const finns = await en(env, 'SELECT roll FROM anvandare WHERE id = ?1', txt(body.id, 40));
     if (!finns) throw new Fel('Användaren finns inte', 404);
     if (!helAdmin && !tillatna.includes(finns.roll)) {
@@ -3309,24 +3314,37 @@ const adressText = (a) => (a ? a.gata + ' ' + a.nummer + (a.postort ? ', ' + a.p
 const BOKNING_MED_ADRESS = `SELECT b.*, ad.gata, ad.nummer, ad.postort, sa.namn AS besiktare FROM bokningar b
   LEFT JOIN adresser ad ON ad.id = b.adress_id LEFT JOIN anvandare sa ON sa.id = b.saljare_id WHERE b.id = ?1`;
 
+/*
+ * Vilken post varje anrop gäller, och i vilket fält. Uttryckligen per anrop:
+ * gissades det skulle ett extra fält i anropet kunna få raden att beskriva
+ * något annat än det som ändrades.
+ */
+const AKTIVITET_POST = {
+  'bokning-andra': ['bokning', 'id'], 'bokning-status': ['bokning', 'id'], 'bokning-ta-bort': ['bokning', 'id'],
+  'bokning-kommentar': ['bokning', 'bokning_id'], 'bokning-bilaga': ['bokning', 'bokning_id'],
+  'aterkoppling-spara': ['bokning', 'bokning_id'],
+  'bokning-kommentar-ta-bort': ['kommentar', 'id'], 'bilaga-ta-bort': ['bilaga', 'id'],
+  'handelse': ['adress', 'adress_id'], 'adress-ta-bort': ['adress', 'id'],
+  'adress-andra': ['adress', 'id'], 'adress-broschyr': ['adress', 'id'],
+  'anvandare-spara': ['konto', 'id'], 'anvandare-ta-bort': ['konto', 'id'],
+};
+
 /** Det som behövs för att beskriva anropet efteråt, hämtat innan det körs. */
 async function foreAktivitet(env, namn, body) {
-  const bokningId = txt(body.bokning_id, 40) || (namn.startsWith('bokning-') ? txt(body.id, 40) : '');
-  if (namn === 'bokning-kommentar-ta-bort') {
-    const k = await en(env, 'SELECT bokning_id, text FROM kommentarer WHERE id = ?1', txt(body.id, 40));
+  const [slag, falt] = AKTIVITET_POST[namn] || [];
+  const id = slag ? txt(body[falt], 40) : '';
+  if (!id) return {};
+  if (slag === 'bokning') return { bokning: await en(env, BOKNING_MED_ADRESS, id) };
+  if (slag === 'kommentar') {
+    const k = await en(env, 'SELECT bokning_id, text FROM kommentarer WHERE id = ?1', id);
     return { kommentar: k, bokning: k && await en(env, BOKNING_MED_ADRESS, k.bokning_id) };
   }
-  if (namn === 'bilaga-ta-bort') {
-    const f = await en(env, 'SELECT bokning_id FROM bilagor WHERE id = ?1', txt(body.id, 40));
+  if (slag === 'bilaga') {
+    const f = await en(env, 'SELECT bokning_id FROM bilagor WHERE id = ?1', id);
     return { bokning: f && await en(env, BOKNING_MED_ADRESS, f.bokning_id) };
   }
-  if (bokningId) return { bokning: await en(env, BOKNING_MED_ADRESS, bokningId) };
-  const adressId = txt(body.adress_id, 40) || (namn.startsWith('adress-') ? txt(body.id, 40) : '');
-  if (adressId) return { adress: await en(env, 'SELECT * FROM adresser WHERE id = ?1', adressId) };
-  if (namn.startsWith('anvandare-') && body.id) {
-    return { konto: await en(env, 'SELECT namn, roll FROM anvandare WHERE id = ?1', txt(body.id, 40)) };
-  }
-  return {};
+  if (slag === 'adress') return { adress: await en(env, 'SELECT * FROM adresser WHERE id = ?1', id) };
+  return { konto: await en(env, 'SELECT namn, roll FROM anvandare WHERE id = ?1', id) };
 }
 
 /** Vad som ändrades på en bokning, fält för fält: "telefon 070-111 → 070-999". */
@@ -3402,13 +3420,10 @@ async function beskrivAktivitet(env, namn, body, fore, data) {
  * gav en nyhet. Anropas bara efter att anropet lyckats: ett nekat försök
  * syns inte, bara det som faktiskt gjordes.
  */
-async function loggaAktivitet(env, namn, body, anv, fore, data, start) {
-  if (namn !== 'bokning-andra') {
-    const redan = await en(env,
-      `SELECT id FROM nyheter WHERE anvandare_id = ?1 AND skapad >= ?2 AND typ <> 'aktivitet' LIMIT 1`,
-      anv.id, start);
-    if (redan) return;
-  }
+async function loggaAktivitet(env, namn, body, anv, fore, data) {
+  // Bara det här anropets egna nyheter räknas — inte en annan förfrågan
+  // från samma konto som råkar skriva samtidigt.
+  if (namn !== 'bokning-andra' && env.skrivnaNyheter.length) return;
   const text = await beskrivAktivitet(env, namn, body, fore, data);
   if (!text) return;
   await nyhet(env, 'aktivitet', anv.namn + ' ' + text, { anvandare_id: anv.id });
@@ -3458,16 +3473,17 @@ export default {
       // Ett bevakat konto: läget före anropet, så att det går att säga vad
       // som ändrades — och vad som togs bort, som inte finns kvar efteråt.
       const bevakas = !!(anv && nr(anv.bevakad) && !LASANDE.has(namn));
-      const start = Date.now();
       const fore = bevakas ? await foreAktivitet(env, namn, body).catch(() => null) : null;
-      const data = await fn(env, request, body || {}, anv);
+      // En egen env per förfrågan: nyheterna anropet skriver samlas här.
+      const renv = bevakas ? { ...env, skrivnaNyheter: [] } : env;
+      const data = await fn(renv, request, body || {}, anv);
       if (!LASANDE.has(namn)) {
         // Pulsen får aldrig fälla ett anrop som redan lyckats.
         await kor(env, 'UPDATE andringar SET senast = ?1 WHERE id = 1', Date.now())
           .catch((e) => console.error('Pulsen kunde inte uppdateras efter ' + namn + ': ' + e.message));
       }
       if (bevakas) {
-        await loggaAktivitet(env, namn, body || {}, anv, fore, data, start)
+        await loggaAktivitet(renv, namn, body || {}, anv, fore, data)
           .catch((e) => console.error('Aktiviteten kunde inte loggas (' + namn + '): ' + e.message));
       }
       return svar(request, { ok: true, ...data });
