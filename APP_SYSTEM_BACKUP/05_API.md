@@ -13,7 +13,7 @@ Behörigheten står i koden först i varje funktion; här sammanfattad.
 | `jag` | Den inloggade, förmågor, arbetstid, inställningar | inloggad |
 | `byt-losenord` | Byter lösenord, loggar ut andra telefoner | inloggad |
 | `anvandare-lista` | Laget, med orter | `se_personal` |
-| `anvandare-spara` | Lägger upp/ändrar konto, arbetstid, max per dag, orter | `skapa_konton`, eller `skapa_besiktare` (bara besiktare) |
+| `anvandare-spara` | Lägger upp/ändrar konto, arbetstid, max per dag, orter; `bevakad` bara av admin | `skapa_konton`, eller `skapa_besiktare` (bara besiktare) |
 | `anvandare-ta-bort` | Tar bort ett konto | `skapa_konton` |
 | `anvandare-statistik` | Siffror för en person | `se_personal` |
 | `platser` | Orterna och vem som jobbar var | `se_tider`, `eget_schema` eller `se_personal` |
@@ -69,7 +69,7 @@ Varje bokningsrad bär flaggorna `far_andra`, `far_byt_besiktare`,
 
 | Anrop | Gör |
 |---|---|
-| `nyheter` | Flödet efter roll, utan det man svept bort eller rensat; `sedda_till` |
+| `nyheter` | Flödet efter roll, utan det man svept bort eller rensat; `sedda_till`. Rader av typen `aktivitet` (bevakade konton) bara för admin |
 | `nyheter-sedda` | Flyttar fram ens seddamarkering (aldrig bakåt) |
 | `nyheter-rensa` | Rensa allt — för en själv |
 | `nyhet-dolj`, `nyhet-visa` | Svep bort / ångra |

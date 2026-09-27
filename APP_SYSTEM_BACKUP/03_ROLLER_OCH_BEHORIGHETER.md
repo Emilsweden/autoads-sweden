@@ -58,6 +58,11 @@ på alla möten; lägger bara upp *besiktare* och ändrar bara besiktarkonton �
 kan inte ge någon en annan roll, inte ändra sitt eget konto. **Går inte att
 boka** och har inget eget schema. Raderar inga bokningar, dörrar eller konton.
 
+## Bevakning
+
+Bara administratören (rollen `admin`) kan bevaka ett konto och se vad det
+gör. Se [12_NYHETER.md](12_NYHETER.md).
+
 ## Var kontrollerna sitter
 
 `kraverFormaga`, `kraverKnackare`, `kraverStatistik`, `kraver` (rang),

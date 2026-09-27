@@ -2,7 +2,14 @@
 
 Nyast överst. Detaljerna står i commit-meddelandena (`git log`).
 
+## 2026-09-27.1 — bevakade konton
+
+- Administratören kan bevaka ett konto ("Bevaka — visa allt kontot gör i mina nyheter"). Allt kontot gör syns i administratörens nyheter: det som redan blir nyheter som vanligt, och det som annars är tyst (kommentarer, ändrade kunduppgifter, bilder, Nej/Inget svar vid dörren …) som egna rader. Bara administratören ser raderna och kan ändra bevakningen.
+- Knappen Nyheter visar antalet nya sedan man senast tittade.
+
 ## 2026-09-23.1 — roller, bokningsregler och fältflödet
+
+Utrullad 2026-09-23 16:06.
 
 Den stora specifikationen. Inte utrullad än.
 

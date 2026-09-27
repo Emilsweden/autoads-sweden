@@ -31,6 +31,7 @@ utrullningen lägger på efter schemat.
 | `nyheter.test.mjs` | Nya/Sedda, Rensa allt, ingen spam, Skapade |
 | `realtid.test.mjs` | Pulsen, dubbeltryck, köns tid |
 | `markorer.test.mjs` | Tre utfall, Återkom, radera dörr |
+| `bevakning.test.mjs` | Bevakade konton: vem som får bevaka, vad som loggas, vem som ser det |
 | `appen.test.mjs` | Webbläsaren: navigering, bokningsflödet, redigera, schemat, tiden först, omdöme, Skapade, nyheter |
 | `karta.test.mjs` | Webbläsaren: kartan, dörrar, husnummer, NEJ med ett tryck, radera, stil, offline |
 

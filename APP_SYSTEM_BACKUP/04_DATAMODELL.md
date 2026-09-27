@@ -12,7 +12,8 @@ Datum är `ÅÅÅÅ-MM-DD`, klockslag `HH:MM`, båda svensk tid.
 **anvandare** — id, namn, epost (unik), roll, team, `max_per_dag` (tak för
 möten per dag, standard 3), `snabbtider` (besiktarens mall, "10:00,13:00"),
 `arbetstid_fran`/`arbetstid_till` (NULL = 09:00/18:00), `nyheter_sedda` och
-`nyheter_rensade` (ms, per användare), hash, salt (PBKDF2), aktiv, skapad.
+`nyheter_rensade` (ms, per användare), `bevakad` (1 = allt kontot gör
+syns i administratörens nyheter), hash, salt (PBKDF2), aktiv, skapad.
 
 **sessioner** — token, anvandare_id, giltig_till (30 dagar).
 
