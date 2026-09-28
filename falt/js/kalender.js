@@ -11,7 +11,7 @@
  */
 
 import { anrop, ApiFel } from './api.js';
-import { $, esc, toast, oppnaPanel, stangPanel, idag, plusDagar, visaDatum, vecka, medVecka } from './ui.js';
+import { $, esc, toast, oppnaPanel, stangPanel, idag, plusDagar, vecka, medVecka } from './ui.js';
 import { S, kan, dataAndrad } from './state.js';
 import { redigeraBokning } from './redigera.js';
 

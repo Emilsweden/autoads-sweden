@@ -13,7 +13,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { starta } from './server.mjs';
-import { anrop, nyttSystem, nasta, plus } from './hjalp.mjs';
+import { anrop, nyttSystem, plus } from './hjalp.mjs';
 
 describe('omdöme efter mötet', () => {
   let s, admin, bokare, karl, nils, alma, plusBokare, igar, imorgon;
@@ -109,7 +109,9 @@ describe('omdöme efter mötet', () => {
   it('kunden bokade om: mötet flyttas med samma id och är bokat igen', async () => {
     const id = await motetIgar('Omboka');
     await anrop(s.url, 'aterkoppling-spara', { bokning_id: id, genomford: false, orsak: 'ombokad' }, karl.token);
-    const ny = nasta(4);
+    // Långt efter "i morgon" — med nasta(4) blev det samma dag på tisdagar, och
+    // 13:00-mötet stoppade de följande testerna från att byta ut dagens tider.
+    const ny = plus(imorgon, 8);
     await anrop(s.url, 'saljartider-spara', { saljare_id: karl.id, datum: ny, tider: ['13:00'] }, admin.token);
     const r = await anrop(s.url, 'bokning-andra', { id, datum: ny, tid: '13:00' }, karl.token);
     assert.equal(r.kod, 200, r.fel);

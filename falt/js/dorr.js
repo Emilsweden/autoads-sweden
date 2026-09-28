@@ -314,7 +314,7 @@ function historikHtml() {
       '<div class="htid">' + esc(visaTidpunkt(h.skapad)) + ' · ' + esc(h.saljare || 'Okänd') + '</div>' +
       '<div class="hrad"><b>' + esc(RESULTAT_TEXT[h.resultat] || h.resultat) + '</b>' +
       (h.orsak ? ' — ' + esc(h.orsak) : '') +
-      (h.aterkom_datum ? ' · återkom ' + esc(visaDatum(h.aterkom_datum)) + (h.aterkom_tid ? ' kl. ' + esc(h.aterkom_tid) : '') : '') +
+      (h.aterkom_datum ? ' · återkom ' + esc(medVecka(h.aterkom_datum)) + (h.aterkom_tid ? ' kl. ' + esc(h.aterkom_tid) : '') : '') +
       '</div>' +
       (bokning ? '<div class="hkomm">Kund: ' + esc([bokning.fornamn, bokning.efternamn].filter(Boolean).join(' ')) +
         (bokning.telefon ? ' · ' + esc(bokning.telefon) : '') +
@@ -335,7 +335,7 @@ function statusruta() {
     'Resultat: ' + esc(RESULTAT_TEXT[a.senast_resultat] || a.senast_resultat || '—'),
   ];
   if (a.aterkom_datum) {
-    rader.push('Nästa åtgärd: återkom ' + esc(visaDatum(a.aterkom_datum)) +
+    rader.push('Nästa åtgärd: återkom ' + esc(medVecka(a.aterkom_datum)) +
       (a.aterkom_tid ? ' kl. ' + esc(a.aterkom_tid) : ''));
   }
   if (a.antal_besok) rader.push('Antal besök: ' + a.antal_besok);
