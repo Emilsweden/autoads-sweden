@@ -4,6 +4,8 @@ Nyast överst. Detaljerna står i commit-meddelandena (`git log`).
 
 ## 2026-09-28.1 — veckonummer
 
+Utrullad 2026-09-28 14:46.
+
 - Veckonumret (v40) syns överallt där datum och kalendrar visas: schemats månad har veckan först på varje rad, bokningskalendern rubriken "Vecka 40" mellan veckorna, och dagarna i bokningen vid dörren, tiden först, Kommande, Månadslista, Skapade, Bokade adresser, kundkortet och redigera bokning visar "· v40" efter datumet. Svenska veckor (ISO 8601).
 
 ## 2026-09-27.1 — bevakade konton
