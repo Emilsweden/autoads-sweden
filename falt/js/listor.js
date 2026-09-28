@@ -7,7 +7,7 @@
  */
 
 import { anrop } from './api.js';
-import { $, esc, idag, visaDatum, visaTidpunkt, oppnaPanel, stangPanel } from './ui.js';
+import { $, esc, idag, visaDatum, visaTidpunkt, oppnaPanel, stangPanel, medVecka, vecka } from './ui.js';
 import { S, kan } from './state.js';
 import { redigeraBokning } from './redigera.js';
 
@@ -68,7 +68,7 @@ export async function ritaLista() {
     kommande.forEach((b) => {
       if (b.datum !== senasteDag) {
         senasteDag = b.datum;
-        html += '<div class="rubrik">' + esc(b.datum ? visaDatum(b.datum) : 'Utan datum') + '</div>';
+        html += '<div class="rubrik">' + esc(b.datum ? medVecka(b.datum) : 'Utan datum') + '</div>';
       }
       html += kortHtml(b);
     });
@@ -84,7 +84,7 @@ function kortHtml(b) {
   const idagNu = b.datum === idag();
   return '<button class="kort bokrad' + (idagNu ? ' idag-kort' : '') + '" data-bok="' + esc(b.id) + '">' +
     '<div class="kort-topp"><div>' +
-    '<div class="adress">' + esc(visaDatum(b.datum) || '—') + ' kl. ' + esc(b.tid || '—') + '</div>' +
+    '<div class="adress">' + esc(medVecka(b.datum) || '—') + ' kl. ' + esc(b.tid || '—') + '</div>' +
     '<div class="under">' + esc(b.adress || 'Adress saknas') +
     (b.kund ? ' · ' + esc(b.kund) : '') + '</div>' +
     '</div>' + (idagNu ? '<span class="märke m-aterkom">IDAG</span>' : '') + '</div>' +
@@ -190,7 +190,7 @@ function listHtml() {
   manadsBokningar.forEach((b) => {
     if (b.datum !== senasteDag) {
       senasteDag = b.datum;
-      html += '<div class="rubrik">' + esc(b.datum ? visaDatum(b.datum) : 'Utan datum') +
+      html += '<div class="rubrik">' + esc(b.datum ? medVecka(b.datum) : 'Utan datum') +
         (b.datum === nu ? ' · idag' : '') + '</div>';
     }
     const utfall = (b.aterkoppling || [])[0];
@@ -220,7 +220,7 @@ function visaBokning(id, lista) {
 
   oppnaPanel('modal',
     '<h2>' + esc(b.adress || 'Bokning') + '</h2>' +
-    '<p class="sub">' + esc([visaDatum(b.datum), b.tid && 'kl. ' + b.tid].filter(Boolean).join(' ')) + '</p>' +
+    '<p class="sub">' + esc([medVecka(b.datum), b.tid && 'kl. ' + b.tid].filter(Boolean).join(' ')) + '</p>' +
     '<div class="bokad-fakta" style="margin-top:14px">' +
     fakta('Kund', b.kund) +
     fakta('Telefon', b.telefon) +
@@ -297,14 +297,14 @@ export async function ritaSkapade() {
 
   behallare.innerHTML = (skapade.length
     ? '<div class="lista">' + [...perDag].map(([dag, rader]) =>
-      '<div class="rubrik">Skapade ' + esc(visaDatum(dag).toLowerCase()) + ' · ' + rader.length + '</div>' +
+      '<div class="rubrik">Skapade ' + esc(visaDatum(dag).toLowerCase()) + ' · v' + vecka(dag) + ' · ' + rader.length + '</div>' +
       rader.map((b) => '<button class="kort bokrad" data-bok="' + esc(b.id) + '">' +
         '<div class="kort-topp"><div>' +
         '<div class="adress">' + esc(b.adress || 'Adress saknas') + '</div>' +
         '<div class="under">' + esc(b.kund || 'Kund saknas') + (b.saljare ? ' · ' + esc(b.saljare) : '') + '</div>' +
         '</div><span class="märke m-' + (b.status === 'avbokad' ? 'nej' : 'bokat') + '">' +
         esc(new Date(b.skapad).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })) + '</span></div>' +
-        '<div class="rad"><span>Möte ' + esc(b.datum ? visaDatum(b.datum) + (b.tid ? ' kl. ' + b.tid : '') : 'utan tid') + '</span>' +
+        '<div class="rad"><span>Möte ' + esc(b.datum ? medVecka(b.datum) + (b.tid ? ' kl. ' + b.tid : '') : 'utan tid') + '</span>' +
         (b.bokare ? '<span>Bokad av ' + esc(b.bokare) + '</span>' : '') +
         (b.status === 'avbokad' ? '<span>Avbokad</span>' : '') + '</div></button>').join('')).join('') + '</div>'
     : '<div class="tom">Inga bokningar de senaste ' + skapadeDagar + ' dagarna.</div>') +

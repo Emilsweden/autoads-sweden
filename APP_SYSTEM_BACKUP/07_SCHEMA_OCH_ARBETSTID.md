@@ -17,8 +17,9 @@ Mötesbokare+. Mallen fyller en dag med ett tryck.
 
 ## Schemat i appen (Bokningar → Besiktarnas tider / Mina tider)
 
-- **Månaden**: ‹ månad ›, en ruta per dag med antal bokningsbara tider,
-  en prick per möte och en röd ring där något är blockerat.
+- **Månaden**: ‹ månad ›, veckonumret först på varje rad, en ruta per dag
+  med antal bokningsbara tider, en prick per möte och en röd ring där något
+  är blockerat.
 - **Dagen**: halvtimmarna inom arbetstiden, var och en *Ledig*, *Möte*,
   *Blockerad* (med orsak), *Ej bokbar* (inlagd men för nära ett möte eller
   dagen full) eller tom.

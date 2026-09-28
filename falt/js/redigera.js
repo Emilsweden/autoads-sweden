@@ -12,7 +12,7 @@
  */
 
 import { anrop } from './api.js';
-import { $, esc, toast, oppnaPanel, stangPanel, visaDatum } from './ui.js';
+import { $, esc, toast, oppnaPanel, stangPanel, visaDatum, veckoText } from './ui.js';
 import { dataAndrad } from './state.js';
 
 /**
@@ -44,7 +44,7 @@ export function redigeraBokning(b, { adress, panel = 'modal', klar, tillbaka } =
     falt('rbPostort', 'Ort', postort, 'address-level2') +
     falt('rbLagenhet', 'Lägenhet', b.lagenhet, 'off') +
     '</div>' +
-    '<div class="field"><label for="rbDatum">Datum</label>' +
+    '<div class="field"><label for="rbDatum">Datum <span id="rbVecka">' + esc(veckoText(b.datum)) + '</span></label>' +
     '<input id="rbDatum" type="date" value="' + esc(b.datum || '') + '"></div>' +
     '<h3>Tid</h3><div id="rbTider" class="chips tider">Hämtar tider…</div>' +
     '<div class="field" id="rbBesRad" hidden style="margin-top:14px"><label for="rbBesiktare">Besiktare</label>' +
@@ -111,7 +111,7 @@ export function redigeraBokning(b, { adress, panel = 'modal', klar, tillbaka } =
   }
 
   laddaTider();
-  $('rbDatum').onchange = () => { valdTid = ''; laddaTider(); };
+  $('rbDatum').onchange = () => { valdTid = ''; $('rbVecka').textContent = veckoText($('rbDatum').value); laddaTider(); };
 
   $('rbTillbaka').onclick = () => (tillbaka ? tillbaka() : stangPanel(panel));
 

@@ -55,10 +55,13 @@ describe('omdöme efter mötet', () => {
     const b = await rad(karl, id);
     assert.equal(b.status, 'bokad');
     assert.equal(b.lamna_omdome, true);
-    // Ett möte som inte varit än ska inte ha någon sådan uppmaning.
-    await anrop(s.url, 'saljartider-spara', { saljare_id: karl.id, datum: nasta(3), tider: ['12:00'] }, admin.token);
+    // Ett möte som inte varit än ska inte ha någon sådan uppmaning. En vecka
+    // efter "i morgon", så att dagen aldrig blir samma som motetIgar använder —
+    // då skulle 12:00-mötet stoppa nästa test från att byta ut dagens tider.
+    const senare = plus(imorgon, 7);
+    await anrop(s.url, 'saljartider-spara', { saljare_id: karl.id, datum: senare, tider: ['12:00'] }, admin.token);
     const framtid = (await anrop(s.url, 'kalender-boka', {
-      datum: nasta(3), tid: '12:00', saljare_id: karl.id, fornamn: 'Framtid', telefon: '070', adress: 'Framgatan 1, Sala',
+      datum: senare, tid: '12:00', saljare_id: karl.id, fornamn: 'Framtid', telefon: '070', adress: 'Framgatan 1, Sala',
     }, bokare.token)).bokning.id;
     assert.equal((await rad(karl, framtid)).lamna_omdome, false);
   });

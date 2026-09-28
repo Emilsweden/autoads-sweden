@@ -2,7 +2,14 @@
 
 Nyast överst. Detaljerna står i commit-meddelandena (`git log`).
 
+## 2026-09-28.1 — veckonummer
+
+- Veckonumret (v40) syns överallt där datum och kalendrar visas: schemats månad har veckan först på varje rad, bokningskalendern rubriken "Vecka 40" mellan veckorna, och dagarna i bokningen vid dörren, tiden först, Kommande, Månadslista, Skapade, Bokade adresser, kundkortet och redigera bokning visar "· v40" efter datumet. Svenska veckor (ISO 8601).
+
 ## 2026-09-27.1 — bevakade konton
+
+Utrullad 2026-09-27 13:20.
+
 
 - Administratören kan bevaka ett konto ("Bevaka — visa allt kontot gör i mina nyheter"). Allt kontot gör syns i administratörens nyheter: det som redan blir nyheter som vanligt, och det som annars är tyst (kommentarer, ändrade kunduppgifter, bilder, Nej/Inget svar vid dörren …) som egna rader. Bara administratören ser raderna och kan ändra bevakningen.
 - Knappen Nyheter visar antalet nya sedan man senast tittade.
@@ -11,7 +18,7 @@ Nyast överst. Detaljerna står i commit-meddelandena (`git log`).
 
 Utrullad 2026-09-23 16:06.
 
-Den stora specifikationen. Inte utrullad än.
+Den stora specifikationen.
 
 **Roller och behörigheter**
 - Fyra roller i appen: Mötesbokare, Mötesbokare+ (översta), Besiktare, Admin Besiktare. Allt avgörs i servern.

@@ -1,13 +1,15 @@
 # 18 — Nuläge
 
-*Skrivet 2026-09-23, uppdaterat 2026-09-27.*
+*Skrivet 2026-09-23, uppdaterat 2026-09-28.*
 
 ## Kod
 
 - Arbetsgren: `claude/door-knock-sales-app-1oegem`. Version 2026-09-23.1
   rullades ut från grenen 2026-09-23 16:06. `main` ligger efter.
-- 2026-09-27: bevakade konton och räknaren på Nyheter (version 2026-09-27.1).
-- Tester: 134, alla gröna (`./tester/kor.sh`), inklusive webbläsartester.
+- 2026-09-27: bevakade konton och räknaren på Nyheter (version 2026-09-27.1),
+  utrullad 2026-09-27 13:20.
+- 2026-09-28: veckonummer i alla kalendrar och vid alla datum (version 2026-09-28.1).
+- Tester: 137, alla gröna (`./tester/kor.sh`), inklusive webbläsartester.
 - Granskat av kodgranskare, säkerhetsgranskare och en genomgång av tysta
   fel; allt som hittades är rättat och har tester.
 

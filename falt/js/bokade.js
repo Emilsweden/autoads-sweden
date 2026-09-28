@@ -6,7 +6,7 @@
  */
 
 import { anrop } from './api.js';
-import { $, esc, toast, oppnaPanel, stangPanel, visaDatum, visaTidpunkt, idag } from './ui.js';
+import { $, esc, toast, oppnaPanel, stangPanel, visaDatum, visaTidpunkt, idag, medVecka, veckoText } from './ui.js';
 import { S, arRoll, kan, dataAndrad } from './state.js';
 import { redigeraBokning } from './redigera.js';
 
@@ -88,7 +88,8 @@ function kort(b) {
   const kund = b.kund || 'Kund saknas';
   return '<div class="bokad-kort' + (utfalld ? ' oppen' : '') + '">' +
     '<button class="bokad-topp" data-oppna="' + esc(b.id) + '">' +
-    '<span class="bokad-tid"><b>' + esc(visaDatum(b.datum) || '—') + '</b><span>' + esc(b.tid || '') + '</span></span>' +
+    '<span class="bokad-tid"><b>' + esc(visaDatum(b.datum) || '—') + '</b><span>' + esc(b.tid || '') +
+      (b.datum ? ' · ' + esc(veckoText(b.datum)) : '') + '</span></span>' +
     '<span class="bokad-mitt"><b>' + esc(b.adress || '—') + '</b>' +
     '<span>' + esc(kund) + (b.postort ? ' · ' + esc(b.postort) : '') + '</span></span>' +
     '<span class="bokad-hoger">' +
@@ -128,7 +129,7 @@ function detaljer(b) {
     rad('Kund', b.kund) +
     rad('Telefon', b.telefon) +
     rad('Adress', [b.adress, b.postort].filter(Boolean).join(', ')) +
-    rad('Tid', [visaDatum(b.datum), b.tid && 'kl. ' + b.tid].filter(Boolean).join(' ')) +
+    rad('Tid', [medVecka(b.datum), b.tid && 'kl. ' + b.tid].filter(Boolean).join(' ')) +
     rad('Bokad av', b.bokare) +
     rad('Säljare', b.saljare) +
     rad('Område', b.omrade) +
@@ -234,7 +235,7 @@ function lamnaOmdome(id) {
 
   const panel = oppnaPanel('modal',
     '<h2>Lämna omdöme</h2><p class="sub">' + esc(b.adress || '') + (b.kund ? ' · ' + esc(b.kund) : '') +
-    (b.datum ? ' · ' + esc(visaDatum(b.datum)) + (b.tid ? ' kl. ' + esc(b.tid) : '') : '') + '</p>' +
+    (b.datum ? ' · ' + esc(medVecka(b.datum)) + (b.tid ? ' kl. ' + esc(b.tid) : '') : '') + '</p>' +
     '<h3>Genomfördes bokningen?</h3>' + jaNej('genomford') +
     '<div id="oJa" hidden>' +
     '<div class="field"><label for="oVad">Vad hände?</label>' +

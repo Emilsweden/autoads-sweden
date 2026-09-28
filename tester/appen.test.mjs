@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 
 import { starta } from './server.mjs';
 import { anrop, nyttSystem, nasta, LOSENORD } from './hjalp.mjs';
+import { vecka } from '../falt/js/ui.js';
 
 async function hittaPlaywright() {
   for (const vag of ['playwright', '/opt/node22/lib/node_modules/playwright/index.mjs']) {
@@ -77,6 +78,8 @@ describe('appen', { skip: !pw && 'Playwright saknas — installera med: npm i -g
     // Kunden ska inte kunna fyllas i förrän tiden är vald.
     await sida.waitForSelector(`.dagruta[data-dag="${MANDAG}"]`, { timeout: 10000 });
     assert.equal(await sida.$('#bFornamn'), null, 'kundfälten syns innan tiden är vald');
+    // Varje dag visar sin vecka, "· v40".
+    assert.match(await sida.textContent(`.dagruta[data-dag="${MANDAG}"] b`), new RegExp('· v' + vecka(MANDAG) + '$'));
 
     await sida.click(`.dagruta[data-dag="${MANDAG}"]`);
     await sida.waitForSelector('.tidval-bes', { timeout: 10000 });
@@ -129,7 +132,15 @@ describe('appen', { skip: !pw && 'Playwright saknas — installera med: npm i -g
     const admin = await oppna(alma.epost);
     await admin.sida.click('#botten button[data-vy="bokningar"]');
     await admin.sida.click('#bokFlikar [data-bok="tider"]');
+    // Veckonumret först på varje rad i månaden: raden med måndagen börjar med dess vecka.
+    await admin.sida.waitForSelector('.mkal', { timeout: 10000 });
+    if (!(await admin.sida.$(`.mkal-dag[data-dag="${MANDAG}"]`))) await admin.sida.click('#tFram');
+    await admin.sida.waitForSelector(`.mkal-dag[data-dag="${MANDAG}"]`);
+    assert.equal(await admin.sida.$eval(`.mkal-dag[data-dag="${MANDAG}"]`,
+      (e) => e.previousElementSibling?.classList.contains('mkal-vecka') && e.previousElementSibling.textContent),
+    String(vecka(MANDAG)));
     await vandTillDagen(admin.sida);
+    assert.match(await admin.sida.textContent('#tiderInnehall .kal-rubrik'), new RegExp('v' + vecka(MANDAG)));
     await admin.sida.click('[data-lage="blockera"]');
     await admin.sida.fill('#tOrsak', 'Tandläkare');
     await admin.sida.click('.tidruta[data-tid="12:00"]');
@@ -215,6 +226,15 @@ describe('appen', { skip: !pw && 'Playwright saknas — installera med: npm i -g
     assert.equal(await sida.$('#anteckningarKnapp'), null, 'Klistra in ska inte finnas i Kommande');
 
     await sida.click('#botten button[data-vy="bokningar"]');
+    // Bokningskalendern: varje dag står under rubriken för sin egen vecka.
+    await sida.waitForSelector('#kalenderInnehall .veckorubrik', { timeout: 10000 });
+    const parVeckaDag = await sida.$$eval('#kalenderInnehall .dagrad', (rader) => rader.map((r) => {
+      let e = r.previousElementSibling;
+      while (e && !e.classList.contains('veckorubrik')) e = e.previousElementSibling;
+      return [r.dataset.dag, e?.textContent];
+    }));
+    assert.ok(parVeckaDag.length);
+    for (const [dag, rubrik] of parVeckaDag) assert.equal(rubrik, 'Vecka ' + vecka(dag), dag);
     await sida.click('#bokFlikar [data-bok="skapade"]');
     await sida.waitForSelector('#skapadeInnehall .bokrad', { timeout: 10000 });
     const namn = await sida.$$eval('#skapadeInnehall .bokrad .under', (n) => n.map((e) => e.textContent));

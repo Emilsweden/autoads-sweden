@@ -11,7 +11,7 @@
  */
 
 import { anrop, ApiFel } from './api.js';
-import { $, esc, toast, oppnaPanel, stangPanel, idag, plusDagar, visaDatum } from './ui.js';
+import { $, esc, toast, oppnaPanel, stangPanel, idag, plusDagar, visaDatum, vecka, medVecka } from './ui.js';
 import { S, kan, dataAndrad } from './state.js';
 import { redigeraBokning } from './redigera.js';
 
@@ -113,10 +113,12 @@ function manadsHtml() {
     '<span>' + bokade + ' bokade · ' + fria + ' lediga</span></div>' +
     '<button class="kal-pil" id="kalFram" aria-label="Nästa månad">›</button></div>' +
     (rader.length
-      ? '<div class="dagrader">' + rader.map((dat) => {
+      ? '<div class="dagrader">' + rader.map((dat, i) => {
         const antal = perDag[dat] || 0;
         const lediga = ledigaPerDag[dat] || 0;
-        return '<button class="dagrad' + (dat === nu ? ' idag' : '') +
+        // En rubrik för varje ny vecka: "Vecka 40".
+        const ny = i === 0 || vecka(rader[i - 1]) !== vecka(dat);
+        return (ny ? '<div class="veckorubrik">Vecka ' + vecka(dat) + '</div>' : '') + '<button class="dagrad' + (dat === nu ? ' idag' : '') +
           (dat < nu ? ' passerad' : '') + '" data-dag="' + esc(dat) + '">' +
           '<span class="dagrad-dag"><b>' + esc(kortDatum(dat)) + '</b>' +
           '<span>' + DAGNAMN[(veckodag(dat) + 6) % 7] + '</span></span>' +
@@ -140,7 +142,7 @@ const kortDatum = (d) => Number(d.slice(8, 10)) + '/' + Number(d.slice(5, 7));
  */
 function dagsHtml() {
   const dat = valdDag;
-  const rubrik = visaDatum(dat);
+  const rubrik = medVecka(dat);
   const bokDag = bokningar.filter((b) => b.datum === dat);
   const inlagda = tider.filter((t) => t.datum === dat);
 
@@ -286,7 +288,7 @@ function visaBokningsformular(tid, saljareId) {
     : '';
 
   oppnaPanel('modal',
-    '<h2>' + esc(visaDatum(valdDag)) + ' kl. ' + esc(tid) + '</h2>' +
+    '<h2>' + esc(medVecka(valdDag)) + ' kl. ' + esc(tid) + '</h2>' +
     '<p class="sub">' +
     (lediga.length > 1
       ? esc(String(lediga.length)) + ' besiktare är lediga den tiden — välj vem som tar mötet.'

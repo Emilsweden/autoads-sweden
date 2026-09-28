@@ -6,7 +6,7 @@
 import { anrop, ApiFel, laggIKo } from './api.js';
 import {
   $, esc, toast, oppnaPanel, stangPanel, idag, plusDagar, visaDatum, visaTidpunkt,
-  sedan, STATUS_TEXT, RESULTAT_TEXT,
+  sedan, STATUS_TEXT, RESULTAT_TEXT, medVecka,
 } from './ui.js';
 import { S, arRoll, kan, dataAndrad } from './state.js';
 import { delaAdress, vagbeskrivning, kartappNamn } from './geo.js';
@@ -147,7 +147,7 @@ function visaBokning() {
       '<p class="sub">Eller välj en dag med lediga tider.</p>' +
       '<div class="dagval">' + dagar.map((d) =>
         '<button class="dagruta" data-dag="' + esc(d.datum) + '">' +
-        '<b>' + esc(visaDatum(d.datum)) + '</b>' +
+        '<b>' + esc(medVecka(d.datum)) + '</b>' +
         '<span>' + d.lediga + ' ledig' + (d.lediga > 1 ? 'a' : '') + ' · ' +
         esc(d.besiktare.join(', ')) + '</span></button>').join('') + '</div>';
 
@@ -175,7 +175,7 @@ function visaBokning() {
       return;
     }
     ut.innerHTML = '<div class="tidval">' + svar.dagar.map((d) =>
-      '<div class="tidval-block"><div class="tidval-tid">' + esc(visaDatum(d.datum)) + ' kl. ' + esc(tid) + '</div>' +
+      '<div class="tidval-block"><div class="tidval-tid">' + esc(medVecka(d.datum)) + ' kl. ' + esc(tid) + '</div>' +
       d.besiktare.map((b) => '<button class="tidval-bes" data-forst-dag="' + esc(d.datum) + '" data-bes="' +
         esc(b.id) + '" data-namn="' + esc(b.namn) + '">' + esc(b.namn) + '<span>Ledig</span></button>').join('') +
       '</div>').join('') + '</div>';
@@ -205,7 +205,7 @@ function visaBokning() {
 
     ruta.innerHTML =
       '<button class="knapp-mork" id="bTillbakaDag">‹ Byt dag</button>' +
-      '<p class="sub" style="margin-top:10px">' + esc(visaDatum(valdDag)) + ' — välj tid och besiktare.</p>' +
+      '<p class="sub" style="margin-top:10px">' + esc(medVecka(valdDag)) + ' — välj tid och besiktare.</p>' +
       (svar.tider.length
         ? '<div class="tidval">' + svar.tider.map((t) =>
           '<div class="tidval-block"><div class="tidval-tid">' + esc(t) + '</div>' +
@@ -230,7 +230,7 @@ function visaBokning() {
   function visaKund() {
     $('bSteg').innerHTML =
       '<button class="knapp-mork" id="bTillbakaTid">‹ Byt tid</button>' +
-      '<div class="vald-tid">' + esc(visaDatum(valdDag)) + ' kl. ' + esc(valdTid) +
+      '<div class="vald-tid">' + esc(medVecka(valdDag)) + ' kl. ' + esc(valdTid) +
       ' · ' + esc(valdSaljarNamn) + '</div>' +
       '<div class="rad2">' +
       '<div class="field"><label for="bFornamn">Förnamn</label>' +
@@ -318,7 +318,7 @@ function historikHtml() {
       '</div>' +
       (bokning ? '<div class="hkomm">Kund: ' + esc([bokning.fornamn, bokning.efternamn].filter(Boolean).join(' ')) +
         (bokning.telefon ? ' · ' + esc(bokning.telefon) : '') +
-        (bokning.datum ? ' · ' + esc(visaDatum(bokning.datum)) + (bokning.tid ? ' kl. ' + esc(bokning.tid) : '') : '') +
+        (bokning.datum ? ' · ' + esc(medVecka(bokning.datum)) + (bokning.tid ? ' kl. ' + esc(bokning.tid) : '') : '') +
         '</div>' : '') +
       (h.kommentar ? '<div class="hkomm">' + esc(h.kommentar) + '</div>' : '') +
       '</div>';
@@ -394,7 +394,7 @@ function kundkort() {
   const kund = [b.fornamn, b.efternamn].filter(Boolean).join(' ');
   return '<div class="kundkort">' +
     '<div class="kundkort-topp"><span class="märke m-bokat">BOKAD</span>' +
-    (b.datum ? '<b>' + esc(visaDatum(b.datum)) + (b.tid ? ' kl. ' + esc(b.tid) : '') + '</b>' : '') +
+    (b.datum ? '<b>' + esc(medVecka(b.datum)) + (b.tid ? ' kl. ' + esc(b.tid) : '') + '</b>' : '') +
     '</div>' +
     (kund ? '<div class="kundnamn">' + esc(kund) + '</div>' : '') +
     (b.telefon ? '<div class="kundrad">' + esc(b.telefon) + '</div>' : '') +

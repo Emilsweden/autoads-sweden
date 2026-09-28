@@ -127,6 +127,35 @@ export function sedan(ms) {
   return man + (man === 1 ? ' månad sedan' : ' månader sedan');
 }
 
+/**
+ * Veckonumret som i svenska kalendrar (ISO 8601): veckan börjar på måndag
+ * och vecka 1 är den med årets första torsdag. Tar "ÅÅÅÅ-MM-DD" eller ett
+ * Date; null om det inte är ett datum.
+ */
+export function vecka(d) {
+  let y, m, dag;
+  if (d instanceof Date) {
+    if (isNaN(d)) return null;
+    [y, m, dag] = [d.getFullYear(), d.getMonth() + 1, d.getDate()];
+  } else {
+    const t = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || ''));
+    if (!t) return null;
+    [y, m, dag] = [+t[1], +t[2], +t[3]];
+  }
+  // Torsdagen i samma vecka avgör vilket år — och därmed vilken vecka.
+  const t = new Date(Date.UTC(y, m - 1, dag));
+  t.setUTCDate(t.getUTCDate() + 3 - ((t.getUTCDay() + 6) % 7));
+  const forstaTorsdag = new Date(Date.UTC(t.getUTCFullYear(), 0, 4));
+  forstaTorsdag.setUTCDate(forstaTorsdag.getUTCDate() + 3 - ((forstaTorsdag.getUTCDay() + 6) % 7));
+  return 1 + Math.round((t - forstaTorsdag) / (7 * 86400000));
+}
+
+/** "v40" — kort nog att stå bredvid ett datum. */
+export const veckoText = (d) => (vecka(d) ? 'v' + vecka(d) : '');
+
+/** "tis 29 sep · v40" — datum med vecka, för bokningar och scheman. */
+export const medVecka = (d) => (d ? visaDatum(d) + (vecka(d) ? ' · v' + vecka(d) : '') : '');
+
 /** Måndag i innevarande vecka. */
 export function veckostart(datum = new Date()) {
   const d = new Date(datum);

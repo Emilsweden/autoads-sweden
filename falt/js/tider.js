@@ -12,11 +12,11 @@
  */
 
 import { anrop } from './api.js';
-import { $, esc, toast, idag, plusDagar, visaDatum } from './ui.js';
+import { $, esc, toast, idag, plusDagar, visaDatum, vecka, medVecka } from './ui.js';
 
 const MANADER = ['januari', 'februari', 'mars', 'april', 'maj', 'juni',
   'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
-const VECKODAGAR = ['mån', 'tis', 'ons', 'tor', 'fre', 'lör', 'sön'];
+const VECKODAGAR = ['v', 'mån', 'tis', 'ons', 'tor', 'fre', 'lör', 'sön'];
 
 let manad = idag().slice(0, 7);
 let dag = null;              // vald dag, eller null för månaden
@@ -85,9 +85,13 @@ function manadHtml() {
   const p = person();
 
   let rutor = '';
+  // Veckonumret först på varje rad, som i en vanlig svensk kalender.
+  const veckoruta = (d) => '<span class="mkal-vecka">' + vecka(d) + '</span>';
+  if (tomma) rutor += veckoruta(forsta);
   for (let i = 0; i < tomma; i++) rutor += '<span class="mkal-tom"></span>';
   for (let n = 1; n <= antal; n++) {
     const d = manad + '-' + String(n).padStart(2, '0');
+    if (veckodag(d) === 0) rutor += veckoruta(d);
     const inlagda = iDag('tider', d).length;
     const moten = iDag('bokat', d).length;
     const block = iDag('blockerade', d).length;
@@ -138,7 +142,7 @@ function dagHtml() {
 
   return '<div class="kal-topp">' +
     '<button class="kal-pil" id="tBak" aria-label="Föregående dag">‹</button>' +
-    '<div class="kal-rubrik">' + esc(visaDatum(dag)) +
+    '<div class="kal-rubrik">' + esc(medVecka(dag)) +
     '<span>' + esc(p.namn || '') + ' · ' + bokade.length + ' av ' + esc(String(p.max_per_dag || 3)) + ' möten</span></div>' +
     '<button class="kal-pil" id="tFram" aria-label="Nästa dag">›</button></div>' +
     '<div class="listverktyg"><button class="knapp-mork" id="tManad">Tillbaka till månaden</button></div>' +

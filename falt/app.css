@@ -661,7 +661,9 @@ a.btn { display: grid; place-items: center; text-decoration: none; }
 .tidruta.sparar { opacity: 0.6; }
 
 /* Schemats månad: sju kolumner, en ruta per dag. */
-.mkal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; padding: 6px 16px 4px; }
+.mkal { display: grid; grid-template-columns: 22px repeat(7, minmax(0, 1fr)); gap: 4px; padding: 6px 16px 4px; }
+/* Veckonumret först på varje rad. */
+.mkal-vecka { display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 700; color: var(--dim); }
 .mkal-vd { text-align: center; font-size: 11px; color: var(--dim); padding-bottom: 2px; text-transform: uppercase; }
 .mkal-dag {
   position: relative; min-height: 56px; padding: 5px 2px 4px; border-radius: 10px;
@@ -909,3 +911,5 @@ details.tidigare summary { cursor: pointer; color: var(--muted); padding: 6px 0;
 .flode-grupp { padding: 10px 16px 0; font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); }
 .flode-ny { border-left: 3px solid var(--accent); background: var(--accent-dim); }
 .flode-aktivitet { border-left: 3px solid #1a73e8; }
+/* "Vecka 40" mellan dagarna i bokningskalendern. */
+.veckorubrik { padding: 12px 2px 2px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); }
